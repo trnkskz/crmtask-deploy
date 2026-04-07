@@ -1,0 +1,2264 @@
+// ============================================================
+// controllers/taskController.js
+// Görev listesi render, görev modal açma/kaydetme işlemleri
+// ============================================================
+
+const TaskController = (() => {
+    const TEAM_PULSE_PERIODS = ['daily', 'weekly', 'monthly'];
+    const teamPulseUiState = {
+        selectedUserKey: '',
+        modalPeriod: 'daily',
+        recordsByKey: {},
+    };
+
+    function getTeamPulsePeriodLabel(period) {
+        if (period === 'weekly') return 'Bu Hafta';
+        if (period === 'monthly') return 'Bu Ay';
+        return 'Bugün';
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function getTeamPulseDateRanges() {
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const dayIndex = todayStart.getDay();
+        const mondayOffset = dayIndex === 0 ? -6 : 1 - dayIndex;
+        const weekStart = new Date(todayStart);
+        weekStart.setDate(todayStart.getDate() + mondayOffset);
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        return {
+            daily: todayStart.getTime(),
+            weekly: weekStart.getTime(),
+            monthly: monthStart.getTime(),
+        };
+    }
+
+    function isPulseInteractionLog(log, userName) {
+        const text = String(log?.text || '');
+        if (String(log?.user || '') !== String(userName || '')) return false;
+        if (text.includes('[Geçmiş Kayıt]') || text.includes('[Sistem]') || text.includes('[Devir]') || text.includes('[Klonlanmış Kampanya]')) {
+            return false;
+        }
+        return true;
+    }
+
+    function buildTeamPulseEntries(taskList, userName) {
+        const entries = [];
+        taskList.forEach((task) => {
+            const biz = AppState.getBizMap().get(task.businessId) || task;
+            const businessLabel = biz.companyName || 'Bilinmeyen İşletme';
+            const taskTitle = `${businessLabel}`;
+            const lastActivityMs = (task.logs && task.logs.length > 0)
+                ? (parseLogDate(task.logs[0].date) || new Date(task.createdAt || 0).getTime())
+                : new Date(task.createdAt || 0).getTime();
+
+            const interactionLogs = (task.logs || [])
+                .filter((log) => isPulseInteractionLog(log, userName))
+                .map((log) => ({
+                    dateMs: parseLogDate(log.date) || 0,
+                    taskId: task.id,
+                    businessId: task.businessId,
+                    businessName: businessLabel,
+                    city: biz.city || '-',
+                    status: task.status,
+                    text: log.text || '',
+                    dateLabel: log.date || '-',
+                    assignee: task.assignee,
+                }))
+                .filter((item) => item.dateMs > 0);
+
+            entries.push({
+                task,
+                biz,
+                taskId: task.id,
+                businessId: task.businessId,
+                businessName: businessLabel,
+                city: biz.city || '-',
+                taskTitle,
+                createdMs: new Date(task.createdAt || 0).getTime(),
+                lastActivityMs,
+                lastActivityLabel: (task.logs && task.logs[0]?.date) || formatDate(task.createdAt),
+                interactionLogs,
+                isActive: isActiveTask(task.status),
+                isPlannedFollowup: task.status === 'followup' && task.nextCallDate,
+            });
+        });
+        return entries;
+    }
+
+    function buildTeamPulseMetricsForUser(user, taskList) {
+        const ranges = getTeamPulseDateRanges();
+        const entries = buildTeamPulseEntries(taskList, user.name);
+        const metrics = {};
+
+        TEAM_PULSE_PERIODS.forEach((period) => {
+            const rangeStart = ranges[period];
+            const contactedMap = new Map();
+            entries.forEach((entry) => {
+                entry.interactionLogs.forEach((item) => {
+                    if (item.dateMs >= rangeStart && !contactedMap.has(item.businessId)) {
+                        contactedMap.set(item.businessId, item);
+                    }
+                });
+            });
+
+            const idleItems = entries
+                .filter((entry) => entry.isActive && !entry.isPlannedFollowup && entry.lastActivityMs > 0 && entry.lastActivityMs < rangeStart)
+                .sort((a, b) => a.lastActivityMs - b.lastActivityMs)
+                .map((entry) => ({
+                    taskId: entry.taskId,
+                    businessName: entry.businessName,
+                    city: entry.city,
+                    status: entry.task.status,
+                    meta: `Son islem ${entry.lastActivityLabel}`,
+                }));
+
+            const openedItems = entries
+                .filter((entry) => entry.createdMs >= rangeStart)
+                .sort((a, b) => b.createdMs - a.createdMs)
+                .map((entry) => ({
+                    taskId: entry.taskId,
+                    businessName: entry.businessName,
+                    city: entry.city,
+                    status: entry.task.status,
+                    meta: `Olusturma ${formatDate(entry.task.createdAt).split(' ')[0]}`,
+                }));
+
+            const openItems = entries
+                .filter((entry) => entry.isActive)
+                .sort((a, b) => b.lastActivityMs - a.lastActivityMs)
+                .map((entry) => ({
+                    taskId: entry.taskId,
+                    businessName: entry.businessName,
+                    city: entry.city,
+                    status: entry.task.status,
+                    meta: `Durum ${TASK_STATUS_LABELS[entry.task.status] || entry.task.status || '-'}`,
+                }));
+
+            metrics[period] = {
+                contacted: {
+                    count: contactedMap.size,
+                    items: Array.from(contactedMap.values()).map((item) => ({
+                        taskId: item.taskId,
+                        businessName: item.businessName,
+                        city: item.city,
+                        status: item.status,
+                        meta: item.dateLabel,
+                    })),
+                },
+                idle: {
+                    count: idleItems.length,
+                    items: idleItems,
+                },
+                opened: {
+                    count: openedItems.length,
+                    items: openedItems,
+                },
+                open: {
+                    count: openItems.length,
+                    items: openItems,
+                },
+            };
+        });
+
+        return {
+            user,
+            key: encodeURIComponent(user.name || ''),
+            metrics,
+            totalOpen: metrics.monthly.open.count,
+            totalContacted: metrics.monthly.contacted.count,
+            totalIdle: metrics.monthly.idle.count,
+        };
+    }
+
+    function buildTeamPulseSummaryHtml(metric, activePeriod) {
+        const labels = {
+            contacted: 'Görüşülen',
+            idle: 'Pasif Görev',
+            opened: 'Create Task Sayısı',
+            open: 'Open Task',
+        };
+        const accents = {
+            contacted: 'contacted',
+            idle: 'idle',
+            opened: 'opened',
+            open: 'open',
+        };
+
+        return Object.keys(labels).map((metricKey) => {
+            const periodMetrics = TEAM_PULSE_PERIODS.map((period) => ({
+                period,
+                count: metric[period]?.[metricKey]?.count || 0,
+            }));
+            const activeValue = metric[activePeriod]?.[metricKey]?.count || 0;
+            const miniRow = periodMetrics
+                .map((item) => `<span>${item.period === 'daily' ? 'G' : item.period === 'weekly' ? 'H' : 'A'} <strong>${item.count}</strong></span>`)
+                .join('');
+
+            return `
+                <div class="team-pulse-metric ${accents[metricKey]}">
+                    <div class="team-pulse-metric-label">${labels[metricKey]}</div>
+                    <div class="team-pulse-metric-value">${activeValue}</div>
+                    <div class="team-pulse-metric-minirow">${miniRow}</div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function buildTeamPulseDetailList(items, emptyText, options = {}) {
+        const itemClass = options.itemClass || 'team-pulse-detail-item';
+        const limit = Number.isFinite(Number(options.limit)) ? Number(options.limit) : 6;
+        if (!items.length) {
+            return `<div class="team-pulse-empty">${emptyText}</div>`;
+        }
+        return items.slice(0, limit).map((item) => `
+            <button type="button" class="${itemClass}" onclick="event.stopPropagation(); openTaskModal('${escapeHtml(item.taskId)}')">
+                <span class="team-pulse-detail-main">
+                    <strong>${escapeHtml(item.businessName)}</strong>
+                    <small>📍 ${escapeHtml(item.city)} • ${escapeHtml(item.meta)}</small>
+                </span>
+                <span class="team-pulse-detail-status">${escapeHtml(TASK_STATUS_LABELS[item.status] || item.status || '-')}</span>
+            </button>
+        `).join('');
+    }
+
+    function buildTeamPulseCardHtml(record) {
+        const dailyMetrics = record.metrics.daily || {};
+        const dailyCounts = {
+            contacted: dailyMetrics.contacted?.count || 0,
+            idle: dailyMetrics.idle?.count || 0,
+            opened: dailyMetrics.opened?.count || 0,
+            open: dailyMetrics.open?.count || 0,
+        };
+        const idleTone = dailyCounts.idle > 0 ? 'risk' : 'calm';
+
+        return `
+            <button type="button" class="team-pulse-card ${idleTone}" onclick="openTeamPulseModal('${record.key}')">
+                <div class="team-pulse-card-head">
+                    <div class="team-pulse-user">
+                        <strong>${escapeHtml(record.user.name || '-')}</strong>
+                        <span>${escapeHtml(record.user.team || 'Takım atanmadı')} • Günlük özet</span>
+                    </div>
+                    <div class="team-pulse-top-badges">
+                        <span class="team-pulse-top-badge neutral">Bugün</span>
+                    </div>
+                </div>
+                <div class="team-pulse-summary-grid">
+                    <div class="team-pulse-mini-stat contacted">
+                        <span class="team-pulse-mini-label">Görüşülen</span>
+                        <strong>${dailyCounts.contacted}</strong>
+                    </div>
+                    <div class="team-pulse-mini-stat open">
+                        <span class="team-pulse-mini-label">Open Task</span>
+                        <strong>${dailyCounts.open}</strong>
+                    </div>
+                </div>
+                <div class="team-pulse-card-footer">
+                    <span class="team-pulse-meta-chip">Pasif Görev <strong>${dailyCounts.idle}</strong></span>
+                    <span class="team-pulse-meta-chip">Create Task <strong>${dailyCounts.opened}</strong></span>
+                </div>
+            </button>
+        `;
+    }
+
+    function buildTeamPulseModalHtml(record) {
+        const activePeriod = teamPulseUiState.modalPeriod || 'daily';
+        const detailMetrics = record.metrics[activePeriod] || record.metrics.daily;
+        const periodButtons = TEAM_PULSE_PERIODS.map((period) => `
+            <button
+                type="button"
+                class="team-pulse-period-btn ${activePeriod === period ? 'active' : ''}"
+                onclick="setTeamPulseModalPeriod('${period}')"
+            >${period === 'daily' ? 'Günlük' : period === 'weekly' ? 'Haftalık' : 'Aylık'}</button>
+        `).join('');
+
+        return `
+            <div class="team-pulse-modal-shell">
+                <div class="team-pulse-modal-head">
+                    <div>
+                        <div class="team-pulse-modal-kicker">Personel performans özeti</div>
+                        <h3>${escapeHtml(record.user.name || '-')}</h3>
+                        <p>${escapeHtml(record.user.team || 'Takım atanmadı')} için günlük, haftalık ve aylık görüşme ve görev özetleri.</p>
+                    </div>
+                    <div class="team-pulse-period-switcher">${periodButtons}</div>
+                </div>
+                <div class="team-pulse-metric-grid">
+                    ${buildTeamPulseSummaryHtml(record.metrics, activePeriod)}
+                </div>
+                <div class="team-pulse-modal-panels">
+                    <div class="team-pulse-modal-panel">
+                        <div class="team-pulse-detail-title">📞 ${getTeamPulsePeriodLabel(activePeriod)} görüşülen</div>
+                        ${buildTeamPulseDetailList(detailMetrics.contacted.items, 'Bu aralıkta görüşme kaydı yok.', { itemClass: 'team-pulse-modal-item', limit: 14 })}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    function renderTeamPulse(taskIndex) {
+        const pulseContainer = document.getElementById('teamPulseContainer');
+        if (!pulseContainer) return;
+
+        const currentUser = AppState.loggedInUser;
+        const isTeamLeader = currentUser && currentUser.role === 'Takım Lideri';
+        const teamFilter = isTeamLeader ? currentUser.team : null;
+        const salesUsers = AppState.users.filter((u) =>
+            u.role === 'Satış Temsilcisi' &&
+            u.status !== 'Pasif' &&
+            (!teamFilter || u.team === teamFilter)
+        );
+
+        const records = salesUsers
+            .map((user) => buildTeamPulseMetricsForUser(user, taskIndex.tasksByAssignee.get(user.name) || []))
+            .filter((record) => record.totalOpen > 0 || record.totalContacted > 0 || record.totalIdle > 0)
+            .sort((a, b) => {
+                if (b.totalIdle !== a.totalIdle) return b.totalIdle - a.totalIdle;
+                if (b.totalOpen !== a.totalOpen) return b.totalOpen - a.totalOpen;
+                return a.user.name.localeCompare(b.user.name, 'tr');
+            });
+
+        teamPulseUiState.recordsByKey = records.reduce((acc, record) => {
+            acc[record.key] = record;
+            return acc;
+        }, {});
+
+        if (!records.length) {
+            pulseContainer.innerHTML = `<div class="team-pulse-empty-board">Bu filtrede gösterilecek personel performans kartı yok.</div>`;
+            if (document.getElementById('teamPulseModal')?.style.display === 'flex') {
+                closeModal('teamPulseModal');
+            }
+            return;
+        }
+
+        pulseContainer.innerHTML = records.map(buildTeamPulseCardHtml).join('');
+
+        if (teamPulseUiState.selectedUserKey && document.getElementById('teamPulseModal')?.style.display === 'flex') {
+            if (teamPulseUiState.recordsByKey[teamPulseUiState.selectedUserKey]) {
+                renderTeamPulseModal();
+            } else {
+                closeModal('teamPulseModal');
+            }
+        }
+    }
+
+    function getTaskReportCreationChannelLabel(channel) {
+        const raw = String(channel || '').toUpperCase();
+        if (raw === 'REQUEST_FLOW') return 'Görev Al / Yarat';
+        if (raw === 'MANUAL_TASK_CREATE') return 'Task Yarat';
+        if (raw === 'PROJECT_GENERATED') return 'Proje';
+        return 'Bilinmiyor';
+    }
+
+    function getTaskAgeDays(task) {
+        const createdAtMs = new Date(task.createdAt || 0).getTime();
+        if (!createdAtMs) return 0;
+        return Math.max(0, Math.floor((Date.now() - createdAtMs) / 86400000));
+    }
+
+    function getTaskLastActionMs(task) {
+        if (task.logs?.length > 0) {
+            return parseLogDate(task.logs[0].date) || new Date(task.createdAt || 0).getTime();
+        }
+        return new Date(task.createdAt || 0).getTime();
+    }
+
+    function isIdleTask(task) {
+        if (!isActiveTask(task.status)) return false;
+        if (task.status === 'followup' && task.nextCallDate) return false;
+        const lastActionMs = getTaskLastActionMs(task);
+        return lastActionMs > 0 && lastActionMs < (Date.now() - (5 * 24 * 60 * 60 * 1000));
+    }
+
+    function populateTaskReportFilters() {
+        const assigneeSelect = document.getElementById('taskRepAssignee');
+        if (assigneeSelect && assigneeSelect.options.length <= 1) {
+            assigneeSelect.innerHTML = '<option value="">Tümü</option>';
+            const teamGroup = document.createElement('optgroup');
+            teamGroup.label = 'Takımlar';
+            teamGroup.appendChild(new Option('Team 1', 'Team 1'));
+            teamGroup.appendChild(new Option('Team 2', 'Team 2'));
+            assigneeSelect.appendChild(teamGroup);
+
+            const userGroup = document.createElement('optgroup');
+            userGroup.label = 'Personeller';
+            AppState.users
+                .filter((u) => u.status !== 'Pasif')
+                .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'tr'))
+                .forEach((u) => userGroup.appendChild(new Option(u.name, u.name)));
+            assigneeSelect.appendChild(userGroup);
+        }
+
+        const projectSelect = document.getElementById('taskRepProject');
+        if (projectSelect && projectSelect.options.length <= 1) {
+            AppState.projects
+                .slice()
+                .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'tr'))
+                .forEach((project) => projectSelect.add(new Option(project.name, project.id)));
+        }
+
+        const mainCatSelect = document.getElementById('taskRepMainCategory');
+        if (mainCatSelect && mainCatSelect.options.length <= 1) {
+            Object.keys(AppState.dynamicCategories)
+                .sort((a, b) => a.localeCompare(b, 'tr'))
+                .forEach((category) => mainCatSelect.add(new Option(category, category)));
+        }
+
+        const citySelect = document.getElementById('taskRepCity');
+        if (citySelect && citySelect.options.length <= 1) {
+            const uniqueCities = Array.from(new Set(AppState.businesses.map((biz) => biz.city).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'tr'));
+            uniqueCities.forEach((city) => citySelect.add(new Option(city, city)));
+        }
+
+        const districtSelect = document.getElementById('taskRepDistrict');
+        if (districtSelect && districtSelect.options.length <= 1) {
+            const uniqueDistricts = Array.from(new Set(AppState.businesses.map((biz) => biz.district).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'tr'));
+            uniqueDistricts.forEach((district) => districtSelect.add(new Option(district, district)));
+        }
+
+        updateTaskReportSubCategories();
+    }
+
+    function updateTaskReportSubCategories() {
+        const mainCategory = document.getElementById('taskRepMainCategory')?.value || '';
+        const subCategorySelect = document.getElementById('taskRepSubCategory');
+        if (!subCategorySelect) return;
+        const currentValue = subCategorySelect.value;
+        subCategorySelect.innerHTML = '<option value="">Tümü</option>';
+
+        const subCategories = mainCategory
+            ? (AppState.dynamicCategories[mainCategory] || [])
+            : Array.from(new Set(Object.values(AppState.dynamicCategories).flat()));
+
+        subCategories
+            .slice()
+            .sort((a, b) => String(a || '').localeCompare(String(b || ''), 'tr'))
+            .forEach((subCategory) => subCategorySelect.add(new Option(subCategory, subCategory)));
+
+        if (currentValue) subCategorySelect.value = currentValue;
+    }
+
+    function getFilteredTaskReportRows() {
+        const getValue = (id) => document.getElementById(id)?.value || '';
+        const creationChannel = getValue('taskRepCreationChannel');
+        const type = getValue('taskRepType');
+        const status = getValue('taskRepStatus');
+        const assignee = getValue('taskRepAssignee');
+        const projectId = getValue('taskRepProject');
+        const source = getValue('taskRepSource');
+        const mainCategory = getValue('taskRepMainCategory');
+        const subCategory = getValue('taskRepSubCategory');
+        const city = getValue('taskRepCity');
+        const district = getValue('taskRepDistrict');
+        const startDate = getValue('taskRepStartDate');
+        const endDate = getValue('taskRepEndDate');
+
+        const projectMap = new Map((AppState.projects || []).map((project) => [project.id, project]));
+        const userMap = new Map((AppState.users || []).map((user) => [user.id, user]));
+        const bizMap = AppState.getBizMap();
+
+        return AppState.tasks
+            .filter((task) => ['REQUEST_FLOW', 'MANUAL_TASK_CREATE', 'PROJECT_GENERATED'].includes(String(task.creationChannel || '').toUpperCase()))
+            .map((task) => {
+                const biz = bizMap.get(task.businessId) || {};
+                const project = task.projectId ? projectMap.get(task.projectId) : null;
+                const creator = task.createdById ? userMap.get(task.createdById) : null;
+                const lastActionDate = task.logs?.[0]?.date || formatDate(task.createdAt);
+                const ageDays = getTaskAgeDays(task);
+                const idleFlag = isIdleTask(task);
+                return {
+                    task,
+                    biz,
+                    project,
+                    creatorName: creator?.name || creator?.email || 'Sistem',
+                    creationChannelLabel: getTaskReportCreationChannelLabel(task.creationChannel),
+                    lastActionDate,
+                    ageDays,
+                    idleFlag,
+                };
+            })
+            .filter((row) => {
+                if (creationChannel && String(row.task.creationChannel || '').toUpperCase() !== creationChannel) return false;
+                if (type && String(row.task.projectId ? 'PROJECT' : 'GENERAL') !== type) return false;
+                if (status && row.task.status !== status) return false;
+                if (!matchesAssigneeFilter(row.task, assignee, AppState.users)) return false;
+                if (projectId && row.task.projectId !== projectId) return false;
+                if (source) {
+                    const normalizedSource = typeof normalizeTaskSourceKey === 'function'
+                        ? normalizeTaskSourceKey(row.task.sourceType)
+                        : String(row.task.sourceType || '').trim();
+                    const filterSource = typeof normalizeTaskSourceKey === 'function'
+                        ? normalizeTaskSourceKey(source)
+                        : String(source || '').trim();
+                    if (normalizedSource !== filterSource) return false;
+                }
+                if (!matchesCategoryFilter(row.task, mainCategory, subCategory, row.biz.companyName || '')) return false;
+                if (city && row.biz.city !== city) return false;
+                if (district && row.biz.district !== district) return false;
+                const createdDate = String(row.task.createdAt || '').split('T')[0];
+                if (startDate && createdDate && createdDate < startDate) return false;
+                if (endDate && createdDate && createdDate > endDate) return false;
+                return true;
+            })
+            .sort((a, b) => new Date(b.task.createdAt || 0) - new Date(a.task.createdAt || 0));
+    }
+
+    function setTaskReportStat(id, value) {
+        const el = document.getElementById(id);
+        if (el) el.innerText = String(value);
+    }
+
+    let hasAppliedTaskReportFilters = false;
+
+    function resetTaskReportView() {
+        hasAppliedTaskReportFilters = false;
+        setTaskReportStat('taskRepTotalCount', 0);
+        setTaskReportStat('taskRepOpenCount', 0);
+        setTaskReportStat('taskRepClosedCount', 0);
+        setTaskReportStat('taskRepDealCount', 0);
+        setTaskReportStat('taskRepColdCount', 0);
+        setTaskReportStat('taskRepIdleCount', 0);
+        AppState.setFiltered('taskReports', []);
+        AppState.setPage('taskReports', 1);
+        displayTaskReportRows();
+    }
+
+    function renderTaskReports() {
+        populateTaskReportFilters();
+        hasAppliedTaskReportFilters = true;
+
+        const rows = getFilteredTaskReportRows();
+        const total = rows.length;
+        const openCount = rows.filter((row) => isActiveTask(row.task.status)).length;
+        const closedCount = rows.filter((row) => PASSIVE_STATUSES.includes(row.task.status)).length;
+        const dealCount = rows.filter((row) => row.task.status === 'deal').length;
+        const coldCount = rows.filter((row) => row.task.status === 'cold').length;
+        const idleCount = rows.filter((row) => row.idleFlag).length;
+
+        setTaskReportStat('taskRepTotalCount', total);
+        setTaskReportStat('taskRepOpenCount', openCount);
+        setTaskReportStat('taskRepClosedCount', closedCount);
+        setTaskReportStat('taskRepDealCount', dealCount);
+        setTaskReportStat('taskRepColdCount', coldCount);
+        setTaskReportStat('taskRepIdleCount', idleCount);
+
+        AppState.setFiltered('taskReports', rows);
+        AppState.setPage('taskReports', 1);
+        displayTaskReportRows();
+    }
+
+    function displayTaskReportRows() {
+        const tbody = document.getElementById('taskReportTbody');
+        const pagination = document.getElementById('taskReportPagination');
+        if (!tbody || !pagination) return;
+
+        if (!hasAppliedTaskReportFilters) {
+            tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state"><div style="font-size:42px; opacity:0.28; margin-bottom:10px;">🔎</div><h3>Rapor hazır</h3><p>Önce filtreleri seçip <strong>Filtrele</strong> butonuna basın.</p></div></td></tr>`;
+            pagination.innerHTML = '';
+            return;
+        }
+
+        const rows = AppState.filtered.taskReports || [];
+        const page = AppState.pagination.taskReports || 1;
+        if (!rows.length) {
+            tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state"><div style="font-size:42px; opacity:0.28; margin-bottom:10px;">🧾</div><h3>Sonuç bulunamadı</h3><p>Filtreleri güncelleyip tekrar deneyin.</p></div></td></tr>`;
+            pagination.innerHTML = '';
+            return;
+        }
+
+        const totalPages = Math.ceil(rows.length / ITEMS_PER_PAGE_TASKS);
+        const currentPage = Math.min(page, totalPages);
+        AppState.setPage('taskReports', currentPage);
+        const start = (currentPage - 1) * ITEMS_PER_PAGE_TASKS;
+        const paginated = rows.slice(start, start + ITEMS_PER_PAGE_TASKS);
+
+        tbody.innerHTML = paginated.map((row) => `
+            <tr style="cursor:pointer;" onclick="openTaskModal('${escapeHtml(row.task.id)}')">
+                <td>${escapeHtml(formatDate(row.task.createdAt).split(' ')[0])}</td>
+                <td><strong>${escapeHtml(row.biz.companyName || '-')}</strong><br><span style="font-size:11px; color:#64748b;">📍 ${escapeHtml(row.biz.city || '-')} ${row.biz.district ? `/ ${escapeHtml(row.biz.district)}` : ''}</span></td>
+                <td><span class="modern-badge" style="background:#ecfeff; color:#155e75; border:1px solid #a5f3fc;">${escapeHtml(row.creationChannelLabel)}</span></td>
+                <td><strong>${escapeHtml(row.task.projectId ? 'Proje' : 'Genel')}</strong><br><span style="font-size:11px; color:#64748b;">${escapeHtml(row.project?.name || '-')}</span></td>
+                <td><strong>${escapeHtml(row.task.sourceType || '-')}</strong><br><span style="font-size:11px; color:#64748b;">${escapeHtml(row.task.mainCategory || '-')} / ${escapeHtml(row.task.subCategory || '-')}</span></td>
+                <td>${escapeHtml(row.task.mainCategory || '-')}</td>
+                <td>${escapeHtml(row.task.subCategory || '-')}</td>
+                <td><strong>${escapeHtml(row.task.assignee || '-')}</strong><br><span style="font-size:11px; color:#64748b;">Oluşturan: ${escapeHtml(row.creatorName)}</span></td>
+                <td><span class="modern-badge" style="background:#f8fafc; color:#0f172a; border:1px solid #cbd5e1;">${escapeHtml(TASK_STATUS_LABELS[row.task.status] || row.task.status || '-')}</span></td>
+                <td>${escapeHtml(row.biz.city || '-')}<br><span style="font-size:11px; color:#64748b;">${escapeHtml(row.biz.district || '-')}</span></td>
+                <td><span style="font-size:11px; color:#64748b;">${escapeHtml(row.lastActionDate)}</span></td>
+            </tr>
+        `).join('');
+
+        renderPagination(pagination, rows.length, currentPage, ITEMS_PER_PAGE_TASKS, (nextPage) => {
+            AppState.setPage('taskReports', nextPage);
+            displayTaskReportRows();
+        });
+    }
+
+    function clearTaskReportFilters() {
+        [
+            'taskRepCreationChannel', 'taskRepType', 'taskRepStatus', 'taskRepAssignee', 'taskRepProject',
+            'taskRepSource', 'taskRepMainCategory', 'taskRepSubCategory', 'taskRepCity', 'taskRepDistrict',
+            'taskRepStartDate', 'taskRepEndDate',
+        ].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+        });
+        updateTaskReportSubCategories();
+        resetTaskReportView();
+    }
+
+    function exportTaskReportExcel() {
+        const rows = getFilteredTaskReportRows();
+        if (!rows.length) {
+            showToast('Export için rapor satırı bulunamadı.', 'warning');
+            return;
+        }
+        const csvRows = rows.map((row) => ({
+            olusturma_tarihi: formatDate(row.task.createdAt).split(' ')[0],
+            isletme: row.biz.companyName || '',
+            il: row.biz.city || '',
+            ilce: row.biz.district || '',
+            kanal: row.creationChannelLabel,
+            gorev_tipi: row.task.projectId ? 'Proje' : 'Genel',
+            proje: row.project?.name || '',
+            kaynak: row.task.sourceType || '',
+            ana_kategori: row.task.mainCategory || '',
+            alt_kategori: row.task.subCategory || '',
+            sorumlu: row.task.assignee || '',
+            olusturan: row.creatorName,
+            durum: TASK_STATUS_LABELS[row.task.status] || row.task.status || '',
+            son_islem_tarihi: row.lastActionDate,
+            atil_mi: row.idleFlag ? 'Evet' : 'Hayır',
+            gorev_notu: row.task.details || '',
+        }));
+
+        const headers = Object.keys(csvRows[0]);
+        const escapeCsv = (value) => {
+            const raw = value == null ? '' : String(value);
+            return /[",\n]/.test(raw) ? `"${raw.replace(/"/g, '""')}"` : raw;
+        };
+        const csv = [headers.join(','), ...csvRows.map((row) => headers.map((header) => escapeCsv(row[header])).join(','))].join('\n');
+        const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `task_raporlari_${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    function switchTaskListSubtab(view) {
+        if (view === 'report') {
+            if (typeof switchPage === 'function') switchPage('page-task-list');
+            if (typeof switchPoolTab === 'function') switchPoolTab('reports');
+            return;
+        }
+        if (typeof switchPage === 'function') switchPage('page-all-tasks');
+        renderAllTasks();
+    }
+
+    function renderTeamPulseModal() {
+        const modalBody = document.getElementById('teamPulseModalBody');
+        const overlay = document.getElementById('teamPulseModal');
+        const record = teamPulseUiState.recordsByKey[teamPulseUiState.selectedUserKey];
+        if (!modalBody || !overlay || !record) return;
+        modalBody.innerHTML = buildTeamPulseModalHtml(record);
+        overlay.style.display = 'flex';
+    }
+
+    function openTeamPulseModal(userKey) {
+        if (!userKey || !teamPulseUiState.recordsByKey[userKey]) return;
+        teamPulseUiState.selectedUserKey = userKey;
+        teamPulseUiState.modalPeriod = 'daily';
+        renderTeamPulseModal();
+    }
+
+    function setTeamPulseModalPeriod(period) {
+        teamPulseUiState.modalPeriod = TEAM_PULSE_PERIODS.includes(period) ? period : 'daily';
+        renderTeamPulseModal();
+    }
+
+    function getTaskDerivedIndex() {
+        if (typeof AppState.getTaskDerivedIndex === 'function') {
+            return AppState.getTaskDerivedIndex();
+        }
+
+        const nonPoolTasks = AppState.tasks.filter((task) => !POOL_ASSIGNEES.includes(task.assignee));
+        const openNonPoolTasks = nonPoolTasks.filter((task) => !PASSIVE_STATUSES.includes(task.status) && task.status !== 'pending_approval');
+        const tasksByAssignee = new Map();
+        const activeAssigneeNames = new Set();
+        let todayDealCount = 0;
+        let todayColdCount = 0;
+
+        nonPoolTasks.forEach((task) => {
+            const assigneeTasks = tasksByAssignee.get(task.assignee) || [];
+            assigneeTasks.push(task);
+            tasksByAssignee.set(task.assignee, assigneeTasks);
+
+            if (task.status === 'deal' && task.logs?.length > 0 && isToday(task.logs[0].date)) todayDealCount += 1;
+            if (task.status === 'cold' && task.logs?.length > 0 && isToday(task.logs[0].date)) todayColdCount += 1;
+            if (isActiveTask(task.status) && task.assignee) activeAssigneeNames.add(task.assignee);
+        });
+
+        return {
+            nonPoolTasks,
+            openNonPoolTasks,
+            tasksByAssignee,
+            activeAssigneeNames,
+            todayDealCount,
+            todayColdCount,
+        };
+    }
+
+    function formatDealDurationDisplay(value) {
+        const raw = String(value ?? '').trim();
+        if (!raw) return '-';
+        if (/\bay\b/i.test(raw)) return raw;
+        return `${raw} Ay`;
+    }
+
+    function buildTaskSavePayloadFallback({ newStatus = '', logType = '', logText = '', nextCallDate = '', dealDetails = null }) {
+        let finalLogStr = '';
+
+        if (newStatus === 'deal' && dealDetails) {
+            if (logText) finalLogStr = `[Deal Notu] ${logText}`;
+        } else {
+            if (logType) {
+                finalLogStr += `[${logType}] `;
+                if (logType === 'Tekrar Aranacak' && nextCallDate) {
+                    finalLogStr += `(Tarih: ${nextCallDate}) `;
+                }
+            }
+            if (logText) finalLogStr += logText;
+        }
+
+        const reasonMap = {
+            'İşletmeye Ulaşılamadı': 'ISLETMEYE_ULASILAMADI',
+            'Yetkiliye Ulaşılamadı': 'YETKILIYE_ULASILAMADI',
+            'Yetkiliye Ulaşıldı': 'YETKILIYE_ULASILDI',
+            'İşletme Çalışmak İstemiyor': 'ISLETME_CALISMAK_ISTEMIYOR',
+            'İşletme Kapanmış': 'ISLETME_KAPANMIS',
+            'Tekrar Aranacak': 'TEKRAR_ARANACAK',
+        };
+
+        const patchPayload = {};
+        if (newStatus === 'deal' && dealDetails) patchPayload.dealDetails = dealDetails;
+        if (logType === 'Tekrar Aranacak' && nextCallDate) {
+            patchPayload.nextCallDate = nextCallDate;
+            if (!newStatus) patchPayload.status = 'followup';
+        }
+        if (newStatus) patchPayload.status = newStatus;
+        if (finalLogStr) {
+            patchPayload.activity = {
+                text: finalLogStr,
+                reason: reasonMap[logType] || 'GORUSME',
+                followUpDate: nextCallDate || undefined,
+            };
+        }
+
+        return { patchPayload };
+    }
+
+    // --- Kart Oluşturma ---
+    function createCard(task) {
+        const biz = AppState.getBizMap().get(task.businessId) || task;
+        const label = TASK_STATUS_LABELS[task.status] || '-';
+        const card = document.createElement('div');
+        card.className = `emerald-task-card ${task.status}`;
+        card.setAttribute('onclick', `openTaskModal('${task.id}')`);
+        card.innerHTML = `
+            <div class="etc-header" style="padding: 12px 12px 5px 12px;">
+                <div class="etc-radar-glass">
+                    <span class="etc-radar-dot ${task.status}"></span>
+                    <span style="font-size:11px; font-weight:800; margin-left:6px; color:#334155; text-transform:uppercase;">${label}</span>
+                </div>
+                <div class="etc-assignee">👤 ${task.assignee}</div>
+            </div>
+            <div class="etc-body" style="padding: 8px 12px;">
+                <h4 title="${biz.companyName}" style="font-size:14px;">${biz.companyName || '-'}</h4>
+            </div>
+            <div class="etc-footer-capsule" style="padding: 8px 12px; font-size:10px;">
+                <span>📍 ${biz.city || '-'}</span>
+                <span>🏷️ ${task.mainCategory || '-'}${task.subCategory ? ' > ' + task.subCategory : ''}</span>
+            </div>`;
+        return card;
+    }
+
+    function createMinimalCard(task) {
+        const biz = AppState.getBizMap().get(task.businessId) || task;
+
+        // Durum renklerini JS içinde tanımla — CSS bağımlılığı yok
+        const statusColors = {
+            hot:      { border: '#ef4444', ribbon: 'linear-gradient(135deg,#ef4444 0%,#b91c1c 100%)' },
+            cold:     { border: '#94a3b8', ribbon: 'linear-gradient(135deg,#94a3b8 0%,#475569 100%)' },
+            deal:     { border: '#10b981', ribbon: 'linear-gradient(135deg,#10b981 0%,#059669 100%)' },
+            new:      { border: '#3b82f6', ribbon: 'linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%)' },
+            nothot:   { border: '#f59e0b', ribbon: 'linear-gradient(135deg,#f59e0b 0%,#b45309 100%)' },
+            followup: { border: '#d97706', ribbon: 'linear-gradient(135deg,#d97706 0%,#9a3412 100%)' },
+        };
+        const sc = statusColors[task.status] || { border: '#cbd5e1', ribbon: 'linear-gradient(135deg,#94a3b8 0%,#475569 100%)' };
+        let label = TASK_STATUS_LABELS[task.status] || task.status || '-';
+        if (task.status === 'followup' && task.nextCallDate) {
+            const dObj = new Date(task.nextCallDate);
+            if(!isNaN(dObj)) {
+                const dStr = dObj.toLocaleDateString('tr-TR', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
+                label += `<br><span style="font-size:10px; font-weight:600; text-transform:none; opacity:0.9;">(${dStr})</span>`;
+            }
+        }
+
+        const card = document.createElement('div');
+        card.className = `left-border-card ${task.status}`;
+        card.setAttribute('onclick', `openTaskModal('${task.id}')`);
+        card.style.cssText = `
+            background:#ffffff;
+            border:1px solid #e2e8f0;
+            border-left:4px solid ${sc.border};
+            border-radius:12px;
+            padding:0;
+            margin-bottom:10px;
+            display:flex;
+            align-items:stretch;
+            overflow:hidden;
+            box-shadow:0 2px 6px rgba(0,0,0,0.04);
+            transition:all 0.2s ease;
+            cursor:pointer;
+        `;
+        
+        const me = AppState.loggedInUser || {};
+        const isMineById = Boolean(me.id && task.ownerId && me.id === task.ownerId);
+        const isMineByName = Boolean(me.name && task.assignee && me.name === task.assignee);
+        const isMineByEmail = Boolean(me.email && task.assignee && me.email === task.assignee);
+        const isMine = isMineById || isMineByName || isMineByEmail;
+
+        const assigneeHtml = isMine
+            ? '' 
+            : `<span style="font-size:12px;font-weight:700;color:#0f766e;margin-left:8px;padding-left:8px;border-left:1px solid #cbd5e1;">👤 ${task.assignee}</span>`;
+
+        let lastActionDate = '-';
+        if (task.logs && task.logs.length > 0) {
+            lastActionDate = task.logs[0].date.split(' ')[0];
+        } else if (task.createdAt) {
+            lastActionDate = formatDate(task.createdAt).split(' ')[0];
+        }
+        
+        const lastActionHtml = `<span style="font-size:11px;font-weight:600;color:#475569;white-space:nowrap;" title="Son İşlem Tarihi">🕒 Son: ${lastActionDate}</span>`;
+        const sourceHtml = `<span style="font-size:11px;font-weight:600;color:#475569;white-space:nowrap;">📁 ${task.sourceType || '-'}</span>`;
+
+        card.innerHTML = `
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 20px; flex:1; min-width:0; gap:15px;">
+                <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:0;">
+                    <h4 style="font-size:15px;font-weight:700;color:#0f172a;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${biz.companyName}">${biz.companyName || '-'}</h4>
+                    <div style="display:flex; align-items:center;">
+                        <span style="font-size:12px;color:#64748b;">📍 ${biz.city || '-'}</span>
+                        ${assigneeHtml}
+                    </div>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end; flex-shrink:0;">
+                    ${sourceHtml}
+                    ${lastActionHtml}
+                </div>
+            </div>
+            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:0 15px; min-width:90px; text-align:center; font-size:12px; font-weight:800; color:#ffffff; text-transform:uppercase; letter-spacing:1px; border-radius:0 10px 10px 0; flex-shrink:0; background:${sc.ribbon}; text-shadow:0 1px 2px rgba(0,0,0,0.2);">${label}</div>
+        `;
+
+        card.addEventListener('mouseenter', () => {
+            card.style.transform = 'translateY(-2px)';
+            card.style.boxShadow = '0 6px 18px rgba(0,0,0,0.09)';
+        });
+        card.addEventListener('mouseleave', () => {
+            card.style.transform = '';
+            card.style.boxShadow = '0 2px 6px rgba(0,0,0,0.04)';
+        });
+
+        return card;
+    }
+
+    // --- Görev Listesi Render ---
+    function renderMyTasks() {
+        const list = document.getElementById('myActiveTaskList');
+        if (!list) return;
+        list.innerHTML = '';
+
+        const nameFilter = normalizeText(document.getElementById('myFilterBizName')?.value || '');
+        const checkedStatuses = Array.from(document.querySelectorAll('.my-status-filter:checked')).map(cb => cb.value);
+        const bizMap = AppState.getBizMap();
+        const taskIndex = getTaskDerivedIndex();
+
+        const me = AppState.loggedInUser || {};
+        const filtered = taskIndex.openNonPoolTasks.filter(t => {
+            const mineById = Boolean(me.id && t.ownerId && t.ownerId === me.id);
+            const mineByName = Boolean(me.name && t.assignee && t.assignee === me.name);
+            const mineByEmail = Boolean(me.email && t.assignee && t.assignee === me.email);
+            if (!(mineById || mineByName || mineByEmail)) return false;
+            if (checkedStatuses.length > 0 && !checkedStatuses.includes(t.status)) return false;
+            if (nameFilter) {
+                const biz = bizMap.get(t.businessId) || t;
+                const matchesSearch = typeof businessMatchesSearch === 'function'
+                    ? businessMatchesSearch(biz, nameFilter)
+                    : normalizeText(biz.companyName).includes(nameFilter);
+                if (!matchesSearch) return false;
+            }
+            return true;
+        });
+
+        const sortVal = document.getElementById('myTaskSort')?.value || 'newest';
+        if (sortVal === 'oldest') {
+            filtered.sort(sortTasksByUrgencyOldest);
+        } else {
+            filtered.sort(sortTasksByUrgency);
+        }
+
+        const countEl = document.getElementById('myActiveCount');
+        if (countEl) countEl.innerText = filtered.length;
+
+        if (filtered.length === 0) {
+            list.innerHTML = `<div class="no-tasks-message">Gösterilecek açık görev yok.</div>`;
+        } else {
+            filtered.forEach(t => list.appendChild(createMinimalCard(t)));
+        }
+    }
+
+    function renderAllTasks() {
+        const list = document.getElementById('allActiveTaskList');
+        if (!list) return;
+        list.innerHTML = '';
+
+        const assigneeFilter = document.getElementById('filterAllTasksAssignee')?.value || '';
+        const projectFilter = document.getElementById('filterAllTasksProject')?.value || '';
+        const nameFilter = normalizeText(document.getElementById('allFilterBizName')?.value || '');
+        const checkedStatuses = Array.from(document.querySelectorAll('.all-status-filter:checked')).map(cb => cb.value);
+
+        const bizMap = AppState.getBizMap();
+        const taskIndex = getTaskDerivedIndex();
+        const relevantTasks = taskIndex.nonPoolTasks;
+
+        const todayDealEl = document.getElementById('btnTodayDealCount');
+        const todayColdEl = document.getElementById('btnTodayColdCount');
+        if (todayDealEl) todayDealEl.innerText = taskIndex.todayDealCount;
+        if (todayColdEl) todayColdEl.innerText = taskIndex.todayColdCount;
+
+        renderTeamPulse(taskIndex);
+
+        const filtered = taskIndex.openNonPoolTasks.filter(t => {
+            if (checkedStatuses.length > 0 && !checkedStatuses.includes(t.status)) return false;
+            if (projectFilter && t.projectId !== projectFilter) return false;
+            if (!matchesAssigneeFilter(t, assigneeFilter, AppState.users)) return false;
+            if (nameFilter) {
+                const biz = bizMap.get(t.businessId) || t;
+                const matchesSearch = typeof businessMatchesSearch === 'function'
+                    ? businessMatchesSearch(biz, nameFilter)
+                    : normalizeText(biz.companyName).includes(nameFilter);
+                if (!matchesSearch) return false;
+            }
+            return true;
+        });
+
+        const sortVal = document.getElementById('allTaskSort')?.value || 'newest';
+        if (sortVal === 'oldest') {
+            filtered.sort(sortTasksByUrgencyOldest);
+        } else {
+            filtered.sort(sortTasksByUrgency);
+        }
+
+        const countEl = document.getElementById('allActiveCount');
+        if (countEl) countEl.innerText = filtered.length;
+
+        if (filtered.length === 0) {
+            list.innerHTML = `<div class="no-tasks-message-empty">Açık görev bulunamadı.</div>`;
+            const pagEl = document.getElementById('allTasksPagination');
+            if (pagEl) pagEl.innerHTML = '';
+            return;
+        }
+
+        const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE_TASKS);
+        let page = AppState.pagination.allTasks;
+        if (page > totalPages) {
+            page = totalPages || 1;
+            AppState.setPage('allTasks', page);
+        }
+        const paginated = _paginate(filtered, page, ITEMS_PER_PAGE_TASKS);
+        paginated.forEach(t => list.appendChild(createMinimalCard(t)));
+
+        const pagContainer = document.getElementById('allTasksPagination');
+        if (pagContainer) {
+            renderPagination(pagContainer, filtered.length, page, ITEMS_PER_PAGE_TASKS, (i) => {
+                AppState.setPage('allTasks', i);
+                renderAllTasks();
+            });
+        }
+    }
+
+    // --- Görev Modal & Inline Render ---
+    async function openTaskModal(taskId, scrollToOffers = false) {
+        let task = AppState.tasks.find(t => t.id === taskId);
+        if (!task) return;
+        try {
+            const freshTask = await DataService.readPath('tasks/' + taskId);
+            if (freshTask) {
+                const taskIndex = AppState.tasks.findIndex(t => t.id === taskId);
+                if (taskIndex >= 0) {
+                    AppState.tasks[taskIndex] = freshTask;
+                    if (typeof AppState.invalidateTaskMapCache === 'function') AppState.invalidateTaskMapCache();
+                }
+                task = freshTask;
+            }
+        } catch (err) {
+            console.warn('Task detail fetch failed, using cached task state.', err);
+        }
+        const biz = AppState.getBizMap().get(task.businessId) || task;
+        task.logs = task.logs || [];
+        task.offers = task.offers || [];
+
+        window._selectedModalStatus = '';
+        window._selectedModalLogType = '';
+        window._dealDetails = null;
+
+        // --- LOGLARI AKILLICA AYRIŞTIRMA (Görüşme vs Sistem) ---
+        const allInteractionLogs = [];
+        const allSystemLogs = [...(task.systemLogs || [])];
+
+        (task.logs || []).forEach(log => {
+            const text = (log.text || '').trim();
+            if (text.includes('[Deal Sonucu]')) {
+                return;
+            }
+            let isSystem = false;
+
+            // [Sistem], [Devir], [Klonlanmış Kampanya] her zaman Sistem Log'dur
+            if (text.includes('[Sistem]') || text.includes('[Devir]') || text.includes('[Klonlanmış Kampanya]')) {
+                isSystem = true;
+            } 
+            // Eğer log bir etiketle başlıyorsa (Örn: [Teklif Verildi])
+            else if (/^\[(.*?)\]/.test(text.replace(/<[^>]*>?/gm, '').trim())) {
+                const plainTextForTag = text.replace(/<[^>]*>?/gm, '').trim();
+                const tagMatch = plainTextForTag.match(/^\[(.*?)\]/);
+                const tag = tagMatch ? tagMatch[1] : '';
+                const cleanText = plainTextForTag.replace(/^\[(.*?)\]/, '').trim();
+                
+                // Görev Notu ve Geçmiş Kayıt her zaman Görüşme Geçmişindedir
+                if (tag === 'Görev Notu' || tag === 'Geçmiş Kayıt') {
+                    isSystem = false;
+                } else {
+                    // Diğer etiketler (Tekrar Aranacak vb.) eğer yanında özel bir not yoksa Sistem Log'a düşer
+                    if (!cleanText || (cleanText.startsWith('(') && cleanText.endsWith(')'))) {
+                        isSystem = true;
+                    } else {
+                        // Yanında satışçının yazdığı özel not varsa Görüşme Geçmişinde kalır
+                        isSystem = false;
+                    }
+                }
+            } else {
+                // Herhangi bir etiketi olmayan saf notlar da görüşme geçmişidir
+                isSystem = false;
+            }
+
+            if (isSystem) {
+                allSystemLogs.push(log);
+            } else {
+                allInteractionLogs.push(log);
+            }
+        });
+
+        // Sistem loglarını tarihe göre yeniden sırala (en yeni en üstte)
+        allSystemLogs.sort((a, b) => {
+            const dateStrA = a.date.replace(/[^0-9]/g, '');
+            const dateStrB = b.date.replace(/[^0-9]/g, '');
+            return dateStrB.localeCompare(dateStrA);
+        });
+
+        const logsHTML = _buildTabbedLogsHTML(allInteractionLogs, allSystemLogs, task);
+        const topBarHTML = _buildTaskModalTopBar(task, biz);
+        
+        const ma = document.getElementById('modalContentArea');
+        if (!ma) return;
+
+        ma.innerHTML = `
+            ${topBarHTML}
+            ${logsHTML}
+            ${_buildActionBarHTML(task)}`;
+
+        const tm = document.getElementById('taskModal');
+        if (tm) { 
+            tm.style.zIndex = '10002'; 
+            tm.style.display = 'flex'; 
+            // Drawer animasyonu için kısa bir gecikme ile active class'ı ekle
+            setTimeout(() => {
+                tm.classList.add('active');
+            }, 10);
+        }
+
+        if (typeof window.initFlatpickr === 'function') window.initFlatpickr();
+
+        if (scrollToOffers && task.offers.length > 0) {
+            setTimeout(() => switchLogTab('offers', document.getElementById('tabBtnOffers')), 300);
+        }
+    }
+
+    function renderTaskInline(taskId, containerId) {
+        document.getElementById('modalContentArea').innerHTML = ''; 
+        const task = AppState.tasks.find(t => t.id === taskId);
+        if (!task) return;
+        task.logs = task.logs || [];
+        task.offers = task.offers || [];
+        
+        window._selectedModalStatus = ''; 
+        window._selectedModalLogType = ''; 
+        window._dealDetails = null;
+
+        // --- LOGLARI AKILLICA AYRIŞTIRMA (Görüşme vs Sistem) ---
+        const allInteractionLogs = [];
+        const allSystemLogs = [...(task.systemLogs || [])];
+
+        (task.logs || []).forEach(log => {
+            const text = (log.text || '').trim();
+            if (text.includes('[Deal Sonucu]')) {
+                return;
+            }
+            let isSystem = false;
+
+            if (text.includes('[Sistem]') || text.includes('[Devir]') || text.includes('[Klonlanmış Kampanya]')) {
+                isSystem = true;
+            } 
+            // Eğer log bir etiketle başlıyorsa (Örn: [Teklif Verildi])
+            else if (/^\[(.*?)\]/.test(text.replace(/<[^>]*>?/gm, '').trim())) {
+                const plainTextForTag = text.replace(/<[^>]*>?/gm, '').trim();
+                const tagMatch = plainTextForTag.match(/^\[(.*?)\]/);
+                const tag = tagMatch ? tagMatch[1] : '';
+                const cleanText = plainTextForTag.replace(/^\[(.*?)\]/, '').trim();
+                
+                // Görev Notu ve Geçmiş Kayıt her zaman Görüşme Geçmişindedir
+                if (tag === 'Görev Notu' || tag === 'Geçmiş Kayıt') {
+                    isSystem = false;
+                } else {
+                    // Diğer etiketler (Tekrar Aranacak vb.) eğer yanında özel bir not yoksa Sistem Log'a düşer
+                    if (!cleanText || (cleanText.startsWith('(') && cleanText.endsWith(')'))) {
+                        isSystem = true;
+                    } else {
+                        // Yanında satışçının yazdığı özel not varsa Görüşme Geçmişinde kalır
+                        isSystem = false;
+                    }
+                }
+            } else {
+                // Herhangi bir etiketi olmayan saf notlar da görüşme geçmişidir
+                isSystem = false;
+            }
+
+            if (isSystem) {
+                allSystemLogs.push(log);
+            } else {
+                allInteractionLogs.push(log);
+            }
+        });
+
+        // Sistem loglarını tarihe göre yeniden sırala (en yeni en üstte)
+        allSystemLogs.sort((a, b) => {
+            const dateStrA = a.date.replace(/[^0-9]/g, '');
+            const dateStrB = b.date.replace(/[^0-9]/g, '');
+            return dateStrB.localeCompare(dateStrA);
+        });
+
+        const logsHTML = _buildTabbedLogsHTML(allInteractionLogs, allSystemLogs, task);
+        const container = document.getElementById(containerId);
+        
+        if (container) {
+            container.innerHTML = `
+                <div class="task-warning-box">
+                    <span class="warning-icon">⚡</span> 
+                    <div>Bu işletmenin şu an <b>${task.assignee}</b> üzerinde <b>${TASK_STATUS_LABELS[task.status] || task.status}</b> durumunda aktif bir görevi var. Aşağıdan doğrudan işlem yapabilirsiniz.</div>
+                </div>
+                ${logsHTML}
+                ${_buildActionBarHTML(task)}
+            `;
+            if (typeof window.initFlatpickr === 'function') window.initFlatpickr();
+        }
+    }
+
+    function _buildTabbedLogsHTML(userLogs, systemLogs, task) {
+        const userLogsHtml = _buildTimelineHTML(userLogs, "Henüz görüşme kaydı veya işlem eklenmemiş.", task.id);
+        const systemLogsHtml = _buildTimelineHTML(systemLogs, "Bu görev için henüz sistem logu bulunmuyor.", task.id);
+        const offersHtml = _buildOffersHTML(task);
+
+        return `
+            <div class="log-tabs-container">
+                <div class="tm-tabs-wrapper">
+                    <button type="button" class="tm-tab-btn active" onclick="switchLogTab('user', this)">Görüşme Geçmişi (Log)</button>
+                    <button type="button" class="tm-tab-btn" onclick="switchLogTab('system', this)">Sistem (Log)</button>
+                    <button type="button" id="tabBtnOffers" class="tm-tab-btn" onclick="switchLogTab('offers', this)">Deal Detay</button>
+                </div>
+                <div class="tm-log-container">
+                    <div id="logTabContent-user" class="log-tab-content" style="display:block;">${userLogsHtml}</div>
+                    <div id="logTabContent-system" class="log-tab-content" style="display:none;">${systemLogsHtml}</div>
+                    <div id="logTabContent-offers" class="log-tab-content" style="display:none;">${offersHtml}</div>
+                </div>
+            </div>
+        `;
+        if (typeof window.initFlatpickr === 'function') window.initFlatpickr();
+    }
+
+    function _buildTimelineHTML(logs, emptyMsg, taskId = null) {
+        if (logs.length === 0) {
+            return `<div style="color:var(--text-muted); font-size:13px; font-style:italic;">${emptyMsg}</div>`;
+        }
+        
+        // Sadece admin yetkisi olanlar silme butonunu görebilir
+        const isAdmin = AppState.loggedInUser && (AppState.loggedInUser.role === 'Yönetici' || AppState.loggedInUser.role === 'Sistem Yöneticisi' || AppState.loggedInUser.username === 'admin');
+
+        const groupedLogs = {};
+
+        logs.forEach(log => {
+            let datePart = log.date;
+            let timePart = "";
+            if (log.date.includes(' ')) {
+                const parts = log.date.split(' ');
+                datePart = parts[0];
+                timePart = parts.slice(1).join(' ');
+            } else if (log.date.includes('T')) {
+                const parts = log.date.split('T');
+                datePart = parts[0];
+                timePart = parts[1].substring(0, 5); 
+            }
+
+            const groupKey = `${datePart}___${log.user}`;
+            if (!groupedLogs[groupKey]) {
+                groupedLogs[groupKey] = {
+                    date: datePart,
+                    user: log.user,
+                    entries: []
+                };
+            }
+            
+            let tagSpanText = '';
+            let cleanText = log.text;
+            const plainText = cleanText.replace(/<[^>]*>?/gm, '').trim();
+            const tagMatch = plainText.match(/^(\[[^\]]+\])\s*/);
+            
+            if (tagMatch) {
+                let tagText = tagMatch[1].replace('[','').replace(']','');
+                tagSpanText = `<span style="font-weight:700; font-size:11.5px; padding:2px 8px; border-radius:12px; background:rgba(15, 23, 42, 0.05); color:var(--primary-color);">${tagText}</span>`;
+                cleanText = cleanText.replace(/<[^>]*>\[.*?\]<\/[^>]*>\s*/, '').replace(/^\[.*?\]\s*/, '').trim();
+            }
+
+            groupedLogs[groupKey].entries.push({
+                id: log.id,
+                time: timePart,
+                tagSpan: tagSpanText,
+                text: cleanText,
+                fullDateOriginal: log.date
+            });
+        });
+
+        const items = Object.values(groupedLogs).map(group => {
+            let entriesHtml = group.entries.map((entry, index) => {
+                const logIdArg = entry.id ? `'${entry.id}'` : `'${entry.fullDateOriginal}'`;
+                const deleteBtnHtml = (isAdmin && taskId) ? `<button class="log-delete-btn" style="position:absolute; right:0; top:0;" onclick="deleteTaskLog('${taskId}', ${logIdArg})" title="Bu Logu Sil">🗑️</button>` : '';
+                const boStyle = index !== group.entries.length - 1 ? 'border-bottom:1px dashed #e2e8f0; padding-bottom:10px; margin-bottom:10px;' : '';
+
+                return `
+                <div style="position:relative; display:block; width:100%; clear:both; padding-right:30px; ${boStyle}">
+                    <div style="display:block; word-wrap:break-word; color:var(--text-color); font-size:14px; line-height:1.6;">
+                        <span style="font-size:13px; font-weight:bold; color:var(--text-muted); opacity:0.8;">${entry.time}</span>
+                        ${entry.tagSpan ? `<span style="color:#cbd5e1; margin:0 5px;">-</span> ${entry.tagSpan} <span style="color:#cbd5e1; margin:0 5px;">-</span>` : `<span style="color:#cbd5e1; margin:0 6px;">-</span>`}
+                        <span style="color:var(--text-color); font-weight:500;">${entry.text}</span>
+                    </div>
+                    ${deleteBtnHtml}
+                </div>`;
+            }).join('');
+
+            return `
+            <div class="modern-log-card" style="position:relative;">
+                <div class="log-info-box-emerald">
+                    <div class="log-date">${group.date}</div>
+                    <div class="log-user">${group.user}</div>
+                </div>
+                <div class="log-text-box">
+                    <div class="log-text-content" style="display:block; width:100%;">
+                        ${entriesHtml}
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+
+        return `<div class="log-scroll-container"><div style="display:flex; flex-direction:column; padding-bottom:10px;">${items}</div></div>`;
+    }
+
+    function switchLogTab(tab, btnElement) {
+        document.querySelectorAll('.tm-tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelectorAll('.log-tab-content').forEach(content => content.style.display = 'none');
+        if (btnElement) btnElement.classList.add('active');
+        const activeContent = document.getElementById('logTabContent-' + tab);
+        if (activeContent) activeContent.style.display = 'block';
+    }
+
+    function _buildOffersHTML(task) {
+        let dealSummaryHtml = '';
+
+        if (task.status === 'deal' && task.dealDetails) {
+            const d = task.dealDetails;
+            dealSummaryHtml = `
+            <div class="deal-summary-card">
+                <h4>🤝 Anlaşma (Deal) Özeti</h4>
+                <div class="deal-stats-grid">
+                    <div class="deal-stat-item">
+                        <span class="deal-stat-label">Komisyon</span>
+                        <strong>%${d.commission}</strong>
+                    </div>
+                    <div class="deal-stat-item">
+                        <span class="deal-stat-label">Süre</span>
+                        <strong>${formatDealDurationDisplay(d.duration)}</strong>
+                    </div>
+                    <div class="deal-stat-item">
+                        <span class="deal-stat-label">Yayın Bedeli</span>
+                        <strong>${d.fee}</strong>
+                    </div>
+                    <div class="deal-stat-item">
+                        <span class="deal-stat-label">Joker</span>
+                        <strong>${d.joker}</strong>
+                    </div>
+                    <div class="deal-stat-item">
+                        <span class="deal-stat-label">Kampanya</span>
+                        <strong>${d.campCount}</strong>
+                    </div>
+                </div>
+            </div>`;
+        } else {
+            dealSummaryHtml = '<div style="color:#888; font-size:13px; font-style:italic;">Bu görev henüz Deal olarak sonuçlanmamış.</div>';
+        }
+
+        return `<div id="taskOffersSection">${dealSummaryHtml}</div>`;
+    }
+
+    function _buildTaskModalTopBar(task, biz) {
+        const user = AppState.loggedInUser;
+        const canDelete = [USER_ROLES.MANAGER, USER_ROLES.TEAM_LEAD].includes(user.role);
+
+        const resolvedContactDisplay = window.ContactParity?.resolveTaskContactDisplay
+            ? window.ContactParity.resolveTaskContactDisplay(biz, task)
+            : {
+                name: task.specificContactName || biz.contactName,
+                phone: task.specificContactPhone || biz.contactPhone,
+                email: task.specificContactEmail || biz.contactEmail,
+            };
+        const actualName = resolvedContactDisplay.name;
+        const actualPhone = resolvedContactDisplay.phone;
+        const actualEmail = resolvedContactDisplay.email;
+
+        const actualCampUrl = task.specificCampaignUrl || biz.campaignUrl;
+        const webLink = biz.website ? (biz.website.startsWith('http') ? biz.website : 'http://' + biz.website) : '';
+        const instaLink = biz.instagram ? (biz.instagram.startsWith('http') ? biz.instagram : 'https://instagram.com/' + biz.instagram.replace('@', '')) : '';
+
+        let statusClass = 'cold';
+        if(task.status === 'deal') statusClass = 'deal';
+        if(task.status === 'hot') statusClass = 'hot';
+        if(task.status === 'nothot') statusClass = 'nothot';
+        const statusBadge = `<span class="tm-badge ${statusClass}">${TASK_STATUS_LABELS[task.status] || '-'}</span>`;
+
+        const formatPhone = (p) => {
+            if (!p) return '';
+            let c = p.replace(/\D/g, '');
+            if(c.length === 10 && !c.startsWith('0')) c = '0' + c;
+            if(c.length === 11) return c.replace(/(\d{4})(\d{3})(\d{2})(\d{2})/, '$1 $2 $3 $4');
+            return p;
+        };
+
+        let phoneHtml = '';
+        if (actualPhone) {
+            const pList = actualPhone.split(/[\/\-,|\\]/).map(p => p.trim()).filter(p => p.length >= 10);
+            if (pList.length > 0) {
+                if (pList.length === 1) {
+                    phoneHtml = `<span class="tm-pill">📞 ${formatPhone(pList[0])}</span>`;
+                } else {
+                    const dId = 'tmDrop_' + Math.random().toString(36).substr(2,5);
+                    const rItems = pList.slice(1).map((p) => `<div class="tm-phone-item">📞 ${formatPhone(p)}</div>`).join('');
+                    phoneHtml = `<div style="position:relative; display:inline-block;"><button class="tm-pill clickable" onclick="const d = document.getElementById('${dId}'); d.style.display = d.style.display === 'block' ? 'none' : 'block'; event.stopPropagation();">📞 ${formatPhone(pList[0])} ▾</button><div id="${dId}" class="tm-phone-menu animated-drop" style="display:none; position:absolute; top:100%; left:0; margin-top:8px; z-index:10000; min-width:180px;">${rItems}</div></div>`;
+                }
+            }
+        }
+
+        const emailList = (actualEmail || '').split(/[\n,;\/|\\]+/).map(e => e.trim()).filter(Boolean);
+        let emailHtml = '';
+        if (emailList.length === 1) {
+            emailHtml = `<span class="tm-pill">✉️ ${emailList[0]}</span>`;
+        } else if (emailList.length > 1) {
+            const dId = 'tmMailDrop_' + Math.random().toString(36).substr(2,5);
+            const rItems = emailList.slice(1).map((e) => `<div class="tm-phone-item">✉️ ${e}</div>`).join('');
+            emailHtml = `<div style="position:relative; display:inline-block;"><button class="tm-pill clickable" onclick="const d = document.getElementById('${dId}'); d.style.display = d.style.display === 'block' ? 'none' : 'block'; event.stopPropagation();">✉️ ${emailList[0]} ▾</button><div id="${dId}" class="tm-phone-menu animated-drop" style="display:none; position:absolute; top:100%; left:0; margin-top:8px; z-index:10000; min-width:220px;">${rItems}</div></div>`;
+        }
+
+        let contactBoxHtml = '';
+        if (actualName || phoneHtml || actualEmail || webLink || instaLink || actualCampUrl) {
+            contactBoxHtml = `
+            <div class="tm-contact-box">
+                <div class="tm-contact-row">
+                ${actualName ? `<span class="tm-pill">👤 ${actualName}</span>` : ''}
+                ${phoneHtml}
+                ${emailHtml}
+                ${webLink ? `<a href="${webLink}" target="_blank" class="tm-pill clickable action">🌍 Web Sitesi</a>` : ''}
+                ${instaLink ? `<a href="${instaLink}" target="_blank" class="tm-pill clickable action">📸 Instagram</a>` : ''}
+                ${actualCampUrl ? `<a href="${actualCampUrl}" target="_blank" class="tm-pill clickable action">🔗 Kampanya Linki</a>` : ''}
+                </div>
+            </div>`;
+        }
+
+        return `
+        <div class="tm-header-card">
+            <div style="position: absolute; top: 15px; right: 15px; display: flex; gap: 8px; z-index: 10;">
+                ${canDelete ? `<button class="premium-icon-btn delete-btn" onclick="deleteTask('${task.id}')" title="Görevi Sil">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                </button>` : ''}
+                <button class="premium-icon-btn close-btn" onclick="closeModal('taskModal')" title="Kapat">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+
+            <div class="tm-header-content" style="padding-right: 85px;">
+                <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:15px;">
+                    <div class="tm-title-row" style="margin-bottom:0;">
+                        <h2 class="tm-title" style="cursor:pointer; transition:0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'" onclick="closeModal('taskModal'); openBusinessDetailModal('${biz.id}')" title="İşletme Detaylarını Görüntüle">
+                            ${biz.companyName || '-'}
+                        </h2>
+                        <div class="tm-badge-group">
+                            ${statusBadge}
+                            <span class="tm-badge">📁 ${task.sourceType || '-'}</span>
+                            <span class="tm-badge">👤 ${task.assignee || '-'}</span>
+                            <span class="tm-badge">📍 ${biz.city || '-'}</span>
+                            <span class="tm-badge">📁 ${task.mainCategory || '-'}${task.subCategory ? ' > ' + task.subCategory : ''}</span>
+                        </div>
+                    </div>
+                </div>
+                ${contactBoxHtml}
+            </div>
+        </div>`;
+    }
+
+    function _canReassignTask(task) {
+        if (!task) return false;
+        if (task.status === 'pending_approval' || !isActiveTask(task.status)) return false;
+        if (typeof window.hasPermission === 'function' && !window.hasPermission('reassignTask')) return false;
+        const user = AppState.loggedInUser || {};
+        return [USER_ROLES.MANAGER, USER_ROLES.TEAM_LEAD].includes(user.role);
+    }
+
+    function _getTransferCandidates(task) {
+        const currentUser = AppState.loggedInUser || {};
+        const currentOwnerId = String(task?.ownerId || '').trim();
+        const currentOwnerName = String(task?.assignee || '').trim();
+
+        let users = (AppState.users || []).filter((user) => {
+            if (!user) return false;
+            if (user.status === 'Pasif') return false;
+            if (user.role !== USER_ROLES.SALES_REP) return false;
+            const sameById = currentOwnerId && user.id && user.id === currentOwnerId;
+            const sameByName = currentOwnerName && user.name && user.name === currentOwnerName;
+            return !(sameById || sameByName);
+        });
+
+        if (currentUser.role === USER_ROLES.TEAM_LEAD && currentUser.team && currentUser.team !== '-') {
+            users = users.filter((user) => user.team === currentUser.team);
+        }
+
+        return users;
+    }
+
+    function _buildTransferCandidateOptions(task) {
+        const activeTasks = (AppState.tasks || []).filter((entry) => isActiveTask(entry.status));
+        return _getTransferCandidates(task).map((user) => {
+            const workload = activeTasks.filter((entry) => {
+                if (user.id && entry.ownerId) return entry.ownerId === user.id;
+                return entry.assignee === user.name;
+            }).length;
+            const teamLabel = user.team && user.team !== '-' ? user.team : 'Merkez';
+            const statusLine = `${teamLabel} • ${workload} açık görev`;
+            return `<option value="${user.id}" data-summary="${statusLine}">${user.name} • ${statusLine}</option>`;
+        }).join('');
+    }
+
+    // EKSİK OLAN AKSİYON BAR FONKSİYONU EKLENDİ!
+    function _buildActionBarHTML(task) {
+        const isPending = task.status === 'pending_approval';
+        const pendingWarning = isPending ? `<div style="background:#fff3cd; color:#856404; padding:15px; border-radius:12px; margin-bottom:20px; font-size:14px; border:1px solid #ffeeba;">⏳ <b>Onay bekleniyor.</b> Yönetici onaylayana kadar bu görev üzerinde işlem yapamazsınız.</div>` : '';
+        const actionDisplay = isPending ? 'display:none !important;' : 'display:flex;';
+        const transferButtonHtml = _canReassignTask(task)
+            ? `<button type="button" class="status-chip task-transfer-chip" onclick="openTaskTransferModal('${task.id}')" style="background:rgba(14,116,144,0.18); border-color:rgba(125,211,252,0.35); color:#cffafe;">↔️ Görev Devri</button>`
+            : '';
+        const transferOptionsHtml = _buildTransferCandidateOptions(task);
+        const transferCurrentOwner = task.assignee || 'Havuz';
+        const durationValue = Number(task.durationDays || 7);
+
+        return `
+        ${pendingWarning}
+        
+        <div class="floating-action-bar" style="${isPending ? 'display:none !important;' : ''}">
+            <div style="${actionDisplay} align-items:center; gap:8px; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; flex-shrink:0;">
+                <button type="button" class="status-chip" onclick="selectModalStatus('hot', this)">🔥 Hot</button>
+                <button type="button" class="status-chip" onclick="selectModalStatus('nothot', this)">⚠️ Not Hot</button>
+                <button type="button" class="status-chip" onclick="selectModalStatus('cold', this)">❄️ Cold</button>
+                <button type="button" class="status-chip" onclick="selectModalStatus('deal', this)" style="border-color:var(--success-color); color:var(--success-color); background:rgba(16,185,129,0.1);">🤝 Deal</button>
+                <button type="button" class="status-chip" onclick="openContactUpdateModal('${task.id}')" style="background:rgba(15,118,110,0.2); border-color:rgba(15,118,110,0.4); color:#a7f3d0;">👤 İletişim Ekle</button>
+                ${transferButtonHtml}
+            </div>
+            
+            <div style="width:1px; height:30px; background:rgba(255,255,255,0.3); ${actionDisplay} margin:0 5px; flex-shrink:0;"></div>
+            
+            <div style="position:relative; width:auto; ${actionDisplay} flex-shrink:0;">
+                <button type="button" id="btnCustomLogType" class="custom-dropdown-btn" onclick="toggleCustomLogTypeMenu(event)">⚡ Sonuç Seç...</button>
+                <div id="customLogTypeMenu" class="mac-popover animated-drop" style="display:none;">
+                    <div onclick="selectModalLogType('İşletmeye Ulaşılamadı', '📵 Ulaşılamadı')">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"></path><line x1="23" y1="1" x2="1" y2="23"></line></svg>
+                        Ulaşılamadı
+                    </div>
+                    <div onclick="selectModalLogType('Yetkiliye Ulaşılamadı', '🤷‍♂️ Yetkili Yok')">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5c-1.2 0-2 .8-2 2v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
+                        Yetkiliye Ulaşılamadı
+                    </div>
+                    <div onclick="selectModalLogType('Yetkiliye Ulaşıldı', '🗣️ Ulaşıldı')">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+                        Yetkiliye Ulaşıldı
+                    </div>
+                    <div onclick="selectModalLogType('İşletme Çalışmak İstemiyor', '🛑 İstemiyor')">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg>
+                        İstemiyor
+                    </div>
+                    <div onclick="selectModalLogType('İşletme Kapanmış', '🚫 Kapalı/Pasif')">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg>
+                        İşletme Kapanmış
+                    </div>
+                    <div onclick="selectModalLogType('Tekrar Aranacak', '🕒 Tekrar Ara')">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                        Tekrar Aranacak
+                    </div>
+                </div>
+            </div>
+
+            <div class="floating-input-wrapper">
+                <input type="text" id="modalLogInput" placeholder="Görüşme notlarınızı buraya yazın...">
+            </div>
+            
+            <button id="btnSaveModalLog" onclick="triggerSaveAction('${task.id}')">Kaydet 🚀</button>
+        </div>
+
+        <div id="miniModalOverlay" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(15, 23, 42, 0.6); backdrop-filter:blur(5px); z-index:100100; align-items:center; justify-content:center;">
+            
+            <div id="miniModalDate" class="followup-modal-shell" style="display:none;">
+                <div class="followup-modal-head">
+                    <div>
+                        <h3 style="margin:0; color:var(--secondary-color);">🕒 Tekrar Arama Planı</h3>
+                        <p style="margin:6px 0 0 0; font-size:12px; color:#64748b;">Hızlı seçim yapın veya takvimden tarih-saat belirleyin.</p>
+                    </div>
+                </div>
+                <div class="followup-composer-grid">
+                    <div class="followup-composer-pane">
+                        <span class="followup-pane-title">Hızlı planlar</span>
+                        <div class="followup-quick-grid">
+                            <button type="button" class="followup-quick-btn" onclick="pickQuickFollowup(0, 16, 0)">Bugün 16:00</button>
+                            <button type="button" class="followup-quick-btn" onclick="pickQuickFollowup(1, 10, 0)">Yarın 10:00</button>
+                            <button type="button" class="followup-quick-btn" onclick="pickQuickFollowup(1, 14, 0)">Yarın 14:00</button>
+                            <button type="button" class="followup-quick-btn" onclick="pickQuickFollowup(3, 11, 0)">3 Gün Sonra</button>
+                            <button type="button" class="followup-quick-btn" onclick="pickQuickFollowup(7)">Haftaya Aynı Saat</button>
+                        </div>
+                    </div>
+                    <div class="followup-composer-pane">
+                        <span class="followup-pane-title">Takvim ve saat</span>
+                        <div class="premium-input-wrapper followup-picker-field">
+                            <input type="text" id="flatpickrInput" placeholder="Tarih ve Saat Seçin" style="width:100%; padding-left:15px !important; color:#b45309; font-weight:bold;">
+                        </div>
+                        <textarea id="followupReasonNote" class="modern-capsule-input followup-note-input" placeholder="Opsiyonel not: neden tekrar aranacak?"></textarea>
+                    </div>
+                </div>
+                <div id="followupSelectionSummary" class="followup-summary-box">Henüz tarih seçilmedi.</div>
+                <div class="followup-modal-footer">
+                    <button id="followupPlanBtn" onclick="executeSaveAction('${task.id}')" style="background:var(--warning-color); flex:1; border:none; padding:12px; color:#fff; border-radius:10px; font-weight:bold; cursor:pointer;" disabled>Planla</button>
+                    <button onclick="closeMiniModal()" style="background:#e2e8f0; color:#475569; flex:1; border:none; padding:12px; border-radius:10px; font-weight:bold; cursor:pointer;">İptal</button>
+                </div>
+            </div>
+
+            <div id="miniModalDeal" style="display:none; background:#fff; border-radius:16px; padding:25px; box-shadow:0 15px 50px rgba(0,0,0,0.15); width:90%; max-width:450px; border-top:4px solid var(--success-color);">
+                <h3 style="margin:0 0 15px 0; color:var(--secondary-color);">🤝 Deal Sonucu Detayları</h3>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                    <div class="premium-input-wrapper"><span class="input-icon">%</span><input type="number" id="dealCommission" placeholder="Komisyon *" min="0"></div>
+                    <div class="premium-input-wrapper"><span class="input-icon">⏱️</span><input type="number" id="dealDuration" placeholder="Yayın Süresi (Ay) *" min="1"></div>
+                    <div class="premium-input-wrapper"><span class="input-icon">₺</span><input type="number" id="dealFee" placeholder="Yayın Bedeli" min="0"></div>
+                    <div class="premium-input-wrapper"><span class="input-icon">🎟️</span><input type="number" id="dealJoker" placeholder="Joker" min="0"></div>
+                    <div class="premium-input-wrapper full-width" style="grid-column:1/-1;"><span class="input-icon">📦</span><input type="number" id="dealCampCount" placeholder="Kampanya Adeti *" min="1"></div>
+                </div>
+                <div style="display:flex; gap:10px; margin-top:20px;">
+                    <button onclick="executeDealSaveAction('${task.id}')" style="background:var(--success-color); flex:1; border:none; padding:12px; color:#fff; border-radius:8px; font-weight:bold; cursor:pointer;">Anlaşmayı Kaydet</button>
+                    <button onclick="closeMiniModal()" style="background:#e2e8f0; color:#475569; flex:1; border:none; padding:12px; border-radius:8px; font-weight:bold; cursor:pointer;">İptal</button>
+                </div>
+            </div>
+
+            <div id="miniModalContact" style="display:none; background:#fff; border-radius:16px; padding:25px; box-shadow:0 15px 50px rgba(0,0,0,0.15); width:90%; max-width:400px; border-top:4px solid var(--info-color);">
+                <h3 style="margin:0 0 10px 0; color:var(--secondary-color);">👤 İletişim Bilgisi Ekle</h3>
+                <p style="font-size:12px; color:var(--text-muted); margin-bottom:15px; line-height:1.4;">Girdiğiniz bilgiler mevcut bilgilerle akıllıca birleştirilecektir.</p>
+                <div style="display:flex; flex-direction:column; gap:12px;">
+                    <div class="premium-input-wrapper"><input type="text" id="updTaskContactName" placeholder="Yetkili İsim (Opsiyonel)" style="padding-left:15px !important;"></div>
+                    <div class="premium-input-wrapper"><span class="input-icon">📞</span><input type="tel" id="updTaskContactPhone" placeholder="Telefon Numarası"></div>
+                    <div class="premium-input-wrapper"><span class="input-icon">✉️</span><input type="email" id="updTaskContactEmail" placeholder="E-Posta Adresi"></div>
+                </div>
+                <div style="display:flex; gap:10px; margin-top:20px;">
+                    <button onclick="executeContactUpdate('${task.id}')" style="background:var(--info-color); flex:1; border:none; padding:12px; color:#fff; border-radius:8px; font-weight:bold; cursor:pointer;">Kaydet</button>
+                    <button onclick="closeMiniModal()" style="background:#e2e8f0; color:#475569; flex:1; border:none; padding:12px; border-radius:8px; font-weight:bold; cursor:pointer;">İptal</button>
+                </div>
+            </div>
+
+            <div id="miniModalTransfer" style="display:none; background:#fff; border-radius:18px; padding:24px; box-shadow:0 20px 60px rgba(0,0,0,0.16); width:min(92vw, 560px); border-top:4px solid #0f766e;">
+                <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
+                    <h3 style="margin:0; color:var(--secondary-color);">↔️ Görev Devri</h3>
+                    <p style="margin:0; font-size:13px; color:#64748b; line-height:1.5;">Görevi yeni sorumluya aktarın. Takım liderleri yalnızca kendi takımları içinde devredebilir.</p>
+                </div>
+                <div class="task-transfer-shell">
+                    <div class="task-transfer-meta">
+                        <div class="task-transfer-stat">
+                            <span class="task-transfer-label">Mevcut Sorumlu</span>
+                            <strong>${transferCurrentOwner}</strong>
+                        </div>
+                        <div class="task-transfer-stat">
+                            <span class="task-transfer-label">Görev Süresi</span>
+                            <strong>${durationValue} gün</strong>
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label>Yeni Sorumlu</label>
+                        <select id="taskTransferOwnerId" onchange="refreshTaskTransferSummary()">
+                            <option value="">Kişi seçin</option>
+                            ${transferOptionsHtml}
+                        </select>
+                    </div>
+                    <div id="taskTransferSummary" class="task-transfer-summary">${transferOptionsHtml ? 'Hedef kişi seçildiğinde takım ve iş yükü burada görünür.' : 'Bu görev için uygun devir adayı bulunamadı.'}</div>
+                    <div class="form-grid" style="grid-template-columns: 150px minmax(0, 1fr); gap:12px;">
+                        <div class="form-group" style="margin:0;">
+                            <label>Süre (gün)</label>
+                            <input type="number" id="taskTransferDuration" min="1" value="${durationValue}">
+                        </div>
+                        <div class="form-group" style="margin:0;">
+                            <label>Devir Notu</label>
+                            <textarea id="taskTransferNote" rows="3" placeholder="Opsiyonel not: müşteri geçmişi, öncelik ya da dikkat edilmesi gereken nokta..."></textarea>
+                        </div>
+                    </div>
+                </div>
+                <div style="display:flex; gap:10px; margin-top:18px;">
+                    <button id="taskTransferConfirmBtn" onclick="executeTaskTransfer('${task.id}')" style="background:#0f766e; flex:1; border:none; padding:12px; color:#fff; border-radius:10px; font-weight:700; cursor:pointer;" ${transferOptionsHtml ? '' : 'disabled'}>Görevi Devret</button>
+                    <button onclick="closeMiniModal()" style="background:#e2e8f0; color:#475569; flex:1; border:none; padding:12px; border-radius:10px; font-weight:700; cursor:pointer;">İptal</button>
+                </div>
+            </div>
+        </div>
+        `;
+    }
+
+    // --- Aksiyon & Kaydetme (Yeni Mimari) ---
+    function selectModalStatus(status, el) {
+        window._selectedModalStatus = status;
+        document.querySelectorAll('.status-chip').forEach(c => c.classList.remove('active'));
+        if (el) el.classList.add('active');
+    }
+
+    function toggleCustomLogTypeMenu(e) {
+        if (e) e.stopPropagation();
+        const menu = document.getElementById('customLogTypeMenu');
+        if (menu) menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
+    }
+
+    function refreshFollowupSummary(dateStr = '') {
+        const planBtn = document.getElementById('followupPlanBtn');
+        const summary = document.getElementById('followupSelectionSummary');
+        if (planBtn) planBtn.disabled = !dateStr;
+        if (summary) {
+            summary.innerHTML = dateStr
+                ? `<strong>Seçilen plan:</strong> ${formatDate(dateStr)}`
+                : 'Henüz tarih seçilmedi.';
+        }
+    }
+
+    function pickQuickFollowup(dayOffset = 1, hour = null, minute = 0) {
+        const next = new Date();
+        next.setSeconds(0, 0);
+        next.setDate(next.getDate() + Number(dayOffset || 0));
+        const resolvedHour = hour == null ? next.getHours() : Number(hour || 0);
+        const resolvedMinute = hour == null ? next.getMinutes() : Number(minute || 0);
+        next.setHours(resolvedHour, resolvedMinute, 0, 0);
+        if (window.fpInstance) {
+            window.fpInstance.setDate(next, true);
+        } else {
+            const input = document.getElementById('flatpickrInput');
+            if (input) {
+                const pad = (value) => String(value).padStart(2, '0');
+                input.value = `${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())} ${pad(next.getHours())}:${pad(next.getMinutes())}`;
+            }
+        }
+        refreshFollowupSummary(document.getElementById('flatpickrInput')?.value || '');
+    }
+
+    function selectModalLogType(val, label) {
+        window._selectedModalLogType = val;
+        const btn = document.getElementById('btnCustomLogType');
+        if (btn) { btn.innerHTML = label; btn.classList.add('selected'); }
+        const menu = document.getElementById('customLogTypeMenu');
+        if (menu) menu.style.display = 'none';
+
+        if (val === 'Tekrar Aranacak') {
+            document.getElementById('miniModalOverlay').style.display = 'flex';
+            
+            // Diğer tüm modalları kapat (Garanti Kuralı)
+            if (document.getElementById('miniModalDeal')) document.getElementById('miniModalDeal').style.display = 'none';
+            if (document.getElementById('miniModalContact')) document.getElementById('miniModalContact').style.display = 'none';
+            
+            document.getElementById('miniModalDate').style.display = 'block';
+            if (typeof window.initFlatpickr === 'function') {
+                window.initFlatpickr();
+                
+                // Varsa eski tarihi takvime yerleştir
+                const btnSave = document.getElementById('btnSaveModalLog');
+                if (btnSave) {
+                    const match = btnSave.getAttribute('onclick').match(/'([^']+)'/);
+                    if (match && match[1]) {
+                        const task = AppState.tasks.find(t => t.id === match[1]);
+                        if (task && task.nextCallDate && window.fpInstance) {
+                            window.fpInstance.setDate(task.nextCallDate);
+                        }
+                    }
+                }
+            }
+            refreshFollowupSummary(document.getElementById('flatpickrInput')?.value || '');
+        }
+    }
+
+    function triggerSaveAction(taskId) {
+        const task = AppState.tasks.find(t => t.id === taskId);
+        if (!task) return;
+
+        const logType = window._selectedModalLogType || '';
+        const newStatus = window._selectedModalStatus || '';
+        const logText = document.getElementById('modalLogInput')?.value.trim() || '';
+
+        if (newStatus !== 'deal' && !logType) {
+            return showToast("Lütfen öncelikle durum sonucunu (Örn: Ulaşılamadı, Ulaşıldı) seçin!", 'warning');
+        }
+
+        if (logType && logType !== 'Tekrar Aranacak' && !newStatus && task.status === 'new') {
+            return showToast("Lütfen yeni bir 'Durum' (Örn: Hot, Not Hot) seçin!", 'warning');
+        }
+        if (!logType && !newStatus && !logText) {
+            return showToast("Kaydedilecek bir işlem girmediniz.", 'warning');
+        }
+
+        if (logType === 'İşletme Kapanmış') {
+            askConfirm("Bu işletmenin kapandığını onaylıyor musunuz? İşletme PASİFE çekilecek ve bu görev COLD olarak kapatılacaktır.", (res) => {
+                if (res) {
+                    window._selectedModalStatus = 'cold';
+                    this.executeSaveAction(taskId);
+                }
+            });
+            return;
+        }
+
+        if (newStatus === 'deal') {
+            document.getElementById('miniModalOverlay').style.display = 'flex';
+            document.getElementById('miniModalDeal').style.display = 'block';
+            document.getElementById('miniModalDate').style.display = 'none';
+            return; 
+        }
+
+        if (logType === 'Tekrar Aranacak') {
+            selectModalLogType(logType, '🕒 Tekrar Ara');
+        } else {
+            executeSaveAction(taskId);
+        }
+    }
+
+    function openContactUpdateModal(taskId) {
+        document.getElementById('updTaskContactName').value = '';
+        document.getElementById('updTaskContactPhone').value = '';
+        document.getElementById('updTaskContactEmail').value = '';
+        
+        document.getElementById('miniModalOverlay').style.display = 'flex';
+        document.getElementById('miniModalContact').style.display = 'block';
+        if(document.getElementById('miniModalDeal')) document.getElementById('miniModalDeal').style.display = 'none';
+        if(document.getElementById('miniModalDate')) document.getElementById('miniModalDate').style.display = 'none';
+    }
+
+    function refreshTaskTransferSummary() {
+        const select = document.getElementById('taskTransferOwnerId');
+        const summary = document.getElementById('taskTransferSummary');
+        if (!select || !summary) return;
+        const selectedOption = select.options[select.selectedIndex];
+        if (!selectedOption || !selectedOption.value) {
+            summary.innerHTML = 'Hedef kişi seçildiğinde takım ve iş yükü burada görünür.';
+            return;
+        }
+        const meta = selectedOption.getAttribute('data-summary') || '';
+        summary.innerHTML = `<strong>${selectedOption.textContent.split('•')[0].trim()}</strong><span>${meta}</span>`;
+    }
+
+    function openTaskTransferModal(taskId) {
+        const task = AppState.tasks.find((entry) => entry.id === taskId);
+        if (!task) return;
+        if (!isActiveTask(task.status)) {
+            showToast('Kapalı görevler devredilemez.', 'warning');
+            return;
+        }
+        if (!_canReassignTask(task)) {
+            showToast('Bu görevi devretme yetkiniz bulunmuyor.', 'warning');
+            return;
+        }
+        if (_getTransferCandidates(task).length === 0) {
+            showToast('Bu görev için uygun aktif kullanıcı bulunamadı.', 'warning');
+            return;
+        }
+        document.getElementById('miniModalOverlay').style.display = 'flex';
+        if (document.getElementById('miniModalDeal')) document.getElementById('miniModalDeal').style.display = 'none';
+        if (document.getElementById('miniModalDate')) document.getElementById('miniModalDate').style.display = 'none';
+        if (document.getElementById('miniModalContact')) document.getElementById('miniModalContact').style.display = 'none';
+        if (document.getElementById('miniModalTransfer')) document.getElementById('miniModalTransfer').style.display = 'block';
+        refreshTaskTransferSummary();
+    }
+
+    async function executeTaskTransfer(taskId) {
+        const task = AppState.tasks.find((entry) => entry.id === taskId);
+        if (!task) return;
+        if (!isActiveTask(task.status)) {
+            return showToast('Kapalı görevler devredilemez.', 'warning');
+        }
+        const ownerSelect = document.getElementById('taskTransferOwnerId');
+        const durationInput = document.getElementById('taskTransferDuration');
+        const noteInput = document.getElementById('taskTransferNote');
+        const btn = document.getElementById('taskTransferConfirmBtn');
+        const ownerId = ownerSelect?.value || '';
+        const durationDays = Number(durationInput?.value || task.durationDays || 7);
+        const note = esc(noteInput?.value || '');
+
+        if (!ownerId) return showToast('Lütfen görevi devredeceğiniz kişiyi seçin.', 'warning');
+        if (!Number.isFinite(durationDays) || durationDays < 1) return showToast('Görev süresi en az 1 gün olmalıdır.', 'warning');
+
+        if (btn) {
+            btn.disabled = true;
+            btn.innerText = '⏳ Devrediliyor...';
+        }
+
+        try {
+            await DataService.apiRequest(`/tasks/${taskId}/assign`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    ownerId,
+                    durationDays,
+                    note: note || undefined,
+                }),
+            });
+            const refreshedTask = await DataService.readPath(`tasks/${taskId}`);
+            _updateTaskInState(refreshedTask);
+            closeMiniModal();
+            _refreshTaskViews(taskId);
+            showToast('Görev başarıyla devredildi.', 'success');
+        } catch (err) {
+            console.error('Görev devri hatası:', err);
+            const message = String(err?.message || '').trim();
+            if (message.toLocaleLowerCase('tr-TR').includes('closed tasks cannot be reassigned')) {
+                showToast('Kapalı görevler devredilemez.', 'warning');
+            } else {
+                showToast(`Görev devri başarısız: ${message || 'Bilinmeyen hata'}`, 'error');
+            }
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerText = 'Görevi Devret';
+            }
+        }
+    }
+
+    async function executeContactUpdate(taskId) {
+        const task = AppState.tasks.find(t => t.id === taskId);
+        if (!task) return;
+
+        const newName = esc(document.getElementById('updTaskContactName').value.trim());
+        const newPhone = esc(document.getElementById('updTaskContactPhone').value.trim());
+        const newEmail = esc(document.getElementById('updTaskContactEmail').value.trim().toLowerCase());
+
+        if (!newPhone && !newEmail) {
+            return showToast("Lütfen en az bir telefon veya e-posta girin!", "warning");
+        }
+
+        try {
+            await DataService.apiRequest(`/tasks/${taskId}/focus-contact`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    name: newName || undefined,
+                    phone: newPhone || undefined,
+                    email: newEmail || undefined
+                })
+            });
+
+            showToast("İletişim bilgisi başarıyla eklendi!", "success");
+            closeMiniModal();
+            
+            const [refreshedTask, refreshedBiz] = await Promise.all([
+                DataService.readPath('tasks/' + taskId).catch(() => null),
+                DataService.readPath('businesses/' + task.businessId).catch(() => null),
+            ]);
+
+            const taskIndex = AppState.tasks.findIndex((t) => t.id === taskId);
+            if (taskIndex >= 0 && refreshedTask) {
+                AppState.tasks[taskIndex] = refreshedTask;
+                if (typeof AppState.invalidateTaskMapCache === 'function') AppState.invalidateTaskMapCache();
+            }
+            const bizIndex = AppState.businesses.findIndex((b) => b.id === task.businessId);
+            if (bizIndex >= 0 && refreshedBiz) {
+                AppState.businesses[bizIndex] = refreshedBiz;
+                if (typeof AppState.invalidateBizMapCache === 'function') AppState.invalidateBizMapCache();
+            }
+            
+            if (document.getElementById('inlineTaskContainer')) {
+                if (window.renderTaskInline) window.renderTaskInline(taskId, 'inlineTaskContainer');
+            } else {
+                openTaskModal(taskId);
+            }
+        } catch (err) {
+            console.error('İletişim bilgisi kayıt hatası:', err);
+            showToast(`Güncelleme sırasında hata oluştu: ${err.message}`, "error");
+        }
+    }
+
+    function closeMiniModal() {
+        const overlay = document.getElementById('miniModalOverlay');
+        if (overlay) overlay.style.display = 'none';
+
+        // Durum Sızıntısını (State Leakage) Önlemek İçin Tüm İç Modalları Güvenli Kapatma
+        if (document.getElementById('miniModalDeal')) document.getElementById('miniModalDeal').style.display = 'none';
+        if (document.getElementById('miniModalDate')) document.getElementById('miniModalDate').style.display = 'none';
+        if (document.getElementById('miniModalContact')) document.getElementById('miniModalContact').style.display = 'none';
+        if (document.getElementById('miniModalTransfer')) document.getElementById('miniModalTransfer').style.display = 'none';
+        const noteEl = document.getElementById('followupReasonNote');
+        if (noteEl) noteEl.value = '';
+        const transferNoteEl = document.getElementById('taskTransferNote');
+        if (transferNoteEl) transferNoteEl.value = '';
+        const transferSelect = document.getElementById('taskTransferOwnerId');
+        if (transferSelect) transferSelect.value = '';
+        refreshFollowupSummary('');
+        refreshTaskTransferSummary();
+    }
+
+    function executeDealSaveAction(taskId) {
+        const comm = document.getElementById('dealCommission')?.value.trim();
+        const duration = document.getElementById('dealDuration')?.value.trim();
+        let fee = document.getElementById('dealFee')?.value.trim() || 'Yok';
+        const joker = document.getElementById('dealJoker')?.value.trim() || 'Yok';
+        const campCount = document.getElementById('dealCampCount')?.value.trim();
+
+        if (!comm || !duration || !campCount) return showToast("Komisyon, Yayın Süresi ve Kampanya Adeti zorunludur!", "error");
+
+        const isBedelsiz = (fee.toLowerCase() === 'yok' || fee === '0' || fee === '0 tl' || fee === '');
+
+        if (isBedelsiz) {
+            askConfirm("Bedelsiz kampanya giriyorsunuz, onaylıyor musunuz?", (res) => {
+                if (res) {
+                    window._dealDetails = { commission: comm, duration: duration, fee: 'Yok', joker: joker, campCount: campCount };
+                    executeSaveAction(taskId);
+                }
+            });
+        } else {
+            window._dealDetails = { commission: comm, duration: duration, fee: fee, joker: joker, campCount: campCount };
+            executeSaveAction(taskId);
+        }
+    }
+
+    async function executeSaveAction(taskId) {
+        const btn = document.getElementById('btnSaveModalLog');
+        if (btn) { btn.disabled = true; btn.innerText = '⏳...'; }
+
+        const task = AppState.tasks.find(t => t.id === taskId);
+        if (!task) return;
+
+        const logType = window._selectedModalLogType || '';
+        const newStatus = window._selectedModalStatus || '';
+        const fallbackFollowupNote = document.getElementById('followupReasonNote')?.value || '';
+        const rawLogText = logType === 'Tekrar Aranacak' && fallbackFollowupNote
+            ? fallbackFollowupNote
+            : (document.getElementById('modalLogInput')?.value || '');
+        const logText = esc(rawLogText);
+        
+        const nextCallDateVal = document.getElementById('flatpickrInput')?.value || '';
+
+        try {
+            const payloadBuilder = window.TaskSavePayload?.buildTaskSavePayload || buildTaskSavePayloadFallback;
+            const payloadResult = payloadBuilder({
+                newStatus,
+                logType,
+                logText,
+                nextCallDate: nextCallDateVal,
+                dealDetails: window._dealDetails,
+            });
+
+            if (payloadResult.error) {
+                if (btn) { btn.disabled = false; btn.innerText = "Kaydet 🚀"; }
+                return showToast(payloadResult.error, 'error');
+            }
+
+            const { patchPayload } = payloadResult;
+
+            if (Object.keys(patchPayload).length > 0) {
+                await DataService.apiRequest(`/tasks/${taskId}`, {
+                    method: 'PATCH',
+                    body: JSON.stringify(patchPayload)
+                });
+            }
+
+            // İşletme kapanması durumu artık Backend tarafından 'ISLETME_KAPANMIS' logu geldiğinde otonom olarak yönetilecek.
+
+            // Başarılı ise UI temizliği ve refresh
+            window._dealDetails = null;
+            showToast('İşlem başarıyla kaydedildi!', 'success');
+            closeMiniModal();
+
+            // Verileri tazele (Local State Update - Sadece ilgili görev çekilir ve UI güncellenir)
+            try {
+                const refreshedTask = await DataService.readPath('tasks/' + taskId);
+                const tIdx = AppState.tasks.findIndex(t => t.id === taskId);
+                if (tIdx >= 0) {
+                    // Update state properly
+                    AppState.tasks[tIdx] = refreshedTask;
+                    if (typeof AppState.invalidateTaskMapCache === 'function') {
+                        AppState.invalidateTaskMapCache();
+                    }
+                }
+            } catch (rErr) {
+                console.warn('Görevi yeniden çekerken hata:', rErr);
+            }
+            
+            if (btn) { btn.disabled = false; btn.innerText = "Kaydet 🚀"; }
+            
+            if (document.getElementById('inlineTaskContainer')) {
+                if (window.renderTaskInline) window.renderTaskInline(taskId, 'inlineTaskContainer');
+            } else {
+                refreshTaskModalInPlace(taskId);
+            }
+        } catch (err) {
+            console.error('Kaydetme başarısız:', err);
+            showToast(`Hata: ${err.message}`, 'error');
+            if (btn) { btn.disabled = false; btn.innerText = "Kaydet 🚀"; }
+        }
+    }
+
+    function deleteTask(taskId) {
+        askConfirm('Bu görevi silmek istediğinize emin misiniz?', (res) => {
+            if (!res) return;
+            DataService.deleteTask(taskId).then(() => {
+                addSystemLog(`Görev silindi: ${taskId}`);
+                showToast('Görev silindi.', 'success');
+                closeModal('taskModal');
+            });
+        });
+    }
+
+    function _paginate(arr, page, perPage) {
+        const start = (page - 1) * perPage;
+        return arr.slice(start, start + perPage);
+    }
+
+    function _updateTaskInState(refreshedTask) {
+        if (!refreshedTask?.id) return null;
+        const taskIndex = AppState.tasks.findIndex((task) => task.id === refreshedTask.id);
+        if (taskIndex < 0) return null;
+        AppState.tasks[taskIndex] = refreshedTask;
+        if (typeof AppState.invalidateTaskMapCache === 'function') {
+            AppState.invalidateTaskMapCache();
+        }
+        return refreshedTask;
+    }
+
+    function _refreshTaskViews(taskId) {
+        const activePage = document.querySelector('.page-content.active')?.id || '';
+        if (activePage === 'page-my-tasks') {
+            renderMyTasks();
+        } else if (activePage === 'page-all-tasks') {
+            renderAllTasks();
+        } else if (activePage === 'page-businesses' && typeof BusinessController !== 'undefined' && AppState.isBizSearched) {
+            BusinessController.search(false);
+        } else if (activePage === 'page-passive-tasks' && typeof ArchiveController !== 'undefined') {
+            ArchiveController.renderPassiveTasks(false);
+        } else if (activePage === 'page-reports' && typeof ReportController !== 'undefined') {
+            ReportController.renderReports();
+        }
+
+        if (document.getElementById('inlineTaskContainer')) {
+            if (window.renderTaskInline) window.renderTaskInline(taskId, 'inlineTaskContainer');
+            return;
+        }
+
+        const taskModal = document.getElementById('taskModal');
+        if (taskModal?.style.display === 'flex') {
+            refreshTaskModalInPlace(taskId);
+        }
+    }
+
+    function refreshTaskModalInPlace(taskId) {
+        const tm = document.getElementById('taskModal');
+        const ma = document.getElementById('modalContentArea');
+        if (!tm || !ma || tm.style.display !== 'flex') return;
+
+        const activeBtn = tm.querySelector('.tm-tab-btn.active');
+        let activeTab = 'user';
+        if (activeBtn?.id === 'tabBtnOffers') activeTab = 'offers';
+        else if ((activeBtn?.textContent || '').includes('Sistem')) activeTab = 'system';
+
+        const task = AppState.tasks.find(t => t.id === taskId);
+        if (!task) return;
+        const biz = AppState.getBizMap().get(task.businessId) || task;
+        task.logs = task.logs || [];
+        task.offers = task.offers || [];
+
+        const allInteractionLogs = [];
+        const allSystemLogs = [...(task.systemLogs || [])];
+
+        (task.logs || []).forEach(log => {
+            const text = (log.text || '').trim();
+            if (text.includes('[Deal Sonucu]')) {
+                return;
+            }
+            let isSystem = false;
+
+            if (text.includes('[Sistem]') || text.includes('[Devir]') || text.includes('[Klonlanmış Kampanya]')) {
+                isSystem = true;
+            } else if (/^\[(.*?)\]/.test(text.replace(/<[^>]*>?/gm, '').trim())) {
+                const plainTextForTag = text.replace(/<[^>]*>?/gm, '').trim();
+                const tagMatch = plainTextForTag.match(/^\[(.*?)\]/);
+                const tag = tagMatch ? tagMatch[1] : '';
+                const cleanText = plainTextForTag.replace(/^\[(.*?)\]/, '').trim();
+                if (tag === 'Görev Notu' || tag === 'Geçmiş Kayıt') isSystem = false;
+                else isSystem = (!cleanText || (cleanText.startsWith('(') && cleanText.endsWith(')')));
+            }
+
+            if (isSystem) allSystemLogs.push(log);
+            else allInteractionLogs.push(log);
+        });
+
+        allSystemLogs.sort((a, b) => {
+            const dateStrA = a.date.replace(/[^0-9]/g, '');
+            const dateStrB = b.date.replace(/[^0-9]/g, '');
+            return dateStrB.localeCompare(dateStrA);
+        });
+
+        const logsHTML = _buildTabbedLogsHTML(allInteractionLogs, allSystemLogs, task);
+        const topBarHTML = _buildTaskModalTopBar(task, biz);
+
+        ma.innerHTML = `
+            ${topBarHTML}
+            ${logsHTML}
+            ${_buildActionBarHTML(task)}`;
+
+        if (typeof window.initFlatpickr === 'function') window.initFlatpickr();
+
+        if (activeTab === 'system') {
+            const systemBtn = Array.from(tm.querySelectorAll('.tm-tab-btn')).find(btn => (btn.textContent || '').includes('Sistem'));
+            switchLogTab('system', systemBtn);
+        } else if (activeTab === 'offers') {
+            switchLogTab('offers', document.getElementById('tabBtnOffers'));
+        } else {
+            const userBtn = tm.querySelector('.tm-tab-btn');
+            switchLogTab('user', userBtn);
+        }
+    }
+
+    return {
+        createCard,
+        createMinimalCard,
+        renderMyTasks,
+        renderAllTasks,
+        renderTaskReports,
+        resetTaskReportView,
+        clearTaskReportFilters,
+        exportTaskReportExcel,
+        updateTaskReportSubCategories,
+        switchTaskListSubtab,
+        openTeamPulseModal,
+        setTeamPulseModalPeriod,
+        openTaskModal,
+        renderTaskInline,
+        _buildTabbedLogsHTML,
+        _buildTimelineHTML,
+        _buildOffersHTML,
+        _buildActionBarHTML, /* DÜZELTİLDİ: Fonksiyon artık dahil! */
+        triggerSaveAction,
+        closeMiniModal,
+        executeDealSaveAction,
+        executeSaveAction,
+        refreshTaskModalInPlace,
+        deleteTask,
+        selectModalStatus,
+        toggleCustomLogTypeMenu,
+        selectModalLogType,
+        switchLogTab,
+        openContactUpdateModal,
+        executeContactUpdate,
+        openTaskTransferModal,
+        executeTaskTransfer,
+        refreshTaskTransferSummary,
+        pickQuickFollowup,
+        refreshFollowupSummary,
+    };
+})();
+
+// Global erişim
+window.renderMyTasks = TaskController.renderMyTasks.bind(TaskController);
+window.switchLogTab = TaskController.switchLogTab.bind(TaskController);
+window.renderAllTasks = TaskController.renderAllTasks.bind(TaskController);
+window.renderTaskReports = TaskController.renderTaskReports.bind(TaskController);
+window.resetTaskReportView = TaskController.resetTaskReportView.bind(TaskController);
+window.clearTaskReportFilters = TaskController.clearTaskReportFilters.bind(TaskController);
+window.exportTaskReportExcel = TaskController.exportTaskReportExcel.bind(TaskController);
+window.switchTaskListSubtab = TaskController.switchTaskListSubtab.bind(TaskController);
+window.updateTaskReportSubCategories = TaskController.updateTaskReportSubCategories.bind(TaskController);
+window.openTeamPulseModal = TaskController.openTeamPulseModal.bind(TaskController);
+window.setTeamPulseModalPeriod = TaskController.setTeamPulseModalPeriod.bind(TaskController);
+window.openTaskModal = TaskController.openTaskModal.bind(TaskController);
+window.pickQuickFollowup = TaskController.pickQuickFollowup.bind(TaskController);
+window.refreshFollowupSummary = TaskController.refreshFollowupSummary.bind(TaskController);
+window.renderTaskInline = TaskController.renderTaskInline.bind(TaskController);
+window.triggerSaveAction = TaskController.triggerSaveAction.bind(TaskController);
+window.closeMiniModal = TaskController.closeMiniModal.bind(TaskController);
+window.executeSaveAction = TaskController.executeSaveAction.bind(TaskController);
+window.executeDealSaveAction = TaskController.executeDealSaveAction?.bind(TaskController) || (typeof executeDealSaveAction !== 'undefined' ? executeDealSaveAction : null);
+window.createCard = TaskController.createCard.bind(TaskController);
+window.deleteTask = TaskController.deleteTask.bind(TaskController);
+window.selectModalStatus = TaskController.selectModalStatus.bind(TaskController);
+window.toggleCustomLogTypeMenu = TaskController.toggleCustomLogTypeMenu.bind(TaskController);
+window.selectModalLogType = TaskController.selectModalLogType.bind(TaskController);
+window.openContactUpdateModal = TaskController.openContactUpdateModal.bind(TaskController);
+window.executeContactUpdate = TaskController.executeContactUpdate.bind(TaskController);
+window.openTaskTransferModal = TaskController.openTaskTransferModal.bind(TaskController);
+window.executeTaskTransfer = TaskController.executeTaskTransfer.bind(TaskController);
+window.refreshTaskTransferSummary = TaskController.refreshTaskTransferSummary.bind(TaskController);
+
+function addSystemLog(action) {
+    if (!AppState.loggedInUser) return Promise.resolve();
+    return DataService.addSystemLog(action, AppState.loggedInUser.name);
+}
+
+window.deleteTaskLog = async function(taskId, logId) {
+    if (!logId || logId.length > 36) {
+        // Eski logDate ise silmeyi denemeyelim, veya backend destekliyorsa logDate'e göre API yazılabilir.
+        // Biz yeni logId bekliyoruz.
+    }
+    
+    askConfirm("Bu log kaydını kalıcı olarak silmek istediğinize emin misiniz?", async (res) => {
+        if (!res) return;
+        
+        try {
+            await DataService.apiRequest(`/tasks/${taskId}/activity/${logId}`, {
+                method: 'DELETE'
+            });
+            
+            showToast("Log başarıyla silindi.", "success");
+
+            const refreshedTask = await DataService.readPath(`tasks/${taskId}`);
+            _updateTaskInState(refreshedTask);
+            _refreshTaskViews(taskId);
+        } catch (err) {
+            console.error("Log silme hatası:", err);
+            showToast(`Log silinirken hata oluştu: ${err.message}`, "error");
+        }
+    });
+};

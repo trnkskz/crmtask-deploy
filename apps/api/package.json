@@ -1,0 +1,55 @@
+{
+  "name": "api",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only -r tsconfig-paths/register src/main.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "bootstrap:pricing": "ts-node --compiler-options '{\"module\":\"commonjs\"}' src/bootstrap/pricing-bootstrap.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "seed": "ts-node --compiler-options '{\"module\":\"commonjs\"}' prisma/seed.ts",
+    "seed:cities": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/seed-tr-cities-csv.ts",
+    "seed:categories": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/seed-categories-csv.ts",
+    "test": "jest -c ./jest.config.ts --passWithNoTests",
+    "test:watch": "jest -c ./jest.config.ts --watchAll=false --passWithNoTests",
+    "import:sheets": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/import-sheets.ts",
+    "convert:grupanya": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/convert-grupanya-csv.ts",
+    "convert-and-import": "npm run convert:grupanya && npm run import:sheets -- ../artifacts/import",
+    "smoke": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/smoke.ts",
+    "e2e:demo": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/e2e-demo.ts",
+    "fix:account-categories": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/fix-account-categories.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "^10.0.0",
+    "@nestjs/core": "^10.0.0",
+    "@nestjs/platform-express": "^10.0.0",
+    "@nestjs/schedule": "^4.1.0",
+    "@nestjs/swagger": "^7.4.2",
+    "@prisma/client": "^5.20.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "dotenv": "^16.4.5",
+    "otplib": "^13.3.0",
+    "qrcode": "^1.5.4",
+    "reflect-metadata": "^0.2.0",
+    "rxjs": "^7.8.1",
+    "swagger-ui-express": "^5.0.1"
+  },
+  "prisma": {
+    "seed": "ts-node --compiler-options '{\"module\":\"commonjs\"}' prisma/seed.ts"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.11.0",
+    "@types/qrcode": "^1.5.6",
+    "jest": "^29.7.0",
+    "prisma": "^5.20.0",
+    "ts-jest": "^29.2.3",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.6.0"
+  }
+}

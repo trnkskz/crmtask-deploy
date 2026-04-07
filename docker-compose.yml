@@ -1,0 +1,69 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: crmtask_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: crmtask
+    volumes:
+      - pgdata_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      # Postgres inside compose
+      DATABASE_URL: postgresql://crmtask_user:${DB_PASSWORD}@postgres:5432/crmtask?schema=public
+      # Redis inside compose (optional)
+      REDIS_URL: redis://redis:6379
+      CORS_ORIGINS: "${CORS_ORIGINS}"
+      DISABLE_JOBS: "true"
+      ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@crmtask.local}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD}"
+      AUTH_SECRET: "${AUTH_SECRET}"
+      AUTH_COOKIE_SECURE: "false"
+      PORT: 3001
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "3001"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE_URL: /api
+      PORT: 5173
+    depends_on:
+      - api
+    expose:
+      - "5173"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - api
+      - web
+
+volumes:
+  pgdata_prod:

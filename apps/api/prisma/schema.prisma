@@ -1,0 +1,533 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String         @id @default(cuid())
+  email            String         @unique
+  name             String?
+  firstName        String?
+  lastName         String?
+  phone            String?
+  team             String?
+  settings         Json?
+  role             Role
+  managerId        String?
+  appRoleId        String?
+  password         String?
+  isActive         Boolean        @default(true)
+  twoFactorEnabled Boolean        @default(false)
+  twoFactorSecret  String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  accountNotes     AccountNote[]
+  activityLogs     ActivityLog[]
+  notifications    Notification[] @relation("NotificationRecipient")
+  offers           Offer[]
+  createdProjects  Project[]      @relation("ProjectCreator")
+  refreshTokens    RefreshToken[]
+  createdTasks     Task[]         @relation("TaskCreator")
+  ownedTasks       Task[]         @relation("TaskOwner")
+  createdTaskLists TaskList[]     @relation("TaskListCreator")
+  appRole          AppRole?       @relation(fields: [appRoleId], references: [id])
+  manager          User?          @relation("ManagerMembers", fields: [managerId], references: [id])
+  members          User[]         @relation("ManagerMembers")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AppRole {
+  id          String           @id @default(cuid())
+  name        String           @unique
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  permissions RolePermission[]
+  users       User[]
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  name        String           @unique
+  module      String
+  description String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  roles       RolePermission[]
+}
+
+model RolePermission {
+  id           String     @id @default(cuid())
+  roleId       String
+  permissionId String
+  createdAt    DateTime   @default(now())
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  role         AppRole    @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+}
+
+model TaskList {
+  id          String      @id @default(cuid())
+  name        String
+  tag         TaskListTag
+  description String?
+  isActive    Boolean     @default(true)
+  createdBy   String?
+  createdById String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  tasks       Task[]
+  creator     User?       @relation("TaskListCreator", fields: [createdById], references: [id])
+}
+
+model Account {
+  id              String            @id @default(cuid())
+  accountPublicId String?           @unique
+  accountName     String
+  businessName    String
+  category        String
+  mainCategory    String?
+  subCategory     String?
+  source          AccountSource
+  type            AccountType
+  status          AccountStatus
+  city            String?
+  district        String?
+  address         String?
+  website         String?
+  instagram       String?
+  campaignUrl     String?
+  businessContact String?
+  contactPerson   String?
+  notes           String?
+  services        String?
+  bestService     String?
+  creationDate    DateTime          @default(now())
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  contacts        AccountContact[]
+  notesRel        AccountNote[]
+  history         ActivityHistory[]
+  deals           Deal[]
+  Lead            Lead[]
+  tasks           Task[]
+}
+
+model AccountContact {
+  id        String        @id @default(cuid())
+  accountId String
+  type      ContactType
+  name      String
+  phone     String?
+  email     String?
+  address   String?
+  isPrimary Boolean       @default(false)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  account   Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  taskLinks TaskContact[]
+}
+
+model AccountNote {
+  id          String   @id @default(cuid())
+  accountId   String
+  createdById String?
+  content     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  account     Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  createdBy   User?    @relation(fields: [createdById], references: [id])
+}
+
+model Task {
+  id                 String         @id @default(cuid())
+  taskListId         String
+  projectId          String?
+  accountId          String
+  ownerId            String?
+  createdById        String?
+  legacyAssignee     String?        // CSV'den aktarılan ancak sistemde bulunmayan eski personelin ismini tutar
+  category           TaskCategory
+  type               TaskType
+  priority           TaskPriority
+  accountType        AccountType
+  creationChannel    TaskCreationChannel @default(UNKNOWN)
+  source             AccountSource
+  mainCategory       String
+  subCategory        String
+  contact            String?
+  details            String
+  city               String?
+  district           String?
+  externalRef        String?
+  campaignUrl        String?
+  durationDays       Int?
+  assignmentDate     DateTime?
+  dueDate            DateTime?
+  status             TaskStatus
+  generalStatus      GeneralStatus  @default(OPEN)
+  poolTeam           PoolTeam       @default(GENERAL)
+  closedAt           DateTime?
+  closedReason       String?
+  creationDate       DateTime       @default(now())
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  historicalAssignee String?
+  logs               ActivityLog[]
+  Deal               Deal[]
+  notifications      Notification[]
+  offers             Offer[]
+  account            Account        @relation(fields: [accountId], references: [id])
+  creator            User?          @relation("TaskCreator", fields: [createdById], references: [id])
+  owner              User?          @relation("TaskOwner", fields: [ownerId], references: [id])
+  project            Project?       @relation(fields: [projectId], references: [id])
+  taskList           TaskList       @relation(fields: [taskListId], references: [id])
+  taskContacts       TaskContact[]
+
+  @@index([projectId])
+}
+
+model ActivityLog {
+  id           String    @id @default(cuid())
+  taskId       String
+  authorId     String
+  reason       Reason
+  followUpDate DateTime?
+  text         String?
+  createdAt    DateTime  @default(now())
+  author       User      @relation(fields: [authorId], references: [id])
+  task         Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  offers       Offer[]
+}
+
+model Offer {
+  id            String       @id @default(cuid())
+  taskId        String
+  activityLogId String?
+  adFee         Float?
+  commission    Float?
+  joker         Float?
+  type          OfferType?
+  status        OfferStatus  @default(PENDING)
+  createdById   String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  activityLog   ActivityLog? @relation(fields: [activityLogId], references: [id])
+  createdBy     User?        @relation(fields: [createdById], references: [id])
+  task          Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+}
+
+model TaskContact {
+  id        String         @id @default(cuid())
+  taskId    String
+  contactId String
+  isPrimary Boolean        @default(false)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  contact   AccountContact @relation(fields: [contactId], references: [id])
+  task      Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  taskId    String
+  toUserId  String
+  message   String
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  task      Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  toUser    User      @relation("NotificationRecipient", fields: [toUserId], references: [id], onDelete: Cascade)
+}
+
+model Lookup {
+  id        String   @id @default(cuid())
+  type      String
+  code      String?
+  label     String
+  active    Boolean  @default(true)
+  parentId  String?
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  parent    Lookup?  @relation("LookupTree", fields: [parentId], references: [id])
+  children  Lookup[] @relation("LookupTree")
+
+  @@index([type, active])
+}
+
+model CategoryMain {
+  id        String        @id @default(cuid())
+  label     String
+  active    Boolean       @default(true)
+  order     Int           @default(0)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  subs      CategorySub[]
+}
+
+model CategorySub {
+  id             String       @id @default(cuid())
+  categoryMainId String
+  label          String
+  active         Boolean      @default(true)
+  order          Int          @default(0)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  categoryMain   CategoryMain @relation(fields: [categoryMainId], references: [id], onDelete: Cascade)
+}
+
+model ActivityHistory {
+  id        String   @id @default(cuid())
+  accountId String
+  type      String
+  summary   String
+  createdAt DateTime @default(now())
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+}
+
+model Deal {
+  id        String        @id @default(cuid())
+  accountId String
+  taskId    String?
+  status    String
+  startDate DateTime?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  account   Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  task      Task?         @relation(fields: [taskId], references: [id])
+  histories DealHistory[]
+}
+
+model DealHistory {
+  id        String   @id @default(cuid())
+  dealId    String
+  summary   String?
+  createdAt DateTime @default(now())
+  deal      Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+}
+
+model Lead {
+  id              String   @id @default(cuid())
+  workflowStatus  String
+  linkedAccountId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  linkedAccount   Account? @relation(fields: [linkedAccountId], references: [id])
+}
+
+model AuditLog {
+  id           String          @id @default(cuid())
+  entityType   AuditEntityType
+  entityId     String
+  action       AuditAction
+  userId       String?
+  previousData Json?
+  newData      Json?
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime        @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model PricingItem {
+  id             String          @id @default(cuid())
+  name           String
+  category       PricingCategory
+  unitPrice      Float
+  commissionRate Float?
+  description    String?
+  status         PricingStatus   @default(ACTIVE)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([category, status])
+  @@index([createdAt])
+}
+
+model PricingConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  title     String?
+  payload   Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  name        String
+  description String?
+  status      ProjectStatus @default(PLANNED)
+  startDate   DateTime?
+  endDate     DateTime?
+  createdById String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  createdBy   User?         @relation("ProjectCreator", fields: [createdById], references: [id])
+  tasks       Task[]
+
+  @@index([status])
+  @@index([createdById])
+  @@index([createdAt])
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  TEAM_LEADER
+  SALESPERSON
+}
+
+enum AccountStatus {
+  ACTIVE
+  PASSIVE
+}
+
+enum AccountType {
+  KEY
+  LONG_TAIL
+}
+
+enum AccountSource {
+  QUERY
+  FRESH
+  RAKIP
+  OLD_RAKIP
+  REFERANS
+  OLD
+}
+
+enum ContactType {
+  BUSINESS
+  PERSON
+}
+
+enum TaskCategory {
+  ISTANBUL_CORE
+  ANADOLU_CORE
+  TRAVEL
+}
+
+enum TaskType {
+  GENERAL
+  PROJECT
+}
+
+enum TaskCreationChannel {
+  REQUEST_FLOW
+  MANUAL_TASK_CREATE
+  PROJECT_GENERATED
+  UNKNOWN
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum TaskStatus {
+  NEW
+  HOT
+  NOT_HOT
+  FOLLOWUP
+  DEAL
+  COLD
+}
+
+enum GeneralStatus {
+  OPEN
+  CLOSED
+}
+
+enum PoolTeam {
+  GENERAL
+  TEAM_1
+  TEAM_2
+}
+
+enum TaskListTag {
+  GENERAL
+  PROJECT
+}
+
+enum Reason {
+  YETKILIYE_ULASILDI
+  YETKILIYE_ULASILAMADI
+  ISLETMEYE_ULASILAMADI
+  TEKLIF_VERILDI
+  KARSITEKLIF
+  TEKLIF_KABUL
+  TEKLIF_RED
+  ISLETME_CALISMAK_ISTEMIYOR
+  GRUPANYA_CALISMAK_ISTEMIYOR
+  TEKRAR_ARANACAK
+  GORUSME
+  ISLETME_KAPANMIS
+}
+
+enum OfferType {
+  OUR_OFFER
+  COUNTER_OFFER
+}
+
+enum OfferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  VIEW
+}
+
+enum AuditEntityType {
+  USER
+  LEAD
+  ACCOUNT
+  TASK
+  DEAL
+  TASKLIST
+  LOOKUP
+  PROJECT
+  PRICING
+}
+
+enum PricingCategory {
+  COMMISSION
+  SERVICE
+  DOPING
+  SOCIAL_MEDIA
+}
+
+enum PricingStatus {
+  ACTIVE
+  PASSIVE
+}
+
+enum ProjectStatus {
+  PLANNED
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}

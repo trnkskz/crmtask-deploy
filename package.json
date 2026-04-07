@@ -1,0 +1,16 @@
+{
+  "name": "crmtask-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm --workspace=apps/api run dev",
+    "dev:web": "npm --workspace=apps/web run dev",
+    "build": "npm --ws run build",
+    "typecheck": "npm --ws run typecheck",
+    "test": "npm --ws --if-present run test"
+  }
+}
