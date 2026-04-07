@@ -21,10 +21,11 @@ Bu klasor Hetzner gibi bir Linux sunucuda tek komutla ayağa kaldirilacak sekild
 
 ## Kurulum
 
-1. Bu klasore girin:
+1. Repo'yu sunucuya alin ve klasore girin:
 
 ```bash
-cd deployhazir
+git clone git@github.com:trnkskz/crmtask-deploy.git
+cd crmtask-deploy
 ```
 
 2. Bu klasorde hazir bir `.env` dosyasi vardir.
