@@ -13,10 +13,6 @@ Bu klasor Hetzner gibi bir Linux sunucuda tek komutla ayağa kaldirilacak sekild
 - Otomatik admin olusturma
 - Otomatik pricing bootstrap
 
-Not:
-- Demo kullanici, demo task, demo isletme yoktur.
-- Ilk kurulumda sadece gerekli pricing verileri olusturulur.
-
 ## Gerekenler
 
 - Ubuntu/Debian tabanli bir sunucu
@@ -36,11 +32,11 @@ cd deployhazir
 3. Sadece `.env` icini doldurun.
 
 ```env
-DB_PASSWORD=guclu-bir-db-sifresi
+DB_PASSWORD=crmDB_7Kx!29Lm#Qp4Vz8Rt1Ns6Wd
 CORS_ORIGINS=http://SUNUCU_IP
-AUTH_SECRET=en-az-32-karakter-cok-guclu-bir-secret-degeri-yazin
-ADMIN_EMAIL=admin@example.com
-ADMIN_PASSWORD=guclu-bir-admin-sifresi
+AUTH_SECRET=crmAuth_9Qx!4Lm#Tz7Vp2Ns8Kd1Rw6Hy3Cb5Mf
+ADMIN_EMAIL=turankusaksiz@gmail.com
+ADMIN_PASSWORD=TuranAdmin!2026#Safe91
 ```
 
 Domain varsa `CORS_ORIGINS` icin domain kullanin:
@@ -66,13 +62,6 @@ bash deploy.sh
 - API container acilirken `prisma migrate deploy` calisir
 - Admin kullanicisi yoksa olusturulur
 - Pricing verileri bos ise otomatik yuklenir
-
-## Ne otomatik gelmez?
-
-- Demo account
-- Demo task
-- Demo manager/sales user
-- Test verisi
 
 ## Sonraki guncellemeler
 
