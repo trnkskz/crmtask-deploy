@@ -16,6 +16,7 @@ import reportControllerUrl from './js/controllers/reportController.js?url';
 import adminControllerUrl from './js/controllers/adminController.js?url';
 import pricingControllerUrl from './js/controllers/pricingController.js?url';
 import dashboardControllerUrl from './js/controllers/dashboardController.js?url';
+import operationsRadarControllerUrl from './js/controllers/operationsRadarController.js?url';
 import businessControllerUrl from './js/controllers/businessController.js?url';
 import projectControllerUrl from './js/controllers/projectController.js?url';
 import requestControllerUrl from './js/controllers/requestController.js?url';
@@ -41,6 +42,7 @@ const legacyScriptUrls = [
   adminControllerUrl,
   pricingControllerUrl,
   dashboardControllerUrl,
+  operationsRadarControllerUrl,
   businessControllerUrl,
   projectControllerUrl,
   requestControllerUrl,

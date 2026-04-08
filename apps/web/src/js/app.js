@@ -10,6 +10,13 @@
 window.initFlatpickr = function() {
     const input = document.getElementById('flatpickrInput');
     if (!input) return;
+    const pickerMount = document.getElementById('followupPickerMount');
+    const calendarPane = document.getElementById('followupCalendarPane');
+    const syncCalendarState = (isOpen) => {
+        if (calendarPane) {
+            calendarPane.classList.toggle('followup-calendar-open', !!isOpen);
+        }
+    };
     if (window.fpInstance) { window.fpInstance.destroy(); window.fpInstance = null; }
     window.fpInstance = flatpickr(input, {
         locale: 'tr',
@@ -17,6 +24,27 @@ window.initFlatpickr = function() {
         dateFormat: 'Y-m-d H:i',
         minDate: 'today',
         time_24hr: true,
+        disableMobile: true,
+        monthSelectorType: 'static',
+        appendTo: pickerMount || undefined,
+        positionElement: input,
+        prevArrow: '<span aria-hidden="true">‹</span>',
+        nextArrow: '<span aria-hidden="true">›</span>',
+        onReady: function(_selectedDates, _dateStr, instance) {
+            if (instance?.calendarContainer) {
+                instance.calendarContainer.classList.add('followup-flatpickr-theme');
+            }
+            syncCalendarState(false);
+        },
+        onOpen: function() {
+            syncCalendarState(true);
+            if (!window._isApplyingQuickFollowup && typeof window.markActiveQuickFollowup === 'function') {
+                window.markActiveQuickFollowup(null);
+            }
+        },
+        onClose: function() {
+            syncCalendarState(false);
+        },
         onChange: function(selectedDates, dateStr) {
             const dtContainer = document.getElementById('dateTimePickerContainer');
             if (dtContainer && dateStr) dtContainer.querySelector('span').style.color = 'var(--success-color)';

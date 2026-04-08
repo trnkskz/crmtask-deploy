@@ -7,6 +7,29 @@ import { GeneralStatus, TaskListTag, Reason } from '@prisma/client'
 import { NotificationsService } from '../notifications/notifications.service'
 import { AuditService } from '../audit/audit.service'
 
+const AUTO_SYSTEM_NOTE_TEXTS = new Set([
+  'satış temsilcisi bu işletmeyi havuzdan kendi üzerine aldı',
+  'yeni kayıt oluşturuldu ve satışçı görevi başlattı',
+  'yeni işletme oluşturuldu ve görev başlatıldı',
+])
+
+function normalizeComparableText(value: unknown) {
+  return String(value || '')
+    .trim()
+    .toLocaleLowerCase('tr-TR')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\[.*?\]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function shouldCreateInitialTaskNote(details?: string, systemLogText?: string) {
+  const normalizedDetails = normalizeComparableText(details)
+  if (!normalizedDetails) return false
+  if (!systemLogText || !String(systemLogText).trim()) return true
+  return !AUTO_SYSTEM_NOTE_TEXTS.has(normalizedDetails)
+}
+
 @Injectable()
 export class TasksService {
   constructor(private prisma: PrismaService, @Optional() private notifications?: NotificationsService, @Optional() private audit?: AuditService) {}
@@ -312,7 +335,7 @@ export class TasksService {
         })
       }
 
-      if (dto.details && dto.details.trim() !== '') {
+      if (shouldCreateInitialTaskNote(dto.details, dto.systemLogText)) {
         await tx.activityLog.create({
           data: {
             taskId: createdTask.id,

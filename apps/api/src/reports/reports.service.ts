@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { PrismaService } from '../infrastructure/prisma/prisma.service'
+import { OperationsRadarQueryDto } from './dto/operations-radar.dto'
 
 function toCsv(rows: any[]): string {
   if (!rows.length) return ''
@@ -65,6 +66,86 @@ function resolveCanonicalCategory(mainCategory: string, subCategory: string, com
 @Injectable()
 export class ReportsService {
   constructor(private prisma: PrismaService) {}
+
+  private startOfDay(date: Date) {
+    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()))
+  }
+
+  private endOfDay(date: Date) {
+    const start = this.startOfDay(date)
+    return new Date(start.getTime() + 86400000 - 1)
+  }
+
+  private resolveRadarDateRange(query?: OperationsRadarQueryDto) {
+    const now = new Date()
+    const todayStart = this.startOfDay(now)
+
+    const mode = query?.mode || 'today'
+    if (mode === 'last30') {
+      return {
+        from: new Date(todayStart.getTime() - (29 * 86400000)),
+        to: this.endOfDay(now),
+      }
+    }
+    if (mode === 'last7') {
+      return {
+        from: new Date(todayStart.getTime() - (6 * 86400000)),
+        to: this.endOfDay(now),
+      }
+    }
+    if (mode === 'day') {
+      const selected = query?.date ? new Date(query.date) : now
+      const safe = Number.isNaN(selected.getTime()) ? now : selected
+      return {
+        from: this.startOfDay(safe),
+        to: this.endOfDay(safe),
+      }
+    }
+    return {
+      from: todayStart,
+      to: this.endOfDay(now),
+    }
+  }
+
+  private async scopedRadarUsers(
+    user?: { id: string; role: 'ADMIN'|'MANAGER'|'TEAM_LEADER'|'SALESPERSON' },
+    query?: OperationsRadarQueryDto,
+  ) {
+    const where: any = {
+      role: 'SALESPERSON',
+      isActive: true,
+    }
+
+    if (user?.role === 'SALESPERSON') {
+      where.id = user.id
+    } else if (user?.role === 'MANAGER') {
+      where.managerId = user.id
+      if (query?.team?.trim()) where.team = query.team.trim()
+    } else if (user?.role === 'TEAM_LEADER') {
+      const actor = await this.prisma.user.findUnique({
+        where: { id: user.id },
+        select: { team: true },
+      })
+      const actorTeam = String(actor?.team || '').trim()
+      where.team = actorTeam || '__NO_TEAM_SCOPE__'
+    } else if (query?.team?.trim()) {
+      where.team = query.team.trim()
+    }
+
+    if (query?.userId?.trim()) {
+      where.id = query.userId.trim()
+    }
+
+    return this.prisma.user.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        team: true,
+      },
+      orderBy: { name: 'asc' },
+    })
+  }
 
   private async taskScope(user?: { id: string; role: 'ADMIN'|'MANAGER'|'TEAM_LEADER'|'SALESPERSON' }) {
     const taskScope: any = {}
@@ -228,6 +309,147 @@ export class ReportsService {
       this.prisma.task.count({ where }),
     ])
     return { total, byStatus, byGeneralStatus }
+  }
+
+  async operationsRadar(
+    user?: { id: string; role: 'ADMIN'|'MANAGER'|'TEAM_LEADER'|'SALESPERSON' },
+    query?: OperationsRadarQueryDto,
+  ) {
+    const { from, to } = this.resolveRadarDateRange(query)
+    const scopedUsers = await this.scopedRadarUsers(user, query)
+    const scopedUserIds = scopedUsers.map((item) => item.id)
+    if (scopedUserIds.length === 0) {
+      return {
+        mode: query?.mode || 'today',
+        from: from.toISOString(),
+        to: to.toISOString(),
+        groups: [],
+        users: [],
+      }
+    }
+
+    const scopedUserMap = new Map(scopedUsers.map((item) => [item.id, item]))
+    const scopedUserNames = new Set(scopedUsers.map((item) => String(item.name || '').trim()).filter(Boolean))
+
+    const [activityLogs, fallbackTasks] = await this.prisma.$transaction([
+      this.prisma.activityLog.findMany({
+        where: {
+          createdAt: { gte: from, lte: to },
+          task: {
+            ownerId: { in: scopedUserIds },
+          },
+        },
+        select: {
+          id: true,
+          text: true,
+          createdAt: true,
+          author: { select: { name: true } },
+          task: {
+            select: {
+              id: true,
+              status: true,
+              details: true,
+              createdAt: true,
+              owner: { select: { id: true, name: true, team: true } },
+              account: { select: { accountName: true, businessName: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 5000,
+      }),
+      this.prisma.task.findMany({
+        where: {
+          ownerId: { in: scopedUserIds },
+          creationDate: { gte: from, lte: to },
+          logs: { none: {} },
+        },
+        select: {
+          id: true,
+          status: true,
+          details: true,
+          createdAt: true,
+          owner: { select: { id: true, name: true, team: true } },
+          account: { select: { accountName: true, businessName: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 1000,
+      }),
+    ])
+
+    const statusLabels: Record<string, string> = {
+      NEW: 'Yeni',
+      HOT: 'Hot',
+      NOT_HOT: 'Not Hot',
+      FOLLOWUP: 'Takip',
+      DEAL: 'Deal',
+      COLD: 'Cold',
+    }
+
+    const buildFallbackText = (task: any) => {
+      const label = statusLabels[String(task?.status || '').toUpperCase()] || String(task?.status || 'İşlem')
+      if (task?.details) return `[${label}] ${String(task.details).trim()}`
+      return `[${label}] Güncel görev hareketi`
+    }
+
+    const items = activityLogs.map((log) => {
+      const ownerName = String(log.task?.owner?.name || '').trim()
+      const actorName = String(log.author?.name || '').trim()
+      const effectiveActor = actorName && !actorName.toLocaleLowerCase('tr-TR').includes('sistem')
+        ? actorName
+        : ownerName
+      return {
+        id: log.id,
+        taskId: log.task.id,
+        timestamp: log.createdAt.toISOString(),
+        actorName: effectiveActor,
+        team: String(log.task?.owner?.team || '').trim(),
+        businessName: log.task?.account?.accountName || log.task?.account?.businessName || 'Bilinmeyen İşletme',
+        text: String(log.text || '').trim() || buildFallbackText(log.task),
+        status: String(log.task?.status || '').toLowerCase(),
+      }
+    }).filter((item) => item.actorName && scopedUserNames.has(item.actorName))
+
+    fallbackTasks.forEach((task) => {
+      const ownerName = String(task.owner?.name || '').trim()
+      if (!ownerName || !scopedUserNames.has(ownerName)) return
+      items.push({
+        id: `task:${task.id}`,
+        taskId: task.id,
+        timestamp: task.createdAt.toISOString(),
+        actorName: ownerName,
+        team: String(task.owner?.team || '').trim(),
+        businessName: task.account?.accountName || task.account?.businessName || 'Bilinmeyen İşletme',
+        text: buildFallbackText(task),
+        status: String(task.status || '').toLowerCase(),
+      })
+    })
+
+    items.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+
+    const groupsMap = new Map<string, typeof items>()
+    items.forEach((item) => {
+      const key = item.timestamp.slice(0, 10)
+      const arr = groupsMap.get(key) || []
+      arr.push(item)
+      groupsMap.set(key, arr)
+    })
+
+    const groups = Array.from(groupsMap.entries())
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([date, events]) => ({ date, events }))
+
+    return {
+      mode: query?.mode || 'today',
+      from: from.toISOString(),
+      to: to.toISOString(),
+      groups,
+      users: scopedUsers.map((item) => ({
+        id: item.id,
+        name: item.name,
+        team: item.team || '',
+      })),
+    }
   }
 
   async tasksCsv(q: { ownerId?: string; historicalAssignee?: string; status?: string; generalStatus?: string; source?: string; creationChannel?: string; mainCategory?: string; subCategory?: string; from?: string; to?: string }, user?: { id: string; role: 'ADMIN'|'MANAGER'|'TEAM_LEADER'|'SALESPERSON' }) {

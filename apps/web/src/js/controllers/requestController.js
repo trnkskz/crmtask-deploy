@@ -404,13 +404,13 @@ const RequestController = (() => {
             priority: 'MEDIUM',
             accountType: 'KEY',
             ownerId,
-            details: note || 'Satış temsilcisi bu işletmeyi havuzdan kendi üzerine aldı',
             creationChannel: 'REQUEST_FLOW',
             source: sourceEnum,
             mainCategory: mainCat,
             subCategory: subCat,
             systemLogText: '<span class="manager-note">[Sistem]</span> Satış temsilcisi bu işletmeyi havuzdan kendi üzerine aldı ve görevi başlattı.',
         };
+        if (note) taskPayload.details = note;
         if (isCampaignUrlRequiredSource(source)) {
             taskPayload.campaignUrl = campaignUrl || undefined;
         }
@@ -558,7 +558,6 @@ const RequestController = (() => {
                 priority: 'MEDIUM',
                 accountType: 'KEY',
                 ownerId,
-                details: taskNote || 'Yeni kayıt oluşturuldu ve satışçı görevi başlattı',
                 creationChannel: 'REQUEST_FLOW',
                 source: sourceEnum,
                 mainCategory: getValue('reqMainCat'),
@@ -570,6 +569,7 @@ const RequestController = (() => {
                     email: email,
                 }
             };
+            if (taskNote) taskPayload.details = taskNote;
             if (campaignUrl) {
                 taskPayload.campaignUrl = campaignUrl;
             }

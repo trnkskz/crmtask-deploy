@@ -5,6 +5,7 @@ import { Roles } from '../security/role.types'
 import { ReportsService } from './reports.service'
 import { ApiTags } from '@nestjs/swagger'
 import { RequirePermission } from '../security/permissions.decorator'
+import { OperationsRadarQueryDto } from './dto/operations-radar.dto'
 
 @ApiTags('reports')
 @Controller('reports')
@@ -30,6 +31,13 @@ export class ReportsController {
   @RequirePermission('viewReports')
   taskStatus(@Req() req: any, @Query('from') from?: string, @Query('to') to?: string) {
     return this.svc.taskStatus(req.user, { from, to })
+  }
+
+  @Get('operations-radar')
+  @MinRole(Roles.SALESPERSON)
+  @RequirePermission('viewReports')
+  operationsRadar(@Req() req: any, @Query() q: OperationsRadarQueryDto) {
+    return this.svc.operationsRadar(req.user, q)
   }
 
   @Get('tasks.csv')

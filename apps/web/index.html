@@ -439,20 +439,6 @@
                                 <div class="summary-list-item" onclick="goToAllTasks('followup')"><span class="summary-title">Takip</span><span class="badge bg-followup" id="mgrDashFollowup">0</span></div>
                             </div>
                         </div>
-                    </div>
-
-                    <div class="manager-secondary-stack">
-                        <div class="radar-module">
-                            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #e2e8f0; padding-bottom:12px; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
-                                <h3 style="margin:0; display:flex; align-items:center; gap:8px; font-size:15px; color:var(--secondary-color); font-weight:800;">
-                                    📡 Canlı Operasyon Radarı
-                                </h3>
-                                <select id="mgrRadarUserFilter" onchange="refreshLiveFeed()" style="padding:6px 10px; border-radius:6px; border:1px solid #cbd5e1; font-size:11px; outline:none; background:#f8fafc; color:var(--secondary-color); font-weight:700; cursor:pointer;">
-                                    <option value="">Tüm Ekip</option>
-                                </select>
-                            </div>
-                            <div id="mgrLiveFeed" class="radar-scroll-area"></div>
-                        </div>
 
                         <div class="dash-module manager-performance-module">
                             <div class="manager-module-head">
@@ -464,9 +450,68 @@
                             <div id="mgrPerformanceGrid" class="performance-grid"></div>
                         </div>
                     </div>
+
+                    <div class="manager-secondary-stack manager-radar-column">
+                        <div class="radar-module manager-radar-module">
+                            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #e2e8f0; padding-bottom:12px; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
+                                <h3 style="margin:0; display:flex; align-items:center; gap:8px; font-size:15px; color:var(--secondary-color); font-weight:800;">
+                                    📡 Canlı Operasyon Radarı
+                                    <button type="button" class="radar-detail-trigger" onclick="switchPage('page-operations-radar')" title="Operasyon radar detayını aç">
+                                        🔋
+                                    </button>
+                                </h3>
+                                <select id="mgrRadarUserFilter" onchange="refreshLiveFeed()" style="padding:6px 10px; border-radius:6px; border:1px solid #cbd5e1; font-size:11px; outline:none; background:#f8fafc; color:var(--secondary-color); font-weight:700; cursor:pointer;">
+                                    <option value="">Tüm Ekip</option>
+                                </select>
+                            </div>
+                            <div id="mgrLiveFeed" class="radar-scroll-area"></div>
+                        </div>
+                    </div>
                 </div>
 
                 </div>
+        </div>
+
+        <div id="page-operations-radar" class="page-content admin-tl-only">
+            <div class="operations-radar-page">
+                <div class="operations-radar-head">
+                    <div>
+                        <h2>Operasyon Radar Detayı</h2>
+                        <p>Canlı operasyon akışını günlük ve kısıtlı tarih aralıkları ile filtreleyin.</p>
+                    </div>
+                    <button type="button" class="btn-secondary" onclick="switchPage('page-dashboard')">Panele Dön</button>
+                </div>
+
+                <div class="operations-radar-filters">
+                    <label class="operations-radar-field">
+                        <span>Aralık</span>
+                        <select id="operationsRadarMode" onchange="handleOperationsRadarFilterChange()">
+                            <option value="today">Bugün</option>
+                            <option value="day">Belirli Gün</option>
+                            <option value="last7">Son 7 Gün</option>
+                            <option value="last30">Son 30 Gün</option>
+                        </select>
+                    </label>
+                    <label id="operationsRadarDateWrap" class="operations-radar-field">
+                        <span>Tarih</span>
+                        <input id="operationsRadarDate" type="date" onchange="handleOperationsRadarFilterChange()" />
+                    </label>
+                    <label class="operations-radar-field">
+                        <span>Kullanıcı</span>
+                        <select id="operationsRadarUserFilter" onchange="handleOperationsRadarFilterChange()">
+                            <option value="">Tüm Kullanıcılar</option>
+                        </select>
+                    </label>
+                    <label class="operations-radar-field">
+                        <span>Ekip</span>
+                        <select id="operationsRadarTeamFilter" onchange="handleOperationsRadarFilterChange()">
+                            <option value="">Tüm Ekipler</option>
+                        </select>
+                    </label>
+                </div>
+
+                <div id="operationsRadarResults" class="operations-radar-results"></div>
+            </div>
         </div>
 
         <div id="page-my-tasks" class="page-content user-only">
@@ -1644,8 +1689,13 @@
     </div>
 
     <div id="teamPulseModal" class="modal-overlay" onclick="closeModalOnOutsideClick(event)">
-        <div class="modal-content modal-xl team-pulse-modal-content">
-            <button class="modal-close-btn" onclick="closeModal('teamPulseModal')">X</button>
+        <div class="team-pulse-dialog" role="dialog" aria-modal="true" aria-labelledby="teamPulseModalTitle">
+            <button class="team-pulse-dialog-close" onclick="closeModal('teamPulseModal')" aria-label="Kapat">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
             <div id="teamPulseModalBody"></div>
         </div>
     </div>

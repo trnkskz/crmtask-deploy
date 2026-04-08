@@ -47,8 +47,6 @@ function renderPricingPage() {
     const activeInteractiveTab = currentPricingTab === 'komisyon' ? 'hizmetler' : currentPricingTab;
     const tabItems = interactiveItemsByTab[activeInteractiveTab] || [];
 
-    const safeAverageCommission = _calculateAverageCommission(commissionItems);
-    const totalServiceCount = serviceItems.length + dopingItems.length + socialItems.length;
     const cartMetrics = _calculateCartMetrics(AppState.offerCart);
 
     const renderCommissionCard = (item, index) => {
@@ -56,9 +54,10 @@ function renderPricingPage() {
         const tones = ['emerald', 'blue', 'amber', 'slate'];
         const tone = tones[index % tones.length];
         return `
-        <div class="pricing-insight-card tone-${tone}">
-            <div class="pricing-insight-rate">${item.val || '%0'}</div>
-            <div class="pricing-insight-title">${item.name}</div>
+        <div class="pricing-overview-card pricing-hero-commission-card tone-${tone}">
+            <span class="pricing-overview-label">${item.name}</span>
+            <strong>${item.val || '%0'}</strong>
+            <small>Komisyon oranı</small>
         </div>`;
     };
 
@@ -80,55 +79,13 @@ function renderPricingPage() {
         </div>`;
     };
 
-    const managerLink = AppState.loggedInUser?.role === 'Yönetici'
-        ? `<button type="button" class="pricing-admin-link" onclick="switchPage('page-admin'); setTimeout(() => switchAdminTab('pricing'), 0);">Fiyat Yönetimi'ne Git</button>`
-        : '';
-
     const html = `
     <div class="pricing-dashboard-shell">
         <div class="pricing-dashboard-hero">
-            <div class="pricing-hero-copy">
-                <span class="pricing-hero-kicker">Ticari Kontrol Paneli</span>
-                <h1>Komisyonu üstte görün, teklifi altta çalıştırın.</h1>
-                <p>Komisyon oranları burada referans kartı olarak izlenir. Etkileşimli seçimler hizmet, doping ve sosyal medya sepetinde yapılır. Veriler doğrudan Fiyat Yönetimi kaynağıyla senkron kalır.</p>
-                <div class="pricing-hero-actions">
-                    <span class="pricing-source-pill">Canlı kaynak: Fiyat Yönetimi</span>
-                    ${managerLink}
+            <div class="pricing-hero-commission-board">
+                <div class="pricing-hero-commission-grid">
+                    ${commissionItems.length > 0 ? commissionItems.map(renderCommissionCard).join('') : '<div class="pricing-reference-empty">Komisyon verisi bulunmuyor.</div>'}
                 </div>
-            </div>
-            <div class="pricing-overview-grid">
-                <div class="pricing-overview-card">
-                    <span class="pricing-overview-label">Ortalama Komisyon</span>
-                    <strong>${safeAverageCommission}</strong>
-                    <small>${commissionItems.length} kategori referansı</small>
-                </div>
-                <div class="pricing-overview-card">
-                    <span class="pricing-overview-label">Aktif Servis Havuzu</span>
-                    <strong>${totalServiceCount}</strong>
-                    <small>Hizmet + Doping + Sosyal</small>
-                </div>
-                <div class="pricing-overview-card">
-                    <span class="pricing-overview-label">Sepetteki Kalem</span>
-                    <strong>${cartMetrics.count}</strong>
-                    <small>${cartMetrics.totalInc.toLocaleString('tr-TR')} ₺ KDV dahil</small>
-                </div>
-                <div class="pricing-overview-card">
-                    <span class="pricing-overview-label">Tahmini Net Gelir</span>
-                    <strong>${cartMetrics.netRevenue.toLocaleString('tr-TR')} ₺</strong>
-                    <small>KDV hariç sepet toplamı</small>
-                </div>
-            </div>
-        </div>
-
-        <div class="pricing-dashboard-section">
-            <div class="pricing-section-head">
-                <div>
-                    <h3>Komisyon Bilgi Kartları</h3>
-                    <p>Bu alan referans amaçlıdır; komisyon oranları seçilmez, ticari çerçeve burada görünür tutulur.</p>
-                </div>
-            </div>
-            <div class="pricing-insight-grid">
-                ${commissionItems.length > 0 ? commissionItems.map(renderCommissionCard).join('') : '<div class="pricing-reference-empty">Komisyon verisi bulunmuyor.</div>'}
             </div>
         </div>
 

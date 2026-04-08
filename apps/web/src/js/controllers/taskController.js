@@ -182,32 +182,24 @@ const TaskController = (() => {
     function buildTeamPulseSummaryHtml(metric, activePeriod) {
         const labels = {
             contacted: 'Görüşülen',
-            idle: 'Pasif Görev',
-            opened: 'Create Task Sayısı',
-            open: 'Open Task',
+            opened: 'Create Task',
         };
         const accents = {
             contacted: 'contacted',
-            idle: 'idle',
             opened: 'opened',
-            open: 'open',
         };
 
         return Object.keys(labels).map((metricKey) => {
-            const periodMetrics = TEAM_PULSE_PERIODS.map((period) => ({
-                period,
-                count: metric[period]?.[metricKey]?.count || 0,
-            }));
             const activeValue = metric[activePeriod]?.[metricKey]?.count || 0;
-            const miniRow = periodMetrics
-                .map((item) => `<span>${item.period === 'daily' ? 'G' : item.period === 'weekly' ? 'H' : 'A'} <strong>${item.count}</strong></span>`)
-                .join('');
+            const helperText = metricKey === 'contacted'
+                ? 'Seçili dönemde tamamlanan görüşmeler'
+                : 'Seçili dönemde açılan yeni görevler';
 
             return `
                 <div class="team-pulse-metric ${accents[metricKey]}">
                     <div class="team-pulse-metric-label">${labels[metricKey]}</div>
                     <div class="team-pulse-metric-value">${activeValue}</div>
-                    <div class="team-pulse-metric-minirow">${miniRow}</div>
+                    <div class="team-pulse-metric-helper">${helperText}</div>
                 </div>
             `;
         }).join('');
@@ -216,14 +208,22 @@ const TaskController = (() => {
     function buildTeamPulseDetailList(items, emptyText, options = {}) {
         const itemClass = options.itemClass || 'team-pulse-detail-item';
         const limit = Number.isFinite(Number(options.limit)) ? Number(options.limit) : 6;
+        const emptyIcon = options.emptyIcon || '•';
         if (!items.length) {
-            return `<div class="team-pulse-empty">${emptyText}</div>`;
+            return `
+                <div class="team-pulse-empty">
+                    <span class="team-pulse-empty-icon">${emptyIcon}</span>
+                    <div class="team-pulse-empty-copy">
+                        <strong>Bu görünüm şu an boş.</strong>
+                        <span>${emptyText}</span>
+                    </div>
+                </div>
+            `;
         }
         return items.slice(0, limit).map((item) => `
             <button type="button" class="${itemClass}" onclick="event.stopPropagation(); openTaskModal('${escapeHtml(item.taskId)}')">
                 <span class="team-pulse-detail-main">
                     <strong>${escapeHtml(item.businessName)}</strong>
-                    <small>📍 ${escapeHtml(item.city)} • ${escapeHtml(item.meta)}</small>
                 </span>
                 <span class="team-pulse-detail-status">${escapeHtml(TASK_STATUS_LABELS[item.status] || item.status || '-')}</span>
             </button>
@@ -279,25 +279,48 @@ const TaskController = (() => {
                 onclick="setTeamPulseModalPeriod('${period}')"
             >${period === 'daily' ? 'Günlük' : period === 'weekly' ? 'Haftalık' : 'Aylık'}</button>
         `).join('');
+        const activePeriodLabel = getTeamPulsePeriodLabel(activePeriod);
+        const summaryPanels = [
+            {
+                title: 'Görüşülen',
+                icon: 'G',
+                tone: 'contacted',
+                empty: 'Bu aralıkta görüşme kaydı yok.',
+                items: detailMetrics.contacted?.items || [],
+            },
+            {
+                title: 'Create Task',
+                icon: 'C',
+                tone: 'opened',
+                empty: 'Bu aralıkta yeni görev açılmamış.',
+                items: detailMetrics.opened?.items || [],
+            },
+        ];
 
         return `
             <div class="team-pulse-modal-shell">
-                <div class="team-pulse-modal-head">
-                    <div>
-                        <div class="team-pulse-modal-kicker">Personel performans özeti</div>
-                        <h3>${escapeHtml(record.user.name || '-')}</h3>
-                        <p>${escapeHtml(record.user.team || 'Takım atanmadı')} için günlük, haftalık ve aylık görüşme ve görev özetleri.</p>
+                <div class="team-pulse-hero">
+                    <div class="team-pulse-modal-head">
+                        <div class="team-pulse-modal-copy">
+                            <div class="team-pulse-modal-kicker">Personel performans özeti</div>
+                            <h3 id="teamPulseModalTitle">${escapeHtml(record.user.name || '-')}</h3>
+                            <p>${escapeHtml(record.user.team || 'Takım atanmadı')} • ${activePeriodLabel}</p>
+                        </div>
+                        <div class="team-pulse-period-switcher">${periodButtons}</div>
                     </div>
-                    <div class="team-pulse-period-switcher">${periodButtons}</div>
-                </div>
-                <div class="team-pulse-metric-grid">
-                    ${buildTeamPulseSummaryHtml(record.metrics, activePeriod)}
-                </div>
-                <div class="team-pulse-modal-panels">
-                    <div class="team-pulse-modal-panel">
-                        <div class="team-pulse-detail-title">📞 ${getTeamPulsePeriodLabel(activePeriod)} görüşülen</div>
-                        ${buildTeamPulseDetailList(detailMetrics.contacted.items, 'Bu aralıkta görüşme kaydı yok.', { itemClass: 'team-pulse-modal-item', limit: 14 })}
+                    <div class="team-pulse-metric-grid">
+                        ${buildTeamPulseSummaryHtml(record.metrics, activePeriod)}
                     </div>
+                </div>
+                <div class="team-pulse-modal-layout concise">
+                    ${summaryPanels.map((panel) => `
+                        <div class="team-pulse-modal-panel ${panel.tone}">
+                            <div class="team-pulse-panel-head">
+                                <div class="team-pulse-detail-title"><span>${panel.icon}</span>${panel.title}</div>
+                            </div>
+                            ${buildTeamPulseDetailList(panel.items, panel.empty, { itemClass: 'team-pulse-modal-item', limit: 7, emptyIcon: panel.icon })}
+                        </div>
+                    `).join('')}
                 </div>
             </div>
         `;
@@ -1547,34 +1570,35 @@ const TaskController = (() => {
             
             <div id="miniModalDate" class="followup-modal-shell" style="display:none;">
                 <div class="followup-modal-head">
-                    <div>
-                        <h3 style="margin:0; color:var(--secondary-color);">🕒 Tekrar Arama Planı</h3>
-                        <p style="margin:6px 0 0 0; font-size:12px; color:#64748b;">Hızlı seçim yapın veya takvimden tarih-saat belirleyin.</p>
+                    <div class="followup-modal-copy">
+                        <h3 class="followup-modal-title">🕒 Tekrar Arama Planı</h3>
+                        <p class="followup-modal-subtitle">Hızlı seçim yapın veya takvimden tarih-saat belirleyin.</p>
                     </div>
                 </div>
                 <div class="followup-composer-grid">
                     <div class="followup-composer-pane">
                         <span class="followup-pane-title">Hızlı planlar</span>
                         <div class="followup-quick-grid">
-                            <button type="button" class="followup-quick-btn" onclick="pickQuickFollowup(0, 16, 0)">Bugün 16:00</button>
-                            <button type="button" class="followup-quick-btn" onclick="pickQuickFollowup(1, 10, 0)">Yarın 10:00</button>
-                            <button type="button" class="followup-quick-btn" onclick="pickQuickFollowup(1, 14, 0)">Yarın 14:00</button>
-                            <button type="button" class="followup-quick-btn" onclick="pickQuickFollowup(3, 11, 0)">3 Gün Sonra</button>
-                            <button type="button" class="followup-quick-btn" onclick="pickQuickFollowup(7)">Haftaya Aynı Saat</button>
+                            <button type="button" class="followup-quick-btn" onclick="pickQuickFollowup(0, 16, 0, this)">Bugün 16:00</button>
+                            <button type="button" class="followup-quick-btn" onclick="pickQuickFollowup(1, 10, 0, this)">Yarın 10:00</button>
+                            <button type="button" class="followup-quick-btn" onclick="pickQuickFollowup(1, 14, 0, this)">Yarın 14:00</button>
+                            <button type="button" class="followup-quick-btn" onclick="pickQuickFollowup(3, 11, 0, this)">3 Gün Sonra</button>
+                            <button type="button" class="followup-quick-btn" onclick="pickQuickFollowup(7, null, 0, this)">Haftaya Aynı Saat</button>
                         </div>
                     </div>
-                    <div class="followup-composer-pane">
+                    <div id="followupCalendarPane" class="followup-composer-pane followup-composer-pane--calendar">
                         <span class="followup-pane-title">Takvim ve saat</span>
                         <div class="premium-input-wrapper followup-picker-field">
-                            <input type="text" id="flatpickrInput" placeholder="Tarih ve Saat Seçin" style="width:100%; padding-left:15px !important; color:#b45309; font-weight:bold;">
+                            <input type="text" id="flatpickrInput" class="followup-flatpickr-input" placeholder="Tarih ve Saat Seçin">
                         </div>
+                        <div id="followupPickerMount" class="followup-picker-mount" aria-hidden="true"></div>
                         <textarea id="followupReasonNote" class="modern-capsule-input followup-note-input" placeholder="Opsiyonel not: neden tekrar aranacak?"></textarea>
                     </div>
                 </div>
                 <div id="followupSelectionSummary" class="followup-summary-box">Henüz tarih seçilmedi.</div>
                 <div class="followup-modal-footer">
-                    <button id="followupPlanBtn" onclick="executeSaveAction('${task.id}')" style="background:var(--warning-color); flex:1; border:none; padding:12px; color:#fff; border-radius:10px; font-weight:bold; cursor:pointer;" disabled>Planla</button>
-                    <button onclick="closeMiniModal()" style="background:#e2e8f0; color:#475569; flex:1; border:none; padding:12px; border-radius:10px; font-weight:bold; cursor:pointer;">İptal</button>
+                    <button id="followupPlanBtn" class="followup-action-btn followup-action-btn--primary" onclick="executeSaveAction('${task.id}')" disabled>Planla</button>
+                    <button class="followup-action-btn followup-action-btn--secondary" onclick="closeMiniModal()">İptal</button>
                 </div>
             </div>
 
@@ -1675,15 +1699,24 @@ const TaskController = (() => {
         }
     }
 
-    function pickQuickFollowup(dayOffset = 1, hour = null, minute = 0) {
+    function markActiveQuickFollowup(activeButton = null) {
+        document.querySelectorAll('#miniModalDate .followup-quick-btn').forEach((button) => {
+            button.classList.toggle('active', !!activeButton && button === activeButton);
+        });
+    }
+
+    function pickQuickFollowup(dayOffset = 1, hour = null, minute = 0, buttonEl = null) {
         const next = new Date();
         next.setSeconds(0, 0);
         next.setDate(next.getDate() + Number(dayOffset || 0));
         const resolvedHour = hour == null ? next.getHours() : Number(hour || 0);
         const resolvedMinute = hour == null ? next.getMinutes() : Number(minute || 0);
         next.setHours(resolvedHour, resolvedMinute, 0, 0);
+        markActiveQuickFollowup(buttonEl);
         if (window.fpInstance) {
+            window._isApplyingQuickFollowup = true;
             window.fpInstance.setDate(next, true);
+            window._isApplyingQuickFollowup = false;
         } else {
             const input = document.getElementById('flatpickrInput');
             if (input) {
@@ -1709,6 +1742,7 @@ const TaskController = (() => {
             if (document.getElementById('miniModalContact')) document.getElementById('miniModalContact').style.display = 'none';
             
             document.getElementById('miniModalDate').style.display = 'block';
+            markActiveQuickFollowup(null);
             if (typeof window.initFlatpickr === 'function') {
                 window.initFlatpickr();
                 
@@ -1925,6 +1959,13 @@ const TaskController = (() => {
     function closeMiniModal() {
         const overlay = document.getElementById('miniModalOverlay');
         if (overlay) overlay.style.display = 'none';
+        if (window.fpInstance) {
+            window.fpInstance.close();
+        }
+        const calendarPane = document.getElementById('followupCalendarPane');
+        if (calendarPane) {
+            calendarPane.classList.remove('followup-calendar-open');
+        }
 
         // Durum Sızıntısını (State Leakage) Önlemek İçin Tüm İç Modalları Güvenli Kapatma
         if (document.getElementById('miniModalDeal')) document.getElementById('miniModalDeal').style.display = 'none';
@@ -1937,6 +1978,7 @@ const TaskController = (() => {
         if (transferNoteEl) transferNoteEl.value = '';
         const transferSelect = document.getElementById('taskTransferOwnerId');
         if (transferSelect) transferSelect.value = '';
+        markActiveQuickFollowup(null);
         refreshFollowupSummary('');
         refreshTaskTransferSummary();
     }
@@ -2196,6 +2238,7 @@ const TaskController = (() => {
         openTaskTransferModal,
         executeTaskTransfer,
         refreshTaskTransferSummary,
+        markActiveQuickFollowup,
         pickQuickFollowup,
         refreshFollowupSummary,
     };
@@ -2214,6 +2257,7 @@ window.updateTaskReportSubCategories = TaskController.updateTaskReportSubCategor
 window.openTeamPulseModal = TaskController.openTeamPulseModal.bind(TaskController);
 window.setTeamPulseModalPeriod = TaskController.setTeamPulseModalPeriod.bind(TaskController);
 window.openTaskModal = TaskController.openTaskModal.bind(TaskController);
+window.markActiveQuickFollowup = TaskController.markActiveQuickFollowup.bind(TaskController);
 window.pickQuickFollowup = TaskController.pickQuickFollowup.bind(TaskController);
 window.refreshFollowupSummary = TaskController.refreshFollowupSummary.bind(TaskController);
 window.renderTaskInline = TaskController.renderTaskInline.bind(TaskController);

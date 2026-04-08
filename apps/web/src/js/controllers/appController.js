@@ -200,6 +200,7 @@ const AppController = (() => {
             'page-all-tasks': 'viewAllTasks',
             'page-add-business': 'createBiz',
             'page-reports': 'viewReports',
+            'page-operations-radar': 'viewReports',
         };
         const requiredPermission = requiredPermissionByPage[pageId];
         if (requiredPermission && !hasPermission(requiredPermission)) {
@@ -245,6 +246,7 @@ const AppController = (() => {
             'page-businesses': () => BusinessController.clearFilters(),
             'page-admin': () => AdminController.switchTab('users'),
             'page-pricing': () => renderPricingPage(),
+            'page-operations-radar': () => renderOperationsRadarPage(),
         };
 
         if (pageInitMap[pageId]) pageInitMap[pageId]();
@@ -465,6 +467,7 @@ const AppController = (() => {
             'page-reports': () => ReportController.renderReports(),
             'page-admin': () => AdminController.refreshActiveTab(),
             'page-pricing': () => renderPricingPage(),
+            'page-operations-radar': () => renderOperationsRadarPage(),
         };
 
         const fn = refreshMap[activePage.id];

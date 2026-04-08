@@ -150,6 +150,58 @@ describe('TasksService.create', () => {
     })
   })
 
+  it('does not write a duplicate task note for request-flow placeholder text when system log exists', async () => {
+    const { service, prisma } = buildService()
+    prisma.taskList.findUnique.mockResolvedValue({ id: 'list_1', tag: 'GENERAL' })
+    prisma.account.findUnique.mockResolvedValue({ id: 'acc_1' })
+    prisma.task.findFirst.mockResolvedValue(null)
+    prisma.task.create.mockResolvedValue({ id: 'task_1', ownerId: null, dueDate: null })
+    prisma.activityHistory.create.mockResolvedValue({ id: 'hist_1' })
+
+    await service.create(
+      { id: 'u1', role: 'ADMIN' },
+      {
+        ...baseDto,
+        details: 'Yeni kayıt oluşturuldu ve satışçı görevi başlattı',
+        systemLogText: '<span class="manager-note">[Sistem]</span> Yeni kayıt oluşturuldu ve satışçı görevi başlattı.',
+      },
+    )
+
+    expect(prisma.activityLog.create).toHaveBeenCalledTimes(1)
+    expect(prisma.activityLog.create).not.toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        taskId: 'task_1',
+        text: expect.stringContaining('[Görev Notu]'),
+      }),
+    })
+  })
+
+  it('keeps a real task note when system log exists but note is user-provided', async () => {
+    const { service, prisma } = buildService()
+    prisma.taskList.findUnique.mockResolvedValue({ id: 'list_1', tag: 'GENERAL' })
+    prisma.account.findUnique.mockResolvedValue({ id: 'acc_1' })
+    prisma.task.findFirst.mockResolvedValue(null)
+    prisma.task.create.mockResolvedValue({ id: 'task_1', ownerId: null, dueDate: null })
+    prisma.activityHistory.create.mockResolvedValue({ id: 'hist_1' })
+
+    await service.create(
+      { id: 'u1', role: 'ADMIN' },
+      {
+        ...baseDto,
+        details: 'Müşteriyle konuşuldu, yarın tekrar aranacak',
+        systemLogText: '<span class="manager-note">[Sistem]</span> Yeni kayıt oluşturuldu ve görev başlatıldı.',
+      },
+    )
+
+    expect(prisma.activityLog.create).toHaveBeenCalledTimes(2)
+    expect(prisma.activityLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        taskId: 'task_1',
+        text: expect.stringContaining('[Görev Notu]'),
+      }),
+    })
+  })
+
   it('formats deal duration once when duration already includes Ay', async () => {
     const { service, prisma } = buildService({
       task: {
