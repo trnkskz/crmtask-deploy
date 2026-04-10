@@ -7,6 +7,7 @@ describe('ReportsService.tasksCsv', () => {
         findMany: jest.fn(),
       },
       user: {
+        count: jest.fn().mockResolvedValue(0),
         findUnique: jest.fn(),
       },
     } as any
@@ -144,6 +145,33 @@ describe('ReportsService.tasksCsv', () => {
         }),
       }),
     )
+  })
+
+  it('filters closed deal reports by closedAt instead of creationDate', async () => {
+    const { service, prisma } = buildService()
+    prisma.task.findMany.mockResolvedValue([])
+
+    await service.tasksReport(
+      {
+        status: 'deal',
+        from: '2026-04-01T00:00:00.000Z',
+        to: '2026-04-30T23:59:59.999Z',
+      },
+      { id: 'manager_1', role: 'MANAGER' },
+    )
+
+    expect(prisma.task.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: 'DEAL',
+          closedAt: expect.objectContaining({
+            gte: new Date('2026-04-01T00:00:00.000Z'),
+            lte: expect.any(Date),
+          }),
+        }),
+      }),
+    )
+    expect(prisma.task.findMany.mock.calls[0][0].where.creationDate).toBeUndefined()
   })
 })
 

@@ -353,6 +353,26 @@ export class ReportsService {
     }
   }
 
+  private applyTaskDateFilter(
+    where: any,
+    q: { status?: string; from?: string; to?: string },
+  ) {
+    if (!(q.from || q.to)) return
+
+    const normalizedStatus = this.normalizeTaskStatusFilter(q.status)
+    const dateField = normalizedStatus === 'DEAL' || normalizedStatus === 'COLD'
+      ? 'closedAt'
+      : 'creationDate'
+
+    where[dateField] = {}
+    if (q.from) where[dateField].gte = new Date(q.from)
+    if (q.to) {
+      const toDate = new Date(q.to)
+      toDate.setHours(23, 59, 59, 999)
+      where[dateField].lte = toDate
+    }
+  }
+
   private async buildTaskReportRows(
     q: {
       ownerId?: string
@@ -382,15 +402,7 @@ export class ReportsService {
     if (q.source) where.source = q.source as any
     if (q.city) where.account = { ...(where.account || {}), city: { contains: q.city, mode: 'insensitive' } }
     if (q.district) where.account = { ...(where.account || {}), district: { contains: q.district, mode: 'insensitive' } }
-    if (q.from || q.to) {
-      where.creationDate = {}
-      if (q.from) where.creationDate.gte = new Date(q.from)
-      if (q.to) {
-        const toDate = new Date(q.to)
-        toDate.setHours(23, 59, 59, 999)
-        where.creationDate.lte = toDate
-      }
-    }
+    this.applyTaskDateFilter(where, q)
 
     const rows = await this.prisma.task.findMany({
       where,
@@ -1339,11 +1351,7 @@ export class ReportsService {
     if (q.generalStatus) where.generalStatus = q.generalStatus as any
     if (q.source) where.source = q.source as any
     if (q.creationChannel) where.creationChannel = q.creationChannel as any
-    if (q.from || q.to) {
-      where.creationDate = {}
-      if (q.from) where.creationDate.gte = new Date(q.from)
-      if (q.to) { const toDate = new Date(q.to); toDate.setHours(23, 59, 59, 999); where.creationDate.lte = toDate }
-    }
+    this.applyTaskDateFilter(where, q)
 
     const rows = await this.prisma.task.findMany({
       where,
