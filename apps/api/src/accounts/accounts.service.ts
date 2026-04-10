@@ -1112,10 +1112,7 @@ export class AccountsService {
       this.prisma.account.delete({ where: { id } }),
     )
 
-    await this.prisma.$transaction(ops, {
-      maxWait: 10000,
-      timeout: 20000,
-    })
+    await this.prisma.$transaction(ops)
     return { ok: true }
   }
 
