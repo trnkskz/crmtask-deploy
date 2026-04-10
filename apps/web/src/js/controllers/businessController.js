@@ -22,6 +22,29 @@ const BusinessController = {
         }) || null;
     },
 
+    async _resolveAssignableOwnerId(ref) {
+        const raw = String(ref || '').trim();
+        if (!raw || raw === 'UNASSIGNED' || raw === 'TARGET_POOL' || raw.startsWith('TARGET_POOL') || raw === 'Team 1' || raw === 'Team 2') {
+            return null;
+        }
+
+        let matchedUser = this._findAssignableUser(raw);
+        if (!matchedUser && typeof DataService?.fetchOnce === 'function') {
+            try {
+                const usersRaw = await DataService.fetchOnce('users');
+                const users = Array.isArray(usersRaw) ? usersRaw : Object.values(usersRaw || {});
+                if (users.length > 0) {
+                    AppState.users = users;
+                    matchedUser = this._findAssignableUser(raw);
+                }
+            } catch (err) {
+                console.warn('Assignable user refresh failed:', err);
+            }
+        }
+
+        return matchedUser?.id || null;
+    },
+
     _refreshTaskSurfaces() {
         if (typeof window.renderMyTasks === 'function') {
             setTimeout(() => window.renderMyTasks(), 0);
@@ -1084,7 +1107,7 @@ const BusinessController = {
         }
     },
 
-    saveNewAssignedTask(fallbackBizId) {
+    async saveNewAssignedTask(fallbackBizId) {
         const inlineBtn = typeof fallbackBizId === 'string' && fallbackBizId
             ? document.querySelector(`button[onclick="saveInlineAssignedTask('${fallbackBizId}')"]`)
             : null;
@@ -1135,10 +1158,11 @@ const BusinessController = {
         const isManagerOrTL = ['Yönetici', 'Takım Lideri'].includes(String(AppState.loggedInUser?.role || ''));
         let ownerId = null;
         if (isManagerOrTL) {
-            const matchedUser = this._findAssignableUser(actualAssignee);
-            ownerId = (actualAssignee && !actualAssignee.startsWith('TARGET_POOL') && actualAssignee !== 'UNASSIGNED')
-                ? (matchedUser?.id || actualAssignee)
-                : null;
+            ownerId = await this._resolveAssignableOwnerId(actualAssignee);
+            if (!ownerId && actualAssignee && !actualAssignee.startsWith('TARGET_POOL') && actualAssignee !== 'UNASSIGNED') {
+                if (btn) { btn.disabled = false; btn.innerText = "Görevi Başlat"; }
+                return showToast("Seçilen personel bulunamadı. Kullanıcı listesini yenileyip tekrar deneyin.", "error");
+            }
         }
 
         const projectNote = targetProjectId ? ` (Proje: ${targetProjectId})` : '';
@@ -1171,7 +1195,8 @@ const BusinessController = {
             delete payload.ownerId;
         }
 
-        DataService.apiRequest('/tasks', { method: 'POST', body: JSON.stringify(payload) }).then(async (createdTask) => {
+        try {
+            const createdTask = await DataService.apiRequest('/tasks', { method: 'POST', body: JSON.stringify(payload) });
             const refreshedTask = createdTask?.id ? await DataService.readPath(`tasks/${createdTask.id}`, { force: true }).catch(() => null) : null;
             if (refreshedTask) {
                 const nextTasks = Array.isArray(AppState.tasks) ? [...AppState.tasks] : [];
@@ -1198,7 +1223,7 @@ const BusinessController = {
                 return AppState.isOperationalTaskAssignee(task.assignee);
             });
             window.renderBizTaskHistoryPage(1);
-        }).catch(err => {
+        } catch (err) {
             console.error(err);
             const message = String(err?.message || '');
             if (message.includes('Account not found for task creation')) {
@@ -1209,7 +1234,7 @@ const BusinessController = {
                 showToast(message || "Görev atanamadı.", "error");
             }
             if (btn) { btn.disabled = false; btn.innerText = "Görevi Başlat"; }
-        });
+        }
     },
 
 

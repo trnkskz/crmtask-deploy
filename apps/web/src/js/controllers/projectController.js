@@ -25,7 +25,30 @@ const ProjectController = {
         }) || null;
     },
 
-    _resolveAssigneeTarget(assigneeValue) {
+    async _resolveAssignableOwnerId(ref) {
+        const raw = String(ref || '').trim();
+        if (!raw || raw === 'UNASSIGNED' || raw === 'TARGET_POOL' || raw.startsWith('TARGET_POOL') || raw === 'Team 1' || raw === 'Team 2') {
+            return null;
+        }
+
+        let matchedUser = this._findAssignableUser(raw);
+        if (!matchedUser && typeof DataService?.fetchOnce === 'function') {
+            try {
+                const usersRaw = await DataService.fetchOnce('users');
+                const users = Array.isArray(usersRaw) ? usersRaw : Object.values(usersRaw || {});
+                if (users.length > 0) {
+                    AppState.users = users;
+                    matchedUser = this._findAssignableUser(raw);
+                }
+            } catch (err) {
+                console.warn('Assignable user refresh failed:', err);
+            }
+        }
+
+        return matchedUser?.id || null;
+    },
+
+    async _resolveAssigneeTarget(assigneeValue) {
         const raw = String(assigneeValue || '').trim();
         if (!raw) return { actualAssignee: 'UNASSIGNED', targetProjectId: null, poolTeam: 'GENERAL', ownerId: null };
 
@@ -41,8 +64,7 @@ const ProjectController = {
         if (actualAssignee === 'Team 1') poolTeam = 'TEAM_1';
         else if (actualAssignee === 'Team 2') poolTeam = 'TEAM_2';
         else if (actualAssignee && actualAssignee !== 'TARGET_POOL' && actualAssignee !== 'UNASSIGNED') {
-            const mapUser = this._findAssignableUser(actualAssignee);
-            if (mapUser) ownerId = mapUser.id;
+            ownerId = await this._resolveAssignableOwnerId(actualAssignee);
         }
 
         return { actualAssignee, targetProjectId, poolTeam, ownerId };
@@ -330,7 +352,10 @@ const ProjectController = {
             if (!bizId) throw new Error("Önce soldan bir işletme seçin!");
             if (!assigneeValue) throw new Error("Sorumlu seçimi zorunludur!");
 
-            const { actualAssignee, targetProjectId, poolTeam, ownerId: resolvedOwnerId } = this._resolveAssigneeTarget(assigneeValue);
+            const { actualAssignee, targetProjectId, poolTeam, ownerId: resolvedOwnerId } = await this._resolveAssigneeTarget(assigneeValue);
+            if (!resolvedOwnerId && actualAssignee !== 'TARGET_POOL' && actualAssignee !== 'UNASSIGNED' && actualAssignee !== 'Team 1' && actualAssignee !== 'Team 2') {
+                throw new Error('Seçilen personel bulunamadı. Kullanıcı listesini yenileyip tekrar deneyin.');
+            }
 
             const existingOpenTask = AppState.tasks.find((t) =>
                 t.businessId === bizId &&
@@ -431,7 +456,10 @@ const ProjectController = {
             const campUrl = isCampaignUrlRequiredSource(srcType) ? getValue('campaignUrl').trim() : "";
 
         const assigneeValue = getValue('newBizAssignee') || 'UNASSIGNED';
-        const { actualAssignee, targetProjectId, poolTeam, ownerId } = this._resolveAssigneeTarget(assigneeValue);
+        Promise.resolve(this._resolveAssigneeTarget(assigneeValue)).then(({ actualAssignee, targetProjectId, poolTeam, ownerId }) => {
+        if (!ownerId && actualAssignee !== 'TARGET_POOL' && actualAssignee !== 'UNASSIGNED' && actualAssignee !== 'Team 1' && actualAssignee !== 'Team 2') {
+            throw new Error('Seçilen personel bulunamadı. Kullanıcı listesini yenileyip tekrar deneyin.');
+        }
 
         const note = getValue('newTaskNote').trim();
 
@@ -451,7 +479,7 @@ const ProjectController = {
             campaignUrl: campUrl || undefined,
         };
 
-        DataService.apiRequest('/accounts', {
+        return DataService.apiRequest('/accounts', {
             method: 'POST',
             body: JSON.stringify(accountPayload)
         }).then(account => {
@@ -525,6 +553,11 @@ const ProjectController = {
             const warn = document.getElementById('newBizDuplicateWarning'); if (warn) warn.style.display = 'none';
         }).catch(err => {
             console.error('Görev oluşturma hatası:', err);
+            showToast("Oluşturma hatası: " + err.message, "error");
+            if (btn) { btn.disabled = false; btn.innerText = "🚀 Taskı Oluştur ve Atama Yap"; }
+        });
+        }).catch(err => {
+            console.error('Assignee resolve failed:', err);
             showToast("Oluşturma hatası: " + err.message, "error");
             if (btn) { btn.disabled = false; btn.innerText = "🚀 Taskı Oluştur ve Atama Yap"; }
         });

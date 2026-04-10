@@ -102,7 +102,7 @@ export class AccountsController {
   taskHistory(@Param('id') id: string) { return this.svc.accountTaskHistory(id) }
 
   @Delete(':id')
-  @MinRole(Roles.ADMIN)
+  @MinRole(Roles.MANAGER)
   remove(@Param('id') id: string) { return this.svc.remove(id) }
 
   @Post(':id/duplicate')
