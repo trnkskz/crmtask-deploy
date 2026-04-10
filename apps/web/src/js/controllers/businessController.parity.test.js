@@ -443,4 +443,80 @@ describe('BusinessController parity flows', () => {
         expect(controller._currentFilteredBiz).toHaveLength(1);
         expect(controller._currentFilteredBiz[0].id).toBe('biz-1');
     });
+
+    it('resolves assignee owner id with Turkish characters when creating a task from business detail', async () => {
+        const inlineButton = createElement({ disabled: false, innerText: 'Görevi Başlat' });
+        const elements = {
+            inl_assigneeDropdown: createElement({ value: 'Ozge Ergun' }),
+            inl_assignTaskDetails: createElement({ value: '' }),
+            inl_assignTaskCat: createElement({ value: 'İstanbul Core' }),
+            inl_assignMainCat: createElement({ value: 'Yemek' }),
+            inl_assignSubCat: createElement({ value: 'İftar' }),
+            inl_assignSourceType: createElement({ value: 'Fresh Account' }),
+            inl_assignCampaignUrl: createElement({ value: '' }),
+            inl_assignUseExistingContact: createElement({ checked: true }),
+            allActiveTaskList: createElement(),
+            allTasksPagination: createElement(),
+        };
+        const document = {
+            ...createDocument(elements),
+            querySelector: jest.fn((selector) => {
+                if (selector === `button[onclick="saveInlineAssignedTask('biz-1')"]`) return inlineButton;
+                return null;
+            }),
+            querySelectorAll: jest.fn(() => []),
+        };
+        const apiRequest = jest.fn()
+            .mockResolvedValueOnce({ id: 'task_1' })
+            .mockResolvedValueOnce({
+                id: 'task_1',
+                businessId: 'biz-1',
+                ownerId: 'sales_1',
+                assignee: 'Özge Ergün',
+                status: 'new',
+            });
+
+        const { controller } = loadController('controllers/businessController.js', 'BusinessController', {
+            document,
+            AppState: {
+                businesses: [{ id: 'biz-1', companyName: 'Acme' }],
+                tasks: [],
+                users: [{ id: 'sales_1', name: 'Özge Ergün', email: 'ozge@example.com', role: 'Satış Temsilcisi', status: 'Aktif' }],
+                loggedInUser: { role: 'Yönetici', name: 'Admin' },
+                getTaskMap: () => ({ 'biz-1': [] }),
+                getBizMap: () => new Map([['biz-1', { companyName: 'Acme' }]]),
+            },
+            DataService: {
+                apiRequest,
+                readPath: jest.fn().mockResolvedValue({
+                    id: 'task_1',
+                    businessId: 'biz-1',
+                    ownerId: 'sales_1',
+                    assignee: 'Özge Ergün',
+                    status: 'new',
+                }),
+            },
+            normalizeForComparison: (value) => String(value || '').toLocaleLowerCase('tr-TR')
+                .replace(/[çğıöşü]/g, (char) => ({ ç: 'c', ğ: 'g', ı: 'i', i: 'i', ö: 'o', ş: 's', ü: 'u' }[char] || char))
+                .replace(/[^a-z0-9]/g, ''),
+            isValidPhone: () => true,
+            isValidEmail: () => true,
+            esc: (value) => String(value || ''),
+            isCampaignUrlRequiredSource: () => false,
+            addSystemLog: jest.fn(),
+            showToast: jest.fn(),
+            setTimeout: (fn) => { fn(); return 0; },
+            renderBizTaskHistoryPage: jest.fn(),
+            isActiveTask: (status) => ['new', 'hot', 'nothot', 'followup'].includes(String(status || '').toLowerCase()),
+        });
+
+        controller.saveNewAssignedTask('biz-1');
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(apiRequest).toHaveBeenCalledWith('/tasks', expect.objectContaining({
+            method: 'POST',
+            body: expect.stringContaining('"ownerId":"sales_1"'),
+        }));
+    });
 });

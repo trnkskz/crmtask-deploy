@@ -5,6 +5,26 @@
 const ProjectController = {
     _deletingProjectIds: new Set(),
 
+    _findAssignableUser(ref) {
+        const raw = String(ref || '').trim();
+        if (!raw) return null;
+        const users = Array.isArray(AppState?.users) ? AppState.users : [];
+        const normalizedRef = typeof normalizeForComparison === 'function'
+            ? normalizeForComparison(raw)
+            : raw.toLocaleLowerCase('tr-TR');
+
+        return users.find((user) => {
+            const byId = String(user?.id || '').trim() === raw;
+            const byName = (typeof normalizeForComparison === 'function'
+                ? normalizeForComparison(user?.name)
+                : String(user?.name || '').trim().toLocaleLowerCase('tr-TR')) === normalizedRef;
+            const byEmail = (typeof normalizeForComparison === 'function'
+                ? normalizeForComparison(user?.email)
+                : String(user?.email || '').trim().toLocaleLowerCase('tr-TR')) === normalizedRef;
+            return byId || byName || byEmail;
+        }) || null;
+    },
+
     _resolveAssigneeTarget(assigneeValue) {
         const raw = String(assigneeValue || '').trim();
         if (!raw) return { actualAssignee: 'UNASSIGNED', targetProjectId: null, poolTeam: 'GENERAL', ownerId: null };
@@ -21,7 +41,7 @@ const ProjectController = {
         if (actualAssignee === 'Team 1') poolTeam = 'TEAM_1';
         else if (actualAssignee === 'Team 2') poolTeam = 'TEAM_2';
         else if (actualAssignee && actualAssignee !== 'TARGET_POOL' && actualAssignee !== 'UNASSIGNED') {
-            const mapUser = AppState.users.find((u) => u.name === actualAssignee);
+            const mapUser = this._findAssignableUser(actualAssignee);
             if (mapUser) ownerId = mapUser.id;
         }
 

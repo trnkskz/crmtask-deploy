@@ -2,6 +2,26 @@
 // BUSINESS CONTROLLER
 // ==========================================
 const BusinessController = {
+    _findAssignableUser(ref) {
+        const raw = String(ref || '').trim();
+        if (!raw) return null;
+        const users = Array.isArray(AppState?.users) ? AppState.users : [];
+        const normalizedRef = typeof normalizeForComparison === 'function'
+            ? normalizeForComparison(raw)
+            : raw.toLocaleLowerCase('tr-TR');
+
+        return users.find((user) => {
+            const byId = String(user?.id || '').trim() === raw;
+            const byName = (typeof normalizeForComparison === 'function'
+                ? normalizeForComparison(user?.name)
+                : String(user?.name || '').trim().toLocaleLowerCase('tr-TR')) === normalizedRef;
+            const byEmail = (typeof normalizeForComparison === 'function'
+                ? normalizeForComparison(user?.email)
+                : String(user?.email || '').trim().toLocaleLowerCase('tr-TR')) === normalizedRef;
+            return byId || byName || byEmail;
+        }) || null;
+    },
+
     _refreshTaskSurfaces() {
         if (typeof window.renderMyTasks === 'function') {
             setTimeout(() => window.renderMyTasks(), 0);
@@ -1115,8 +1135,9 @@ const BusinessController = {
         const isManagerOrTL = ['Yönetici', 'Takım Lideri'].includes(String(AppState.loggedInUser?.role || ''));
         let ownerId = null;
         if (isManagerOrTL) {
+            const matchedUser = this._findAssignableUser(actualAssignee);
             ownerId = (actualAssignee && !actualAssignee.startsWith('TARGET_POOL') && actualAssignee !== 'UNASSIGNED')
-                ? (AppState.users.find(u => u.name === actualAssignee)?.id || actualAssignee)
+                ? (matchedUser?.id || actualAssignee)
                 : null;
         }
 
