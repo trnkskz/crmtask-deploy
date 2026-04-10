@@ -146,3 +146,97 @@ describe('ReportsService.tasksCsv', () => {
     )
   })
 })
+
+describe('ReportsService ratios', () => {
+  function buildRatioService() {
+    const prisma = {
+      task: {
+        findMany: jest.fn(),
+        count: jest.fn(),
+        groupBy: jest.fn(),
+      },
+      user: {
+        findUnique: jest.fn(),
+        findMany: jest.fn(),
+        count: jest.fn(),
+      },
+      activityLog: {
+        findMany: jest.fn(),
+      },
+      $transaction: jest.fn(),
+    } as any
+    return { service: new ReportsService(prisma), prisma }
+  }
+
+  it('calculates manager dashboard deal ratio against open plus closed outcomes', async () => {
+    const { service } = buildRatioService()
+    jest.spyOn(service as any, 'taskStatus').mockResolvedValue({
+      total: 100,
+      byGeneralStatus: [{ generalStatus: 'CLOSED', _count: { generalStatus: 1 } }],
+      byStatus: [{ status: 'NEW', _count: { status: 99 } }],
+    })
+    jest.spyOn(service as any, 'performance').mockResolvedValue({ users: [] })
+    jest.spyOn(service as any, 'scopedSalesUsers').mockResolvedValue([])
+    jest.spyOn(service as any, 'buildMonthlyContactedOutcomeSummary').mockResolvedValue({ deal: 1, cold: 0 })
+
+    const snapshot = await service.dashboardSnapshot({ id: 'mgr_1', role: 'MANAGER' })
+
+    expect(snapshot.manager.totalOpen).toBe(99)
+    expect(snapshot.manager.monthlyDeal).toBe(1)
+    expect(snapshot.manager.dealRatio).toBe(1)
+  })
+
+  it('calculates team pulse deal ratio against open plus closed outcomes', async () => {
+    const { service, prisma } = buildRatioService()
+    jest.spyOn(service as any, 'scopedSalesUsers').mockResolvedValue([
+      { id: 'sales_1', name: 'Ayse', team: 'Team 1' },
+    ])
+    jest.spyOn(service as any, 'getIstanbulRangeStarts').mockReturnValue({
+      daily: Date.UTC(2026, 3, 10),
+      weekly: Date.UTC(2026, 3, 7),
+      monthly: Date.UTC(2026, 3, 1),
+    })
+    prisma.$transaction.mockResolvedValue([
+      [
+        {
+          id: 'task_open',
+          accountId: 'acc_1',
+          ownerId: 'sales_1',
+          createdById: 'mgr_1',
+          status: 'NEW',
+          creationDate: new Date('2026-04-10T10:00:00.000Z'),
+          logs: [],
+          account: { accountName: 'Open Biz', businessName: 'Open Biz', city: 'Istanbul' },
+        },
+        {
+          id: 'task_deal',
+          accountId: 'acc_2',
+          ownerId: 'sales_1',
+          createdById: 'mgr_1',
+          status: 'DEAL',
+          creationDate: new Date('2026-04-08T10:00:00.000Z'),
+          logs: [],
+          account: { accountName: 'Deal Biz', businessName: 'Deal Biz', city: 'Istanbul' },
+        },
+      ],
+      [
+        {
+          authorId: 'sales_1',
+          createdAt: new Date('2026-04-10T12:00:00.000Z'),
+          text: 'Gorusme yapildi',
+          task: {
+            id: 'task_deal',
+            accountId: 'acc_2',
+            status: 'DEAL',
+            account: { accountName: 'Deal Biz', businessName: 'Deal Biz', city: 'Istanbul' },
+          },
+        },
+      ],
+    ])
+
+    const payload = await service.teamPulse({ id: 'mgr_1', role: 'MANAGER' })
+
+    expect(payload.records).toHaveLength(1)
+    expect(payload.records[0].dealRatio).toBe(50)
+  })
+})

@@ -230,6 +230,57 @@ describe('TasksService.create', () => {
   })
 })
 
+describe('TasksService.list', () => {
+  function buildListService() {
+    const prisma = {
+      task: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
+      user: {
+        count: jest.fn().mockResolvedValue(1),
+        findUnique: jest.fn().mockResolvedValue({ team: 'Team 1' }),
+      },
+      $transaction: jest.fn().mockImplementation(async (ops) => {
+        if (Array.isArray(ops)) return Promise.all(ops)
+        return ops
+      }),
+    } as any
+    const service = new TasksService(prisma)
+    return { service, prisma }
+  }
+
+  it('combines manager role scope with search filters instead of overwriting them', async () => {
+    const { service, prisma } = buildListService()
+
+    await service.list(
+      { q: 'Amara', view: 'summary', generalStatus: 'OPEN', page: 1, limit: 25 },
+      { id: 'manager_1', role: 'MANAGER' },
+    )
+
+    expect(prisma.task.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([
+            expect.objectContaining({
+              OR: expect.arrayContaining([
+                expect.objectContaining({ id: expect.any(Object) }),
+                expect.objectContaining({ account: expect.any(Object) }),
+              ]),
+            }),
+            expect.objectContaining({
+              OR: expect.arrayContaining([
+                expect.objectContaining({ owner: expect.any(Object) }),
+                expect.objectContaining({ historicalAssignee: { not: null } }),
+              ]),
+            }),
+          ]),
+        }),
+      }),
+    )
+  })
+})
+
 describe('TasksService.detail', () => {
   function buildService(overrides: Record<string, any> = {}) {
     const prisma = {

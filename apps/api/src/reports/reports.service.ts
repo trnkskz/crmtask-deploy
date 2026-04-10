@@ -672,7 +672,7 @@ export class ReportsService {
         })
       }
 
-      const successBase = monthlyContactedOutcomeSummary.deal + monthlyContactedOutcomeSummary.cold
+      const successBase = totalOpen + monthlyContactedOutcomeSummary.deal + monthlyContactedOutcomeSummary.cold
 
       return {
         scope: 'manager',
@@ -1060,6 +1060,8 @@ export class ReportsService {
             return acc
           }, {} as Record<string, any>)
 
+          const successBase = (metrics.monthly?.open?.count || 0) + (metrics.monthly?.deal?.count || 0) + (metrics.monthly?.cold?.count || 0)
+
           return {
             user: {
               id: ownerId,
@@ -1068,8 +1070,8 @@ export class ReportsService {
             },
             key: encodeURIComponent(ownerId),
             metrics,
-            dealRatio: metrics.monthly?.contacted?.count > 0
-              ? Number((((metrics.monthly?.deal?.count || 0) / metrics.monthly.contacted.count) * 100).toFixed(2))
+            dealRatio: successBase > 0
+              ? Number((((metrics.monthly?.deal?.count || 0) / successBase) * 100).toFixed(2))
               : 0,
             totalOpen: metrics.monthly?.open?.count || 0,
             totalContacted: metrics.monthly?.contacted?.count || 0,

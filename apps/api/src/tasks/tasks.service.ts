@@ -741,6 +741,17 @@ export class TasksService {
 
   async list(filter: any, user?: { id: string; role: string }) {
     const where: any = {}
+    const mergeOrScope = (clauses: any[]) => {
+      const nextClauses = (Array.isArray(clauses) ? clauses : []).filter(Boolean)
+      if (!nextClauses.length) return
+      const existingOr = Array.isArray(where.OR) ? [...where.OR] : null
+      if (existingOr && existingOr.length) {
+        delete where.OR
+        where.AND = [...(Array.isArray(where.AND) ? where.AND : []), { OR: existingOr }, { OR: nextClauses }]
+        return
+      }
+      where.OR = nextClauses
+    }
     if (filter.taskListId) where.taskListId = filter.taskListId
     if (filter.projectId) where.projectId = filter.projectId
     const assignee = filter.assigneeId ?? filter.ownerId
@@ -824,22 +835,22 @@ export class TasksService {
         const hasDirectSales = await this.managerHasDirectSales(user.id)
         // Historical assignee rows are ownerless archive imports; keep them visible for reports/filters.
         if (!(where.ownerId === null)) {
-          where.OR = [
+          mergeOrScope([
             { owner: { is: hasDirectSales ? { managerId: user.id, role: 'SALESPERSON' } : { role: 'SALESPERSON' } } as any },
             { historicalAssignee: { not: null } },
-          ]
+          ])
         }
       } else if (user.role === 'TEAM_LEADER') {
         const actorTeam = await this.getActorTeam(user.id)
         const actorPoolTeam = this.mapTeamToPoolTeam(actorTeam)
         if (!(where.ownerId === null)) {
-          where.OR = actorTeam
+          mergeOrScope(actorTeam
             ? [
                 { owner: { is: { team: actorTeam, role: 'SALESPERSON' } } as any },
                 ...(actorPoolTeam ? [{ ownerId: null, poolTeam: actorPoolTeam }] : []),
                 { historicalAssignee: { not: null } },
               ]
-            : [{ historicalAssignee: { not: null } }]
+            : [{ historicalAssignee: { not: null } }])
         }
       } else {
         // ADMIN and others: no extra restriction
