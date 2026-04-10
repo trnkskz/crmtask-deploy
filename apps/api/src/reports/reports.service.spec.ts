@@ -181,9 +181,10 @@ describe('ReportsService ratios', () => {
 
     const snapshot = await service.dashboardSnapshot({ id: 'mgr_1', role: 'MANAGER' })
 
-    expect(snapshot.manager.totalOpen).toBe(99)
-    expect(snapshot.manager.monthlyDeal).toBe(1)
-    expect(snapshot.manager.dealRatio).toBe(1)
+    expect(snapshot.manager).toBeDefined()
+    expect(snapshot.manager!.totalOpen).toBe(99)
+    expect(snapshot.manager!.monthlyDeal).toBe(1)
+    expect(snapshot.manager!.dealRatio).toBe(1)
   })
 
   it('calculates team pulse deal ratio against open plus closed outcomes', async () => {
