@@ -1658,6 +1658,9 @@ const DataService = (() => {
 
     function deleteTask(taskId) {
         if (typeof AppState?.clearTaskDetail === 'function') AppState.clearTaskDetail(taskId);
+        invalidateCollectionCache('tasks');
+        invalidateCollectionCache('notifications');
+        invalidateCollectionCache('businesses');
         return apiRequest(`/tasks/${taskId}`, { method: 'DELETE' });
     }
 

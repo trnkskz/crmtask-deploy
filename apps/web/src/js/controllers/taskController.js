@@ -1367,8 +1367,10 @@ const TaskController = (() => {
             }
         } catch (err) {
             if (err?.message === 'Task not found') {
-                _removeTaskFromState(taskId);
+                const removedTask = _removeTaskFromState(taskId, task);
                 _refreshTaskViews(taskId);
+                _refreshBusinessTaskHistory(removedTask?.businessId);
+                task = null;
             }
             if (!task) {
                 showToast('Gorev detayi yuklenemedi.', 'error');
@@ -2417,11 +2419,12 @@ const TaskController = (() => {
         askConfirm('Bu görevi silmek istediğinize emin misiniz?', (res) => {
             if (!res) return;
             DataService.deleteTask(taskId).then(() => {
-                _removeTaskFromState(taskId);
+                const removedTask = _removeTaskFromState(taskId);
                 addSystemLog(`Görev silindi: ${taskId}`);
                 showToast('Görev silindi.', 'success');
                 closeModal('taskModal');
                 _refreshTaskViews(taskId);
+                _refreshBusinessTaskHistory(removedTask?.businessId);
             }).catch((err) => {
                 console.error('Task delete failed:', err);
                 showToast(err?.message || 'Görev silinemedi.', 'error');
@@ -2467,11 +2470,25 @@ const TaskController = (() => {
         return refreshedTask;
     }
 
-    function _removeTaskFromState(taskId) {
-        if (!taskId) return;
+    function _removeTaskFromState(taskId, fallbackTask = null) {
+        if (!taskId) return null;
+        const removedTask = (AppState.tasks || []).find((task) => task.id === taskId) || fallbackTask || null;
         AppState.tasks = (AppState.tasks || []).filter((task) => task.id !== taskId);
         if (typeof AppState.clearTaskDetail === 'function') {
             AppState.clearTaskDetail(taskId);
+        }
+        return removedTask;
+    }
+
+    function _refreshBusinessTaskHistory(businessId) {
+        if (!businessId || !document.getElementById('bizTaskHistoryBody')) return;
+        const nextBizTasks = (AppState.getTaskMap()[businessId] || []).filter((task) => {
+            if (!task?.assignee || typeof AppState.isOperationalTaskAssignee !== 'function') return true;
+            return AppState.isOperationalTaskAssignee(task.assignee);
+        });
+        window._currentBizTasks = nextBizTasks;
+        if (typeof window.renderBizTaskHistoryPage === 'function') {
+            window.renderBizTaskHistoryPage(1);
         }
     }
 
