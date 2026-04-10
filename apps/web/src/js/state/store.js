@@ -145,6 +145,7 @@ const AppState = (() => {
 
     // --- Sayfalama ---
     let _pagination = {
+        myTasks: 1,
         allTasks: 1,
         reports: 1,
         businesses: 1,
@@ -204,6 +205,8 @@ const AppState = (() => {
     let _reportTaskMetaMapRevision = -1;
     let _poolTaskGroupCache = null;
     let _poolTaskGroupRevision = -1;
+    let _taskDetailCache = new Map();
+    let _businessDetailCache = new Map();
 
     return {
         // Koleksiyonlar
@@ -211,10 +214,10 @@ const AppState = (() => {
         set users(v) { _users = Array.isArray(v) ? v : []; _collectionRevisions.users += 1; },
 
         get businesses() { return _businesses; },
-        set businesses(v) { _businesses = Array.isArray(v) ? v : []; _collectionRevisions.businesses += 1; this.invalidateBizMapCache(); },
+        set businesses(v) { _businesses = Array.isArray(v) ? v : []; _collectionRevisions.businesses += 1; this.invalidateBizMapCache(); this.clearBusinessDetailCache(); },
 
         get tasks() { return _tasks; },
-        set tasks(v) { _tasks = Array.isArray(v) ? v : []; _collectionRevisions.tasks += 1; this.invalidateTaskMapCache(); },
+        set tasks(v) { _tasks = Array.isArray(v) ? v : []; _collectionRevisions.tasks += 1; this.invalidateTaskMapCache(); this.clearTaskDetailCache(); },
 
         get notifications() { return _notifications; },
         set notifications(v) { _notifications = Array.isArray(v) ? v : []; _collectionRevisions.notifications += 1; },
@@ -318,7 +321,6 @@ const AppState = (() => {
                     this.getTaskDerivedIndex();
                     this.getUserTaskSummaryMap();
                     this.getBusinessTaskSummaryMap();
-                    this.getReportTaskMetaMap();
                     this.getPoolTaskGroups();
                 }
             } catch (err) {
@@ -357,6 +359,24 @@ const AppState = (() => {
         invalidateBizMapCache() {
             _bizMapCache = null;
             _bizMapRevision = -1;
+        },
+
+        getBusinessDetail(id) {
+            return _businessDetailCache.get(id) || null;
+        },
+
+        setBusinessDetail(id, detail) {
+            if (!id || !detail || typeof detail !== 'object') return;
+            _businessDetailCache.set(id, detail);
+        },
+
+        clearBusinessDetail(id) {
+            if (!id) return;
+            _businessDetailCache.delete(id);
+        },
+
+        clearBusinessDetailCache() {
+            _businessDetailCache = new Map();
         },
 
         getTaskMap() {
@@ -602,6 +622,24 @@ const AppState = (() => {
             _poolTaskGroupRevision = -1;
         },
 
+        getTaskDetail(id) {
+            return _taskDetailCache.get(id) || null;
+        },
+
+        setTaskDetail(id, detail) {
+            if (!id || !detail || typeof detail !== 'object') return;
+            _taskDetailCache.set(id, detail);
+        },
+
+        clearTaskDetail(id) {
+            if (!id) return;
+            _taskDetailCache.delete(id);
+        },
+
+        clearTaskDetailCache() {
+            _taskDetailCache = new Map();
+        },
+
         // --- Oturum Sıfırlama ---
         resetSession() {
             _users = []; _businesses = []; _tasks = []; _notifications = [];
@@ -612,6 +650,8 @@ const AppState = (() => {
             this.resetLoadedState();
             this.invalidateBizMapCache();
             this.invalidateTaskMapCache();
+            this.clearBusinessDetailCache();
+            this.clearTaskDetailCache();
             _userNameMapCache = null;
             _userNameMapRevision = -1;
             _userEmailMapCache = null;

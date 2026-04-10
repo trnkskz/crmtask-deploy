@@ -7,6 +7,41 @@ import { Prisma } from '@prisma/client'
 export class AccountsService {
   constructor(private prisma: PrismaService) {}
 
+  private mapAccountListItem(b: any) {
+    const latestTask = Array.isArray(b.tasks) ? b.tasks[0] : null
+    const hasActiveTask = Array.isArray(b.tasks)
+      ? b.tasks.some((task: any) => String(task?.generalStatus || '').toUpperCase() === 'OPEN')
+      : false
+    return {
+      ...b,
+      companyName: b.accountName,
+      businessStatus: b.status === 'ACTIVE' ? 'Aktif' : 'Pasif',
+      sourceType: b.source,
+      contactName: b.contactPerson || null,
+      contactPhone: b.businessContact || null,
+      contactEmail: null,
+      latestTaskStatus: latestTask?.status || null,
+      latestTaskAssignee: latestTask?.owner?.name || latestTask?.owner?.email || latestTask?.historicalAssignee || (latestTask?.ownerId ? null : 'UNASSIGNED'),
+      latestTaskSource: latestTask?.source || null,
+      latestTaskCreatedAt: latestTask?.creationDate || latestTask?.createdAt || null,
+      hasActiveTask,
+    }
+  }
+
+  private mapAccountDetailedListItem(b: any) {
+    const primary = b.contacts.find((c: any) => c.isPrimary) || b.contacts[0]
+    const withEmail = b.contacts.find((c: any) => c.email)
+    return {
+      ...b,
+      companyName: b.accountName,
+      businessStatus: b.status === 'ACTIVE' ? 'Aktif' : 'Pasif',
+      sourceType: b.source,
+      contactName: primary?.name || b.contactPerson || null,
+      contactPhone: primary?.phone || b.businessContact || null,
+      contactEmail: primary?.email || withEmail?.email || null,
+    }
+  }
+
   private importedNameStopwords = new Set([
     'acil', 'adina', 'ait', 'aldi', 'alindi', 'arayin', 'aranacak', 'aranir', 'atti', 'attı', 'bakacak',
     'bakamadi', 'bakamadı', 'bana', 'beni', 'benim', 'bilgi', 'bugun', 'bugün', 'burada', 'burası', 'bu',
@@ -397,16 +432,30 @@ export class AccountsService {
 
   async list(q: AccountListQueryDto) {
     const where: any = {}
+    const sourceValues = String(q.sourceType || '')
+      .split(',')
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
 
     if (q.q) {
       where.OR = [
         { accountName: { contains: q.q, mode: 'insensitive' } },
         { businessName: { contains: q.q, mode: 'insensitive' } },
         { contactPerson: { contains: q.q, mode: 'insensitive' } },
+        { businessContact: { contains: q.q, mode: 'insensitive' } },
+        { contacts: { some: { OR: [
+          { name: { contains: q.q, mode: 'insensitive' } },
+          { phone: { contains: q.q, mode: 'insensitive' } },
+          { email: { contains: q.q, mode: 'insensitive' } },
+        ] } } },
       ]
     }
-    if (q.sourceType) where.source = q.sourceType as any
-    if (q.businessStatus) where.status = q.businessStatus as any
+    if (sourceValues.length === 1) where.source = sourceValues[0] as any
+    else if (sourceValues.length > 1) where.source = { in: sourceValues as any }
+    if (q.businessStatus) {
+      const normalizedStatus = String(q.businessStatus).trim().toUpperCase()
+      where.status = (normalizedStatus === 'AKTIF' ? 'ACTIVE' : normalizedStatus === 'PASIF' ? 'PASSIVE' : normalizedStatus) as any
+    }
     if (q.city) where.city = { contains: q.city, mode: 'insensitive' }
     if (q.district) where.district = { contains: q.district, mode: 'insensitive' }
     if (q.mainCategory) where.mainCategory = { contains: q.mainCategory, mode: 'insensitive' }
@@ -414,16 +463,6 @@ export class AccountsService {
     if (q.assigneeId) {
       where.tasks = { some: { ownerId: q.assigneeId } }
     }
-    if (q.createdFrom || q.createdTo) {
-      where.creationDate = {}
-      if (q.createdFrom) where.creationDate.gte = new Date(q.createdFrom)
-      if (q.createdTo) {
-        const toDate = new Date(q.createdTo)
-        toDate.setHours(23, 59, 59, 999)
-        where.creationDate.lte = toDate
-      }
-    }
-
     let orderBy: any = { accountName: 'asc' }
     switch (q.sort) {
       case SortOption.name_desc:
@@ -438,8 +477,112 @@ export class AccountsService {
     }
 
     const page = Number(q.page || 1)
-    const limit = Math.min(Number(q.limit || 20), 100)
+    const isSummaryView = String(q.view || '').toLowerCase() === 'summary'
+    if (!isSummaryView && (q.createdFrom || q.createdTo)) {
+      where.creationDate = {}
+      if (q.createdFrom) where.creationDate.gte = new Date(q.createdFrom)
+      if (q.createdTo) {
+        const toDate = new Date(q.createdTo)
+        toDate.setHours(23, 59, 59, 999)
+        where.creationDate.lte = toDate
+      }
+    }
+    const limitCap = isSummaryView ? 250 : 100
+    const limit = Math.min(Number(q.limit || 20), limitCap)
     const skip = (page - 1) * limit
+
+    if (isSummaryView) {
+      const rawItems = await this.prisma.account.findMany({
+        where,
+        orderBy,
+        select: {
+          id: true,
+          accountName: true,
+          businessName: true,
+          source: true,
+          type: true,
+          status: true,
+          mainCategory: true,
+          subCategory: true,
+          city: true,
+          district: true,
+          address: true,
+          businessContact: true,
+          contactPerson: true,
+          notes: true,
+          website: true,
+          instagram: true,
+          campaignUrl: true,
+          creationDate: true,
+          createdAt: true,
+          tasks: {
+            select: {
+              id: true,
+              ownerId: true,
+              status: true,
+              generalStatus: true,
+              source: true,
+              historicalAssignee: true,
+              creationDate: true,
+              createdAt: true,
+              owner: { select: { id: true, name: true, email: true, team: true } },
+            },
+            orderBy: { creationDate: 'desc' },
+            take: 5,
+          },
+        },
+      })
+
+      const normalizedAssignee = String(q.assignee || '').trim()
+      const normalizedTeam = String(q.team || '').trim()
+      const taskScope = String(q.taskScope || 'all').trim().toLowerCase()
+      const createdFromMs = q.createdFrom ? new Date(q.createdFrom).getTime() : null
+      const createdToMs = q.createdTo ? new Date(`${q.createdTo}T23:59:59.999`).getTime() : null
+
+      const filteredItems = rawItems.filter((account: any) => {
+        const latestTask = Array.isArray(account.tasks) ? account.tasks[0] : null
+        const hasActiveTask = Array.isArray(account.tasks)
+          ? account.tasks.some((task: any) => String(task?.generalStatus || '').toUpperCase() === 'OPEN')
+          : false
+
+        if (normalizedTeam) {
+          const teamMatch = (account.tasks || []).some((task: any) => String(task?.owner?.team || '').trim() === normalizedTeam)
+          if (!teamMatch) return false
+        }
+
+        if (normalizedAssignee) {
+          if (normalizedAssignee === 'UNASSIGNED') {
+            const hasUnassigned = (account.tasks || []).some((task: any) => !task?.ownerId)
+            if (!hasUnassigned) return false
+          } else {
+            const assigneeMatch = (account.tasks || []).some((task: any) => (
+              String(task?.ownerId || '').trim() === normalizedAssignee
+              || String(task?.owner?.name || '').trim() === normalizedAssignee
+              || String(task?.owner?.email || '').trim() === normalizedAssignee
+              || String(task?.historicalAssignee || '').trim() === normalizedAssignee
+            ))
+            if (!assigneeMatch) return false
+          }
+        }
+
+        if (taskScope === 'open' && !hasActiveTask) return false
+        if (taskScope === 'closed' && hasActiveTask) return false
+
+        if (createdFromMs || createdToMs) {
+          const effectiveDateRaw = latestTask?.creationDate || latestTask?.createdAt || account.creationDate || account.createdAt
+          const effectiveMs = new Date(effectiveDateRaw || 0).getTime()
+          if (!Number.isFinite(effectiveMs)) return false
+          if (createdFromMs && effectiveMs < createdFromMs) return false
+          if (createdToMs && effectiveMs > createdToMs) return false
+        }
+
+        return true
+      })
+
+      const total = filteredItems.length
+      const pagedItems = filteredItems.slice(skip, skip + limit).map((b: any) => this.mapAccountListItem(b))
+      return { items: pagedItems, total, page, limit }
+    }
 
     const [rawItems, total] = await this.prisma.$transaction([
       this.prisma.account.findMany({
@@ -451,35 +594,22 @@ export class AccountsService {
           contacts: { take: 10 },
           tasks: {
             select: {
-               id: true,
-               ownerId: true,
-               status: true,
-               generalStatus: true,
-               creationDate: true,
-               owner: { select: { id: true, name: true, email: true } },
+              id: true,
+              ownerId: true,
+              status: true,
+              generalStatus: true,
+              creationDate: true,
+              owner: { select: { id: true, name: true, email: true } },
             },
             orderBy: { creationDate: 'desc' },
-             take: 1,
+            take: 1,
           },
         },
       }),
       this.prisma.account.count({ where }),
     ])
 
-    const items = rawItems.map(b => {
-      const primary = b.contacts.find(c => c.isPrimary) || b.contacts[0];
-      const withEmail = b.contacts.find(c => c.email);
-      return {
-        ...b,
-        companyName: b.accountName,
-        businessStatus: b.status === 'ACTIVE' ? 'Aktif' : 'Pasif',
-        sourceType: b.source,
-        contactName: primary?.name || b.contactPerson || null,
-        contactPhone: primary?.phone || b.businessContact || null,
-        contactEmail: primary?.email || withEmail?.email || null,
-      }
-    });
-
+    const items = rawItems.map((b: any) => this.mapAccountDetailedListItem(b))
     return { items, total, page, limit }
   }
 
@@ -1429,8 +1559,8 @@ export class AccountsService {
             } else {
               taskCreatedAtISO = parsedTaskDate;
             }
-          } else if (!isNewBiz) {
-            taskCreatedAtISO = new Date("2000-01-01T12:00:00.000Z");
+          } else {
+            taskCreatedAtISO = this.importedFallbackDate();
           }
 
           let aranacakTarih = row.aranacakTarih || row.aranacak || row.nextcall || null;

@@ -26,11 +26,30 @@ export class ReportsController {
     return this.svc.performance(req.user, { from, to })
   }
 
+  @Get('team-pulse')
+  @MinRole(Roles.SALESPERSON)
+  @RequirePermission('viewReports')
+  teamPulse(@Req() req: any) {
+    return this.svc.teamPulse(req.user)
+  }
+
+  @Get('dashboard-snapshot')
+  @MinRole(Roles.SALESPERSON)
+  dashboardSnapshot(@Req() req: any) {
+    return this.svc.dashboardSnapshot(req.user)
+  }
+
   @Get('task-status')
   @MinRole(Roles.SALESPERSON)
   @RequirePermission('viewReports')
   taskStatus(@Req() req: any, @Query('from') from?: string, @Query('to') to?: string) {
     return this.svc.taskStatus(req.user, { from, to })
+  }
+
+  @Get('tasks')
+  @MinRole(Roles.SALESPERSON)
+  tasks(@Req() req: any, @Query() q: any) {
+    return this.svc.tasksReport(q, req.user)
   }
 
   @Get('operations-radar')

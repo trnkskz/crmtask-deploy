@@ -126,4 +126,23 @@ describe('ReportsService.tasksCsv', () => {
       }),
     )
   })
+
+  it('does not let sales reps widen reports task scope with ownerId filters', async () => {
+    const { service, prisma } = buildService()
+    prisma.task.findMany.mockResolvedValue([])
+
+    await service.tasksReport(
+      { ownerId: 'sales_2', status: 'deal' },
+      { id: 'sales_1', role: 'SALESPERSON' },
+    )
+
+    expect(prisma.task.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          ownerId: 'sales_1',
+          status: 'DEAL',
+        }),
+      }),
+    )
+  })
 })

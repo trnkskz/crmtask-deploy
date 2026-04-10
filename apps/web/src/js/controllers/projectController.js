@@ -435,6 +435,13 @@ const ProjectController = {
             method: 'POST',
             body: JSON.stringify(accountPayload)
         }).then(account => {
+            const mappedAccount = typeof DataService.mapBusiness === 'function' ? DataService.mapBusiness(account) : account;
+            const nextBusinesses = Array.isArray(AppState.businesses) ? [...AppState.businesses] : [];
+            const existingIndex = nextBusinesses.findIndex((b) => b.id === mappedAccount.id);
+            if (existingIndex >= 0) nextBusinesses[existingIndex] = mappedAccount;
+            else nextBusinesses.unshift(mappedAccount);
+            AppState.businesses = nextBusinesses;
+            if (typeof AppState.setBusinessDetail === 'function') AppState.setBusinessDetail(mappedAccount.id, mappedAccount);
             const srcMap = this._mapUiSourceToApi(srcType);
             const taskCatRaw = this._mapUiTaskCategoryToApi(getValue('taskCategory'));
 
@@ -462,19 +469,20 @@ const ProjectController = {
 
             if (ownerId) taskPayload.ownerId = ownerId;
 
-            if (getValue('contactName') || phone || email) {
-                taskPayload.newContact = {
-                    name: getValue('contactName') || 'Yetkili',
-                    phone: phone || undefined,
-                    email: email || undefined,
-                };
-            }
-
             return DataService.apiRequest('/tasks', {
                 method: 'POST',
                 body: JSON.stringify(taskPayload)
             });
         }).then(async (task) => {
+            const refreshedTask = task?.id ? await DataService.readPath(`tasks/${task.id}`, { force: true }).catch(() => null) : null;
+            if (refreshedTask) {
+                const nextTasks = Array.isArray(AppState.tasks) ? [...AppState.tasks] : [];
+                const existingIndex = nextTasks.findIndex((item) => item.id === refreshedTask.id);
+                if (existingIndex >= 0) nextTasks[existingIndex] = refreshedTask;
+                else nextTasks.unshift(refreshedTask);
+                AppState.tasks = nextTasks;
+                if (typeof AppState.setTaskDetail === 'function') AppState.setTaskDetail(refreshedTask.id, refreshedTask);
+            }
             await this._applyPostCreatePool(task?.id, poolTeam);
             if (typeof DataService !== 'undefined' && typeof DataService.invalidateCollectionCache === 'function') {
                 DataService.invalidateCollectionCache('tasks');
@@ -487,6 +495,12 @@ const ProjectController = {
             if (btn) { btn.disabled = false; btn.innerText = "🚀 Taskı Oluştur ve Atama Yap"; }
             addSystemLog(`"${compName}" için yeni task: '${actualAssignee}'`);
             showToast("Yeni İşletme ve Task oluşturuldu!", "success");
+            if (typeof window.renderMyTasks === 'function') {
+                setTimeout(() => window.renderMyTasks(), 0);
+            }
+            if (typeof window.renderAllTasks === 'function') {
+                setTimeout(() => window.renderAllTasks(), 0);
+            }
             const form = document.getElementById('businessForm'); if (form) form.reset();
             const warn = document.getElementById('newBizDuplicateWarning'); if (warn) warn.style.display = 'none';
         }).catch(err => {
@@ -1242,7 +1256,7 @@ const ProjectController = {
         renderPagination(pagContainer, pastProjects.length, window.pastProjCurrentPage || 1, itemsPerPage, (i) => {
             window.pastProjCurrentPage = i;
             this.renderPastProjects(true);
-        });
+        }, { compact: true, resultLabel: 'kayıt' });
     },
 
     clearPastProjFilters() {

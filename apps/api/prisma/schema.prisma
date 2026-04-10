@@ -37,6 +37,10 @@ model User {
   appRole          AppRole?       @relation(fields: [appRoleId], references: [id])
   manager          User?          @relation("ManagerMembers", fields: [managerId], references: [id])
   members          User[]         @relation("ManagerMembers")
+
+  @@index([managerId])
+  @@index([role, isActive])
+  @@index([team, role, isActive])
 }
 
 model RefreshToken {
@@ -123,6 +127,12 @@ model Account {
   deals           Deal[]
   Lead            Lead[]
   tasks           Task[]
+
+  @@index([creationDate])
+  @@index([status])
+  @@index([city, district])
+  @@index([mainCategory, subCategory])
+  @@index([accountName])
 }
 
 model AccountContact {
@@ -197,6 +207,13 @@ model Task {
   taskContacts       TaskContact[]
 
   @@index([projectId])
+  @@index([accountId])
+  @@index([ownerId, generalStatus])
+  @@index([ownerId, status])
+  @@index([createdById, creationDate])
+  @@index([generalStatus, creationDate])
+  @@index([status, generalStatus])
+  @@index([creationDate])
 }
 
 model ActivityLog {
@@ -210,6 +227,9 @@ model ActivityLog {
   author       User      @relation(fields: [authorId], references: [id])
   task         Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
   offers       Offer[]
+
+  @@index([taskId, createdAt])
+  @@index([authorId, createdAt])
 }
 
 model Offer {
@@ -308,6 +328,9 @@ model Deal {
   account   Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
   task      Task?         @relation(fields: [taskId], references: [id])
   histories DealHistory[]
+
+  @@index([taskId])
+  @@index([status, createdAt])
 }
 
 model DealHistory {

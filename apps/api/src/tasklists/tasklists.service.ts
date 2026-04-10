@@ -6,6 +6,17 @@ import { CreateTaskListDto, TaskListQueryDto, TaskListTasksQueryDto, UpdateTaskL
 export class TaskListsService {
   constructor(private prisma: PrismaService) {}
 
+  private async managerHasDirectSales(userId: string) {
+    const count = await this.prisma.user.count({
+      where: {
+        isActive: true,
+        role: 'SALESPERSON' as any,
+        managerId: userId,
+      },
+    })
+    return count > 0
+  }
+
   private async getActorTeam(userId: string) {
     const actor = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -129,9 +140,10 @@ export class TaskListsService {
       if (user.role === 'SALESPERSON') {
         where.ownerId = user.id
       } else if (user.role === 'MANAGER') {
+        const hasDirectSales = await this.managerHasDirectSales(user.id)
         if (!(where.ownerId === null)) {
           where.OR = [
-            { owner: { is: { managerId: user.id, role: 'SALESPERSON' } } as any },
+            { owner: { is: hasDirectSales ? { managerId: user.id, role: 'SALESPERSON' } : { role: 'SALESPERSON' } } as any },
             { historicalAssignee: { not: null } },
           ]
         }

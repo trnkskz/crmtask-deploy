@@ -2,6 +2,69 @@
 // BUSINESS CONTROLLER
 // ==========================================
 const BusinessController = {
+    _refreshTaskSurfaces() {
+        if (typeof window.renderMyTasks === 'function') {
+            setTimeout(() => window.renderMyTasks(), 0);
+        }
+        if (typeof window.renderAllTasks === 'function') {
+            setTimeout(() => window.renderAllTasks(), 0);
+        }
+        if (typeof DashboardController !== 'undefined' && typeof DashboardController.render === 'function') {
+            setTimeout(() => DashboardController.render(true), 0);
+        }
+    },
+
+    async _syncBusinessTasksIntoState(bizId) {
+        if (!bizId) return;
+        const rows = await DataService.apiRequest(`/accounts/${bizId}/task-history`);
+        if (!Array.isArray(rows) || rows.length === 0) return;
+
+        const historyMap = new Map(rows.map((row) => [row.id, row]));
+        const nextTasks = Array.isArray(AppState.tasks) ? [...AppState.tasks] : [];
+        let changed = false;
+
+        for (let i = 0; i < nextTasks.length; i += 1) {
+            const task = nextTasks[i];
+            if (!task || task.businessId !== bizId) continue;
+            const snapshot = historyMap.get(task.id);
+            if (!snapshot) continue;
+
+            const nextStatus = String(snapshot.status || '').toLowerCase();
+            if (nextStatus && nextStatus !== task.status) {
+                nextTasks[i] = {
+                    ...task,
+                    status: nextStatus,
+                    closedAt: snapshot.closedAt || task.closedAt || null,
+                    closedReason: snapshot.closedReason || task.closedReason || null,
+                };
+                if (typeof AppState.setTaskDetail === 'function') {
+                    AppState.setTaskDetail(task.id, nextTasks[i]);
+                }
+                changed = true;
+            }
+        }
+
+        if (changed) {
+            AppState.tasks = nextTasks;
+        }
+    },
+
+    _commitBusinessState(biz) {
+        if (!biz?.id) return null;
+        const bizIndex = AppState.businesses.findIndex((item) => item.id === biz.id);
+        if (bizIndex < 0) {
+            AppState.businesses = [...AppState.businesses, biz];
+        } else {
+            const nextBusinesses = [...AppState.businesses];
+            nextBusinesses[bizIndex] = biz;
+            AppState.businesses = nextBusinesses;
+        }
+        if (typeof AppState.setBusinessDetail === 'function') {
+            AppState.setBusinessDetail(biz.id, biz);
+        }
+        return biz;
+    },
+
     _normalizeSourceKey(value) {
         const raw = String(value || '').trim().toUpperCase();
         if (!raw) return '';
@@ -46,6 +109,52 @@ const BusinessController = {
             aranacakTarih: headers.findIndex(h => h.includes('aranacak') || h.includes('tekrar ara') || h.includes('next call') || h.includes('nextcall') || h.includes('follow up')),
             sonSatisci: headers.findIndex(h => h.includes('satışçı') || h.includes('satisci') || h.includes('sorumlu') || h.includes('satışcı'))
         };
+    },
+
+    _inferCsvStatusColumnIndex(rows, map) {
+        if (!Array.isArray(rows) || rows.length < 2) return map?.durum ?? -1;
+        if (Number.isInteger(map?.durum) && map.durum >= 0) return map.durum;
+
+        const header = Array.isArray(rows[0]) ? rows[0] : [];
+        const sampleRows = rows.slice(1, 26).filter(Array.isArray);
+        const knownStatuses = new Set([
+            'cold',
+            'deal',
+            'hot',
+            'not hot',
+            'nothot',
+            'followup',
+            'follow up',
+            'new',
+            'takip',
+            'ılık',
+            'ilik',
+            'sicak',
+            'sıcak',
+        ]);
+
+        let bestIndex = -1;
+        let bestScore = 0;
+
+        for (let col = 0; col < header.length; col += 1) {
+            const headerValue = String(header[col] || '').trim();
+            if (headerValue) continue;
+            if (col === map?.loglama || col === map?.taskTarihi || col === map?.aranacakTarih) continue;
+
+            let score = 0;
+            for (const row of sampleRows) {
+                const rawValue = String(row[col] || '').trim().toLocaleLowerCase('tr-TR');
+                if (!rawValue) continue;
+                if (knownStatuses.has(rawValue)) score += 1;
+            }
+
+            if (score > bestScore) {
+                bestScore = score;
+                bestIndex = col;
+            }
+        }
+
+        return bestScore > 0 ? bestIndex : -1;
     },
 
     _buildCsvImportRows(rows, map) {
@@ -105,20 +214,74 @@ const BusinessController = {
         container.appendChild(row);
     },
 
+    updateUpdDistricts() {
+        const city = document.getElementById('upd_city')?.value || '';
+        const districtSelect = document.getElementById('upd_district');
+        if (!districtSelect) return;
+
+        const selectedDistrict = districtSelect.value || '';
+        const districtSource = (typeof DISTRICT_DATA !== 'undefined' ? DISTRICT_DATA : districtData) || {};
+        const districts = city ? (districtSource[city] || ['Merkez', 'Diğer']) : [];
+
+        districtSelect.innerHTML = '<option value="">Seçilmedi</option>';
+        districts.forEach((district) => districtSelect.add(new Option(district, district)));
+
+        districtSelect.value = selectedDistrict && districts.includes(selectedDistrict) ? selectedDistrict : '';
+    },
+
     // ---- Filtre durumu ----
     _taskFilterState: 0,   // 0=tümü 1=open 2=close
     _isBizSearched: false,
     _currentFilteredBiz: [],
+    _currentBizTotal: 0,
     _bizCurrentPage: 1,
     _globalSelectedBizIds: new Set(),
 
+    _buildBusinessQuery() {
+        const selectedSources = Array.from(document.querySelectorAll('.biz-source-filter:checked'))
+            .map(cb => this._normalizeSourceKey(cb.value))
+            .filter(Boolean);
+        const getValue = id => {
+            const el = document.getElementById(id);
+            return el ? String(el.value || '').trim() : '';
+        };
+        const assigneeFilter = getValue('filterBizAssignee');
+        const businessStatus = getValue('filterBizStatus') || 'Aktif';
+        const query = {
+            view: 'summary',
+            page: this._bizCurrentPage,
+            limit: 25,
+            q: getValue('filterBizName'),
+            sourceType: selectedSources.join(','),
+            mainCategory: getValue('filterBizCategory'),
+            subCategory: getValue('filterBizSubCategory'),
+            city: getValue('filterBizCity'),
+            district: getValue('filterBizDistrict'),
+            businessStatus: businessStatus === 'Tümü' ? '' : businessStatus,
+            createdFrom: getValue('filterBizDateStart'),
+            createdTo: getValue('filterBizDateEnd'),
+            taskScope: this._taskFilterState === 1 ? 'open' : (this._taskFilterState === 2 ? 'closed' : 'all'),
+            sort: 'newest',
+        };
+
+        if (assigneeFilter === 'Team 1' || assigneeFilter === 'Team 2') {
+            query.team = assigneeFilter;
+        } else if (assigneeFilter) {
+            query.assignee = assigneeFilter;
+        }
+
+        return query;
+    },
+
     // ---- Arama & Listeleme ----
 
-    search(isExplicitSearch = false) {
-        this._bizCurrentPage = 1;
-        this._globalSelectedBizIds.clear();
-        const selectAllCheckbox = document.getElementById('selectAllBiz');
-        if (selectAllCheckbox) selectAllCheckbox.checked = false;
+    async search(isExplicitSearch = false) {
+        if (isExplicitSearch) {
+            this._bizCurrentPage = 1;
+            this._globalSelectedBizIds.clear();
+            const selectAllCheckbox = document.getElementById('selectAllBiz');
+            if (selectAllCheckbox) selectAllCheckbox.checked = false;
+        }
 
         if (isExplicitSearch) { this._isBizSearched = true; this._bizCurrentPage = 1; }
         if (!this._isBizSearched) {
@@ -131,85 +294,27 @@ const BusinessController = {
         }
 
         const btnClear = document.getElementById('btnClearBizFilters'); if (btnClear) btnClear.style.display = 'inline-block';
+        const btnClear2 = document.getElementById('btnClearBizFilters2'); if (btnClear2) btnClear2.style.display = 'inline-flex';
 
-        const nEl = document.getElementById('filterBizName');
-        const rawSearchFilter = nEl ? String(nEl.value || '').trim() : '';
-        const selectedSources = Array.from(document.querySelectorAll('.biz-source-filter:checked'))
-            .map(cb => this._normalizeSourceKey(cb.value))
-            .filter(Boolean);
+        const listContainer = document.getElementById('businessesListContainer');
+        if (listContainer) listContainer.innerHTML = `<div class="no-records-message">Kayıtlar yükleniyor...</div>`;
 
-        const getValue = id => { const el = document.getElementById(id); return el ? el.value : ''; };
-        const catFilter = getValue('filterBizCategory');
-        const subCatFilter = getValue('filterBizSubCategory');
-        const cityFilter = getValue('filterBizCity');
-        const districtFilter = getValue('filterBizDistrict');
-        const startDate = getValue('filterBizDateStart');
-        const endDate = getValue('filterBizDateEnd');
-        const asgFilter = getValue('filterBizAssignee');
-        const statusFilter = getValue('filterBizStatus') || 'Aktif';
-
-        const taskMap = AppState.getTaskMap();
-        const taskSummaryMap = typeof AppState.getBusinessTaskSummaryMap === 'function'
-            ? AppState.getBusinessTaskSummaryMap()
-            : null;
-        const userNameMap = typeof AppState.getUserNameMap === 'function'
-            ? AppState.getUserNameMap()
-            : null;
-
-        const results = AppState.businesses.filter(biz => {
-            if (statusFilter !== 'Tümü' && (biz.businessStatus || 'Aktif') !== statusFilter) return false;
-            const bizTasks = taskMap[biz.id] || [];
-            const bizSummary = taskSummaryMap?.get(biz.id) || null;
-            const latestTask = bizSummary?.latestTask || bizTasks[0];
-            const businessCategoryMatches = matchesCategoryFilter(biz, catFilter, subCatFilter, biz.companyName);
-
-            if (rawSearchFilter) {
-                const matchesSearch = typeof businessMatchesSearch === 'function'
-                    ? businessMatchesSearch(biz, rawSearchFilter)
-                    : normalizeText(biz.companyName).includes(normalizeText(rawSearchFilter));
-                if (!matchesSearch) return false;
+        try {
+            const payload = await DataService.fetchBusinessPage(this._buildBusinessQuery());
+            if (!payload.items.length && payload.total > 0 && this._bizCurrentPage > 1) {
+                this._bizCurrentPage = Math.max(1, Math.ceil(payload.total / Math.max(payload.limit || 25, 1)));
+                return this.search(false);
             }
-
-            if (selectedSources.length > 0) {
-                const matchesSelectedSource = bizSummary
-                    ? selectedSources.some((sourceKey) => bizSummary.sourceKeys.has(sourceKey))
-                    : bizTasks.some(t => selectedSources.includes(this._normalizeSourceKey(t.sourceType)));
-                if (!matchesSelectedSource) return false;
-            }
-            if ((catFilter || subCatFilter) && !matchesTaskHistoryCategoryFilter(bizTasks, catFilter, subCatFilter, biz.companyName) && !businessCategoryMatches) return false;
-            if (cityFilter && biz.city !== cityFilter) return false;
-            if (districtFilter && biz.district !== districtFilter) return false;
-
-            if (asgFilter) {
-                if (asgFilter === 'Team 1' || asgFilter === 'Team 2') {
-                    if (!latestTask) return false;
-                    const u = userNameMap?.get(latestTask.assignee) || AppState.users.find(x => x.name === latestTask.assignee);
-                    if (!u || u.team !== asgFilter) return false;
-                } else if (asgFilter === 'UNASSIGNED') {
-                    if (latestTask && latestTask.assignee !== 'UNASSIGNED') return false;
-                } else {
-                    if (!latestTask || latestTask.assignee !== asgFilter) return false;
-                }
-            }
-
-            const hasActive = typeof bizSummary?.hasActive === 'boolean'
-                ? bizSummary.hasActive
-                : bizTasks.some(t => isActiveTask(t.status));
-            if (this._taskFilterState === 1 && !hasActive) return false;
-            if (this._taskFilterState === 2 && hasActive) return false;
-
-            if (startDate || endDate) {
-                const taskDateStr = latestTask ? latestTask.createdAt : biz.createdAt;
-                if (!taskDateStr) return false;
-                const taskDate = taskDateStr.split('T')[0];
-                if (startDate && taskDate < startDate) return false;
-                if (endDate && taskDate > endDate) return false;
-            }
-            return true;
-        });
-
-        this._currentFilteredBiz = results;
-        this._renderList();
+            this._currentFilteredBiz = payload.items;
+            this._currentBizTotal = payload.total;
+            this._renderList();
+        } catch (err) {
+            console.error('Business list backend query failed:', err);
+            showToast(err?.message || 'İşletme listesi yüklenemedi.', 'error');
+            this._currentFilteredBiz = [];
+            this._currentBizTotal = 0;
+            this._renderList();
+        }
     },
 
     _renderList() {
@@ -229,31 +334,22 @@ const BusinessController = {
 
         if (AppState.loggedInUser.role === 'Yönetici') {
             const bulkContainer = document.getElementById('bulkActionContainer');
-            if (bulkContainer) bulkContainer.style.display = this._currentFilteredBiz.length > 0 ? 'flex' : 'none';
+            if (bulkContainer) bulkContainer.style.display = this._currentBizTotal > 0 ? 'flex' : 'none';
         }
-        if (this._currentFilteredBiz.length === 0) {
+        if (this._currentBizTotal === 0 || this._currentFilteredBiz.length === 0) {
             listContainer.innerHTML = `<div class="no-records-message">Kayıt bulunamadı.</div>`;
             return;
         }
 
         const itemsPerPage = 25;
-        const totalPages = Math.ceil(this._currentFilteredBiz.length / itemsPerPage);
+        const totalPages = Math.ceil(this._currentBizTotal / itemsPerPage);
         if (this._bizCurrentPage > totalPages) this._bizCurrentPage = totalPages || 1;
-        const startIndex = (this._bizCurrentPage - 1) * itemsPerPage;
-        const paginatedData = this._currentFilteredBiz.slice(startIndex, startIndex + itemsPerPage);
 
-        const taskMap = AppState.getTaskMap();
-        const taskSummaryMap = typeof AppState.getBusinessTaskSummaryMap === 'function'
-            ? AppState.getBusinessTaskSummaryMap()
-            : null;
-
-        paginatedData.forEach(biz => {
-            const bizTasks = taskMap[biz.id] || [];
-            const bizSummary = taskSummaryMap?.get(biz.id) || null;
-            const latestTask = bizSummary?.latestTask || bizTasks[0];
-            const hasActive = typeof bizSummary?.hasActive === 'boolean'
-                ? bizSummary.hasActive
-                : bizTasks.some(t => isActiveTask(t.status));
+        this._currentFilteredBiz.forEach(biz => {
+            const statusClass = String(biz.latestTaskStatus || '').toLowerCase();
+            const statusText = biz.latestTaskStatus
+                ? ((typeof TASK_STATUS_LABELS !== 'undefined' && TASK_STATUS_LABELS[statusClass]) ? TASK_STATUS_LABELS[statusClass] : String(biz.latestTaskStatus).toUpperCase())
+                : (biz.hasActiveTask ? 'AKTİF' : 'GÖREV YOK');
             const card = document.createElement('div');
             
             // Çakışmayı önlemek için inline cssText ve event listener'ları temizledik
@@ -263,20 +359,9 @@ const BusinessController = {
 
             const checkboxHtml = '';
 
-            let statusText = 'GÖREV YOK';
-            let statusClass = 'none';
-            if (latestTask?.status) {
-                statusClass = String(latestTask.status).toLowerCase();
-                statusText = (typeof TASK_STATUS_LABELS !== 'undefined' && TASK_STATUS_LABELS[statusClass])
-                    ? TASK_STATUS_LABELS[statusClass]
-                    : String(latestTask.status).toUpperCase();
-            } else if (hasActive) {
-                statusText = 'AKTİF';
-                statusClass = 'active';
-            }
-
-            const assigneeText = latestTask ? latestTask.assignee : 'Atanmamış';
-            const sourceText = latestTask ? (latestTask.sourceType || '-') : (biz.sourceType || '-');
+            const safeStatusClass = statusClass || (biz.hasActiveTask ? 'active' : 'none');
+            const assigneeText = biz.latestTaskAssignee || 'Atanmamış';
+            const sourceText = biz.latestTaskSource || biz.sourceType || '-';
 
             const initials = (biz.companyName || 'I').charAt(0).toUpperCase();
             const isPasif = (biz.businessStatus === 'Pasif');
@@ -291,16 +376,16 @@ const BusinessController = {
                 <div class="ubc-tags">
                     <span class="ubc-tag">${sourceText}</span>
                     <span class="ubc-tag">${assigneeText}</span>
-                    <span class="ubc-tag status-${statusClass}">${statusText}</span>
+                    <span class="ubc-tag status-${safeStatusClass}">${statusText}</span>
                 </div>
             `;
             listContainer.appendChild(card);
         });
 
-        renderPagination(pagContainer, this._currentFilteredBiz.length, this._bizCurrentPage, itemsPerPage, (i) => {
+        renderPagination(pagContainer, this._currentBizTotal, this._bizCurrentPage, itemsPerPage, (i) => {
             this._bizCurrentPage = i;
-            this._renderList();
-        });
+            this.search(false);
+        }, { compact: true, resultLabel: 'kayıt' });
     },
 
     triggerBizLiveFilter() {
@@ -327,12 +412,14 @@ const BusinessController = {
         this._globalSelectedBizIds.clear();
         const selectAllCheckbox = document.getElementById('selectAllBiz'); if (selectAllCheckbox) selectAllCheckbox.checked = false;
         this._currentFilteredBiz = [];
+        this._currentBizTotal = 0;
 
         const listContainer = document.getElementById('businessesListContainer');
         if (listContainer) listContainer.innerHTML = `<div style="text-align:center; padding:40px; color:var(--text-muted); background:#fff; border-radius:8px; border:1px solid var(--border-light);">İşletmeleri listelemek için arama yapın.</div>`;
         const bulkContainer = document.getElementById('bulkActionContainer'); if (bulkContainer) bulkContainer.style.display = 'none';
         const pagContainer = document.getElementById('bizPagination'); if (pagContainer) pagContainer.innerHTML = '';
         const btnClear = document.getElementById('btnClearBizFilters'); if (btnClear) btnClear.style.display = 'none';
+        const btnClear2 = document.getElementById('btnClearBizFilters2'); if (btnClear2) btnClear2.style.display = 'none';
     },
 
     toggleOpenTaskFilter() {
@@ -366,11 +453,13 @@ const BusinessController = {
 
                 biz.businessStatus = nextStatus;
                 AppState.invalidateBizMapCache?.();
+                await this._syncBusinessTasksIntoState(bizId);
 
                 if (typeof addSystemLog === 'function') {
                     addSystemLog(`İşletme durumu güncellendi: ${biz.companyName} -> ${nextStatus}`);
                 }
                 showToast(`İşletme ${nextStatus === 'Pasif' ? 'pasife alındı' : 'aktifleştirildi'}.`, 'success');
+                this._refreshTaskSurfaces();
 
                 if (this._isBizSearched) this.search(false);
                 this.openDetailModal(bizId);
@@ -416,22 +505,23 @@ const BusinessController = {
         const closeBtn = document.querySelector('#businessDetailModal .modal-close-btn');
         if (closeBtn) closeBtn.setAttribute('onclick', "closeModal('businessDetailModal')");
 
-        let biz = AppState.businesses.find(b => b.id === bizId);
-        if (!biz) return;
+        let biz = AppState.businesses.find(b => b.id === bizId) || null;
         try {
-            const detail = await DataService.apiRequest('/accounts/' + bizId);
-            if (detail && typeof DataService.mapBusiness === 'function') {
-                const mappedDetail = DataService.mapBusiness(detail);
-                biz = { ...biz, ...mappedDetail };
-                const bizIndex = AppState.businesses.findIndex((b) => b.id === bizId);
-                if (bizIndex >= 0) {
-                    AppState.businesses[bizIndex] = biz;
-                    AppState.invalidateBizMapCache();
-                }
+            const mappedDetail = await DataService.readPath('accounts/' + bizId, { force: true });
+            if (mappedDetail) {
+                biz = { ...(biz || {}), ...mappedDetail };
+                this._commitBusinessState(biz);
             }
         } catch (err) {
+            if (err?.status === 404) {
+                AppState.businesses = AppState.businesses.filter((item) => item.id !== bizId);
+                AppState.invalidateBizMapCache?.();
+                showToast('Bu isletme kaydi artik bulunamiyor. Liste yenilendi.', 'warning');
+                return;
+            }
             console.warn('Business detail fetch failed, falling back to cached state.', err);
         }
+        if (!biz) return;
 
         const bStatus = biz.businessStatus || 'Aktif';
         const bizTasks = (AppState.getTaskMap()[bizId] || []).slice();
@@ -692,9 +782,17 @@ const BusinessController = {
         const biz = AppState.businesses.find(b => b.id === bizId); if (!biz) return;
         const panel = document.getElementById('bizRightPanelContent_' + bizId); if (!panel) return;
 
-        const cityOptions = cities.map(c => `<option value="${c}" ${c === biz.city ? 'selected' : ''}>${c}</option>`).join('');
-        const dists = districtData[biz.city || 'İstanbul'] || ["Merkez", "Diğer"];
-        const distOptions = dists.map(d => `<option value="${d}" ${d === biz.district ? 'selected' : ''}>${d}</option>`).join('');
+        const districtSource = (typeof DISTRICT_DATA !== 'undefined' ? DISTRICT_DATA : districtData) || {};
+        const allCities = (typeof cities !== 'undefined' && Array.isArray(cities) ? cities : (typeof CITIES !== 'undefined' ? CITIES : Object.keys(districtSource)));
+        const cityOptions = [
+            `<option value="" ${!biz.city ? 'selected' : ''}>Seçilmedi</option>`,
+            ...allCities.map(c => `<option value="${c}" ${c === biz.city ? 'selected' : ''}>${c}</option>`),
+        ].join('');
+        const dists = biz.city ? (districtSource[biz.city] || ['Merkez', 'Diğer']) : [];
+        const distOptions = [
+            `<option value="" ${!biz.district ? 'selected' : ''}>Seçilmedi</option>`,
+            ...dists.map(d => `<option value="${d}" ${d === biz.district ? 'selected' : ''}>${d}</option>`),
+        ].join('');
         // İşletme üzerinden kategori ve kaynak alındığı alanlar Görev (Task) yapısına taşındı.
 
         let extraContactsFields = `<div id="dynamicContactsContainer">`;
@@ -815,11 +913,7 @@ const BusinessController = {
                     instagram: refreshedBiz.instagram || payload.instagram || '',
                     campaignUrl: refreshedBiz.campaignUrl || payload.campaignUrl || '',
                 };
-            const bizIndex = AppState.businesses.findIndex((b) => b.id === bizId);
-            if (bizIndex >= 0) {
-                AppState.businesses[bizIndex] = normalizedBiz;
-                AppState.invalidateBizMapCache();
-            }
+            this._commitBusinessState(normalizedBiz);
             addSystemLog(`${AppState.loggedInUser.name}, "${compName}" işletmesinin bilgilerini güncelledi.`);
             showToast("İşletme bilgileri başarıyla güncellendi.", "success"); 
             this.openDetailModal(bizId); 
@@ -1018,9 +1112,13 @@ const BusinessController = {
             }
         }
 
-        const ownerId = (actualAssignee && !actualAssignee.startsWith('TARGET_POOL') && actualAssignee !== 'UNASSIGNED') 
-                        ? (AppState.users.find(u => u.name === actualAssignee)?.id || actualAssignee) 
-                        : null;
+        const isManagerOrTL = ['Yönetici', 'Takım Lideri'].includes(String(AppState.loggedInUser?.role || ''));
+        let ownerId = null;
+        if (isManagerOrTL) {
+            ownerId = (actualAssignee && !actualAssignee.startsWith('TARGET_POOL') && actualAssignee !== 'UNASSIGNED')
+                ? (AppState.users.find(u => u.name === actualAssignee)?.id || actualAssignee)
+                : null;
+        }
 
         const projectNote = targetProjectId ? ` (Proje: ${targetProjectId})` : '';
         const payload = {
@@ -1048,10 +1146,29 @@ const BusinessController = {
         if (newContactObj) payload.newContact = newContactObj;
         if (isCampaignUrlRequiredSource(taskSourceType)) payload.campaignUrl = campaignUrl || undefined;
 
-        DataService.apiRequest('/tasks', { method: 'POST', body: JSON.stringify(payload) }).then(() => {
+        if (!isManagerOrTL) {
+            delete payload.ownerId;
+        }
+
+        DataService.apiRequest('/tasks', { method: 'POST', body: JSON.stringify(payload) }).then(async (createdTask) => {
+            const refreshedTask = createdTask?.id ? await DataService.readPath(`tasks/${createdTask.id}`, { force: true }).catch(() => null) : null;
+            if (refreshedTask) {
+                const nextTasks = Array.isArray(AppState.tasks) ? [...AppState.tasks] : [];
+                const existingIndex = nextTasks.findIndex((item) => item.id === refreshedTask.id);
+                if (existingIndex >= 0) nextTasks[existingIndex] = refreshedTask;
+                else nextTasks.unshift(refreshedTask);
+                AppState.tasks = nextTasks;
+                if (typeof AppState.setTaskDetail === 'function') AppState.setTaskDetail(refreshedTask.id, refreshedTask);
+            }
             if (btn) { btn.disabled = false; btn.innerText = "Görevi Başlat"; }
             addSystemLog(`Mevcut işletmeye görev atandı: ${bizId} -> Sorumlu: ${ownerId || 'Havuza At (Atanmasın)'}`);
             showToast("Görev başarıyla atandı!", "success");
+            if (typeof window.renderMyTasks === 'function') {
+                setTimeout(() => window.renderMyTasks(), 0);
+            }
+            if (typeof window.renderAllTasks === 'function') {
+                setTimeout(() => window.renderAllTasks(), 0);
+            }
             
             BusinessController.restoreRightPanel(bizId);
             // State anında güncellendiği için manuel unshift yapmıyoruz.
@@ -1147,6 +1264,9 @@ const BusinessController = {
                 const map = window.CsvImportUtils?.detectCsvColumnMap
                     ? window.CsvImportUtils.detectCsvColumnMap(rows[0])
                     : this._detectCsvColumnMap(rows[0]);
+                if (map.durum === -1) {
+                    map.durum = this._inferCsvStatusColumnIndex(rows, map);
+                }
 
                 if (map.companyName === -1) {
                     if (btn) { btn.disabled = false; btn.innerText = "Verileri İçeri Aktar 🚀"; }
@@ -1196,13 +1316,6 @@ const BusinessController = {
                     );
 
                     try {
-                        const token =
-                            localStorage.getItem('accessToken') ||
-                            sessionStorage.getItem('accessToken') ||
-                            localStorage.getItem('token') ||
-                            sessionStorage.getItem('token') ||
-                            '';
-                        
                         for (let i = 0; i < payloadRows.length; i += CHUNK_SIZE) {
                             const chunk = payloadRows.slice(i, i + CHUNK_SIZE);
                             const chunkIndex = Math.floor(i / CHUNK_SIZE) + 1;
@@ -1213,25 +1326,10 @@ const BusinessController = {
                                 `Parça ${chunkIndex} / ${totalChunks} gönderiliyor${totalFailedRows ? ` • ${totalFailedRows} satır hata verdi` : ''}`
                             );
 
-                            const response = await fetch('/api/accounts/import', {
+                            const result = await DataService.apiRequest('/accounts/import', {
                                 method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    'Authorization': 'Bearer ' + token
-                                },
                                 body: JSON.stringify({ rows: chunk, defaultAssigneeId })
                             });
-
-                            const result = await response.json().catch(() => ({}));
-
-                            if (!response.ok) {
-                                const errorMessage =
-                                    result?.error?.message ||
-                                    result?.message ||
-                                    result?.error ||
-                                    'Sunucu hatası';
-                                throw new Error(`Parça ${chunkIndex}/${totalChunks}: ${errorMessage}`);
-                            }
 
                             totalAddedBiz += Number(result.addedBizCount || 0);
                             totalAddedTasks += Number(result.addedTaskCount || 0);
@@ -1286,7 +1384,11 @@ const BusinessController = {
                         }
                     } catch (err) {
                         console.error("Import hatası:", err);
-                        showToast("Aktarım sırasında bir hata oluştu: " + err.message, "error");
+                        const errorMessage = String(err?.message || 'Sunucu hatası');
+                        const formattedMessage = errorMessage.startsWith('Parça ')
+                            ? errorMessage
+                            : `Aktarım sırasında bir hata oluştu: ${errorMessage}`;
+                        showToast(formattedMessage, "error");
                     } finally {
                         fi.value = "";
                         if (btn) { btn.disabled = false; btn.innerText = "Verileri İçeri Aktar 🚀"; }
@@ -1322,3 +1424,4 @@ window.saveNewAssignedTask     = ()  => BusinessController.saveNewAssignedTask()
 window.renderBizTaskHistoryPage= (p)  => BusinessController.renderBizTaskHistoryPage(p);
 window.toggleCampaignUrl       = ()  => BusinessController.toggleCampaignUrl();
 window.addDynamicContactRow    = ()  => BusinessController.addDynamicContactRow();
+window.updateUpdDistricts      = ()  => BusinessController.updateUpdDistricts();

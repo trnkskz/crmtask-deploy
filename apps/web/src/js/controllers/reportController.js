@@ -4,7 +4,6 @@
 // ============================================================
 
 const ReportController = (() => {
-    const API_BASE = window.__API_BASE_URL__ || 'http://localhost:3001/api';
     const reportUiState = {
         activeTab: 'tasks',
         hasSubmittedFilters: false,
@@ -12,29 +11,6 @@ const ReportController = (() => {
         taskRows: [],
         businessRows: [],
     };
-
-    function getReportTaskMetaMap() {
-        if (typeof AppState.getReportTaskMetaMap === 'function') {
-            return AppState.getReportTaskMetaMap();
-        }
-
-        const metaMap = new Map();
-        AppState.tasks.forEach((task) => {
-            const latestLog = task.logs?.[0] || null;
-            const plainText = String(latestLog?.text || '').replace(/<[^>]*>?/gm, '').trim();
-            const tagMatch = plainText.match(/^\[(.*?)\]/);
-            metaMap.set(task.id, {
-                latestLogText: latestLog?.text || '',
-                latestLogTag: tagMatch ? tagMatch[1] : '',
-                lastActionDate: latestLog?.date?.split(' ')[0]
-                    || (task.createdAt ? new Date(task.createdAt).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'İşlem Yok'),
-                createdDateOnly: (task.createdAt || '').split('T')[0],
-                feeVal: (task.dealDetails?.fee || 'Yok').toString().toLowerCase(),
-                jokerVal: (task.dealDetails?.joker || 'Yok').toString().toLowerCase(),
-            });
-        });
-        return metaMap;
-    }
 
     function stripHtml(value) {
         return String(value || '').replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
@@ -68,38 +44,8 @@ const ReportController = (() => {
         return TASK_STATUS_LABELS?.[status] || String(status || '-');
     }
 
-    function getSourceLabel(task, biz) {
-        return task.sourceType || task.source || biz?.sourceType || biz?.source || '-';
-    }
-
-    function getLatestLogText(task, meta) {
-        return stripHtml(meta?.latestLogText || task?.logs?.[0]?.text || '');
-    }
-
-    function getLatestLogLabel(task, meta) {
-        return String(meta?.latestLogTag || '').trim() || '-';
-    }
-
-    function getConversationHistory(task) {
-        return Array.isArray(task?.logs) ? task.logs.length : 0;
-    }
-
-    function getPublishedFeeText(task, meta) {
-        const rawFee = String(task?.dealDetails?.fee || meta?.feeVal || '').trim();
-        if (!rawFee || rawFee.toLowerCase() === 'yok') return '-';
-        return rawFee;
-    }
-
-    function getLastActionText(task, meta) {
-        return meta?.lastActionDate || (task?.createdAt ? formatDate(task.createdAt).split(' ')[0] : '-');
-    }
-
     function isOpenTaskStatus(status) {
         return !['deal', 'cold'].includes(String(status || '').toLowerCase());
-    }
-
-    function getTaskDateValue(task, meta) {
-        return meta?.createdDateOnly || (task?.createdAt ? String(task.createdAt).split('T')[0] : '');
     }
 
     function getColspan() {
@@ -236,44 +182,47 @@ const ReportController = (() => {
         if (pagEl) pagEl.innerHTML = '';
     }
 
-    function getTaskRows(tasks, bizMap, reportMetaMap) {
-        return tasks.map((task) => {
-            const biz = bizMap.get(task.businessId) || {};
-            const reportMeta = reportMetaMap.get(task.id) || {};
-            return {
-                id: task.id,
-                statusKey: String(task.status || '').toLowerCase(),
-                createdAt: formatDate(task.createdAt).split(' ')[0],
-                businessName: biz.companyName || '-',
-                city: biz.city || '-',
-                district: biz.district || '-',
-                assignee: task.assignee || '-',
-                statusLabel: getStatusLabel(task.status),
-                sourceLabel: getSourceLabel(task, biz),
-                mainCategory: task.mainCategory || biz.mainCategory || '-',
-                subCategory: task.subCategory || biz.subCategory || '-',
-                publishedFeeText: getPublishedFeeText(task, reportMeta),
-                latestLogLabel: getLatestLogLabel(task, reportMeta),
-                conversationHistoryLabel: `${getConversationHistory(task)} kayıt`,
-                conversationHistoryCount: getConversationHistory(task),
-                logContent: getLatestLogText(task, reportMeta) || '-',
-                lastActionDate: getLastActionText(task, reportMeta),
-                rawTask: task,
-            };
-        });
+    function formatTaskReportRow(row) {
+        const sourceMap = {
+            FRESH: 'Fresh Account',
+            OLD: 'Old Account',
+            QUERY: 'Old Account Query',
+            RAKIP: 'Rakip',
+            OLD_RAKIP: 'Old Account Rakip',
+            REFERANS: 'Referans',
+        };
+        return {
+            id: row.id,
+            businessId: row.businessId || '',
+            statusKey: String(row.statusKey || '').toLowerCase(),
+            createdAt: row.createdAt ? formatDate(row.createdAt).split(' ')[0] : '-',
+            businessName: row.businessName || '-',
+            city: row.city || '-',
+            district: row.district || '-',
+            assignee: row.assignee || '-',
+            statusLabel: getStatusLabel(row.statusKey),
+            sourceLabel: sourceMap[String(row.sourceKey || '').toUpperCase()] || row.sourceKey || '-',
+            mainCategory: row.mainCategory || '-',
+            subCategory: row.subCategory || '-',
+            publishedFeeText: row.publishedFeeText || '-',
+            latestLogLabel: row.latestLogLabel || '-',
+            conversationHistoryLabel: row.conversationHistoryLabel || `${Number(row.conversationHistoryCount || 0)} kayıt`,
+            conversationHistoryCount: Number(row.conversationHistoryCount || 0),
+            logContent: row.logContent || '-',
+            lastActionDate: row.lastActionDate ? formatDate(row.lastActionDate).split(' ')[0] : '-',
+        };
     }
 
-    function getBusinessRows(tasks, bizMap, reportMetaMap) {
+    function getBusinessRowsFromTaskRows(taskRows) {
         const grouped = new Map();
-        tasks.forEach((task) => {
-            const biz = bizMap.get(task.businessId) || {};
-            const groupKey = task.businessId || biz.companyName || task.id;
+        taskRows.forEach((task) => {
+            const groupKey = task.businessId || task.businessName || task.id;
             if (!grouped.has(groupKey)) {
                 grouped.set(groupKey, {
                     id: task.businessId || task.id,
-                    businessName: biz.companyName || '-',
-                    city: biz.city || '-',
-                    district: biz.district || '-',
+                    businessName: task.businessName || '-',
+                    city: task.city || '-',
+                    district: task.district || '-',
                     sources: new Set(),
                     mainCategories: new Set(),
                     subCategories: new Set(),
@@ -284,33 +233,28 @@ const ReportController = (() => {
                     coldTaskCount: 0,
                     conversationHistoryCount: 0,
                     latestTask: task,
-                    latestMeta: reportMetaMap.get(task.id) || {},
-                    latestLogLabel: '-',
-                    latestLogText: '-',
                     publishedFeeText: '-',
                 });
             }
 
             const group = grouped.get(groupKey);
-            const meta = reportMetaMap.get(task.id) || {};
             const createdTime = new Date(task.createdAt || 0).getTime();
             const latestTime = new Date(group.latestTask?.createdAt || 0).getTime();
             if (createdTime > latestTime) {
                 group.latestTask = task;
-                group.latestMeta = meta;
             }
 
             group.taskCount += 1;
-            if (isOpenTaskStatus(task.status)) group.openTaskCount += 1;
-            if (String(task.status || '').toLowerCase() === 'deal') group.dealTaskCount += 1;
-            if (String(task.status || '').toLowerCase() === 'cold') group.coldTaskCount += 1;
-            group.conversationHistoryCount += getConversationHistory(task);
-            group.sources.add(getSourceLabel(task, biz));
-            group.mainCategories.add(task.mainCategory || biz.mainCategory || '-');
-            group.subCategories.add(task.subCategory || biz.subCategory || '-');
+            if (isOpenTaskStatus(task.statusKey)) group.openTaskCount += 1;
+            if (String(task.statusKey || '').toLowerCase() === 'deal') group.dealTaskCount += 1;
+            if (String(task.statusKey || '').toLowerCase() === 'cold') group.coldTaskCount += 1;
+            group.conversationHistoryCount += Number(task.conversationHistoryCount || 0);
+            group.sources.add(task.sourceLabel || '-');
+            group.mainCategories.add(task.mainCategory || '-');
+            group.subCategories.add(task.subCategory || '-');
             group.assignees.add(task.assignee || '-');
 
-            const currentFee = getPublishedFeeText(task, meta);
+            const currentFee = task.publishedFeeText || '-';
             if (group.publishedFeeText === '-' && currentFee !== '-') group.publishedFeeText = currentFee;
         });
 
@@ -327,11 +271,11 @@ const ReportController = (() => {
                 mainCategory: Array.from(group.mainCategories).slice(0, 2).join(', ') || '-',
                 subCategory: Array.from(group.subCategories).slice(0, 2).join(', ') || '-',
                 publishedFeeText: group.publishedFeeText,
-                latestLogLabel: getLatestLogLabel(group.latestTask, group.latestMeta),
+                latestLogLabel: group.latestTask?.latestLogLabel || '-',
                 conversationHistoryLabel: `${group.conversationHistoryCount} kayıt`,
                 conversationHistoryCount: group.conversationHistoryCount,
-                logContent: getLatestLogText(group.latestTask, group.latestMeta) || '-',
-                lastActionDate: getLastActionText(group.latestTask, group.latestMeta),
+                logContent: group.latestTask?.logContent || '-',
+                lastActionDate: group.latestTask?.lastActionDate || '-',
                 latestTaskId: group.latestTask?.id || '',
                 openTaskCount: group.openTaskCount,
                 dealTaskCount: group.dealTaskCount,
@@ -340,7 +284,7 @@ const ReportController = (() => {
             .sort((a, b) => new Date(b.lastActionDate || 0) - new Date(a.lastActionDate || 0));
     }
 
-    function buildFilterResults() {
+    function buildReportQuery() {
         const fAssignee = getValue('repFilterAssignee');
         const fStatus = getValue('repFilterStatus');
         const fSource = getValue('repFilterSource');
@@ -355,69 +299,43 @@ const ReportController = (() => {
         const normalizedSourceFilter = typeof normalizeTaskSourceKey === 'function'
             ? normalizeTaskSourceKey(fSource)
             : String(fSource || '').trim();
+        const query = new URLSearchParams();
+        if (fStatus) query.set('status', _toApiTaskStatus(fStatus));
+        if (normalizedSourceFilter) query.set('source', normalizedSourceFilter);
+        if (fCat) query.set('mainCategory', fCat);
+        if (fSubCat) query.set('subCategory', fSubCat);
+        if (fLogType) query.set('logType', fLogType);
+        if (fDealFee) query.set('dealFee', fDealFee);
+        if (fCity) query.set('city', fCity);
+        if (fDistrict) query.set('district', fDistrict);
+        if (sDate) query.set('from', sDate);
+        if (eDate) query.set('to', eDate);
+        if (fAssignee === 'Team 1' || fAssignee === 'Team 2') {
+            query.set('team', fAssignee);
+        } else {
+            const assigneeScope = _resolveOwnerIdFromFilter(fAssignee);
+            if (assigneeScope?.ownerId) query.set('ownerId', assigneeScope.ownerId);
+            if (assigneeScope?.historicalAssignee) query.set('historicalAssignee', assigneeScope.historicalAssignee);
+        }
+        return query.toString();
+    }
 
-        const bizMap = AppState.getBizMap();
-        const reportMetaMap = getReportTaskMetaMap();
-
-        const filtered = AppState.tasks.filter(t => {
-            const biz = bizMap.get(t.businessId) || {};
-            const reportMeta = reportMetaMap.get(t.id) || {};
-            if (t.assignee && typeof AppState.isOperationalTaskAssignee === 'function' && !AppState.isOperationalTaskAssignee(t.assignee)) {
-                return false;
-            }
-            if (!matchesAssigneeFilter(t, fAssignee, AppState.users)) return false;
-            if (fStatus && t.status !== fStatus) return false;
-            if (normalizedSourceFilter) {
-                const taskSource = typeof normalizeTaskSourceKey === 'function'
-                    ? normalizeTaskSourceKey(t.sourceType || t.source || biz.sourceType || biz.source)
-                    : String(t.sourceType || t.source || biz.sourceType || biz.source || '').trim();
-                if (taskSource !== normalizedSourceFilter) return false;
-            }
-            if (!matchesCategoryFilter(t, fCat, fSubCat, biz.companyName)) return false;
-            if (fCity && String(biz.city || '') !== fCity) return false;
-            if (fDistrict && String(biz.district || '') !== fDistrict) return false;
-            if (fLogType) {
-                const latestLogTag = String(reportMeta.latestLogTag || '').trim();
-                const latestLogText = String(reportMeta.latestLogText || '');
-                if (latestLogTag !== fLogType && !latestLogText.includes(`[${fLogType}]`)) return false;
-            }
-            if (fDealFee) {
-                if (t.status !== 'deal') return false;
-                if (!t.dealDetails) return false;
-
-                if (fDealFee === 'bedelsiz') {
-                    if (reportMeta.feeVal !== 'yok' && reportMeta.feeVal !== '0' && reportMeta.feeVal !== '0 tl' && reportMeta.feeVal !== 'bedelsiz') return false;
-                } else if (fDealFee === 'ucretli') {
-                    if (reportMeta.feeVal === 'yok' || reportMeta.feeVal === '0' || reportMeta.feeVal === '0 tl' || reportMeta.feeVal === 'bedelsiz') return false;
-                } else if (fDealFee === 'joker') {
-                    if (reportMeta.jokerVal === 'yok' || reportMeta.jokerVal === '0' || reportMeta.jokerVal === '') return false;
-                }
-            }
-
-            const taskDate = getTaskDateValue(t, reportMeta);
-            if (sDate && taskDate && taskDate < sDate) return false;
-            if (eDate && taskDate && taskDate > eDate) return false;
-            return true;
-        });
-
-        filtered.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-
+    async function buildFilterResults() {
+        const query = buildReportQuery();
+        const response = await DataService.apiRequest(`/reports/tasks${query ? `?${query}` : ''}`);
+        const taskRows = (Array.isArray(response) ? response : []).map(formatTaskReportRow);
+        const businessRows = getBusinessRowsFromTaskRows(taskRows);
         return {
-            filteredTasks: filtered,
-            taskRows: getTaskRows(filtered, bizMap, reportMetaMap),
-            businessRows: getBusinessRows(filtered, bizMap, reportMetaMap),
+            filteredTasks: [],
+            taskRows,
+            businessRows,
         };
     }
 
-    function renderReports(forceApply = false) {
+    async function renderReports(forceApply = false) {
         if (forceApply) {
             reportUiState.hasSubmittedFilters = true;
             AppState.setPage('reports', 1);
-        }
-
-        if (AppState.isDataSyncing) {
-            renderEmptyState('Veriler Senkronize Ediliyor', '⏳');
-            return;
         }
 
         syncTabButtons();
@@ -430,12 +348,18 @@ const ReportController = (() => {
             return;
         }
 
-        const nextState = buildFilterResults();
-        reportUiState.filteredTasks = nextState.filteredTasks;
-        reportUiState.taskRows = nextState.taskRows;
-        reportUiState.businessRows = nextState.businessRows;
-        AppState.setFiltered('reports', nextState.filteredTasks);
-        _displayReports();
+        renderEmptyState('Rapor Hazırlanıyor', '⏳');
+        try {
+            const nextState = await buildFilterResults();
+            reportUiState.filteredTasks = nextState.filteredTasks;
+            reportUiState.taskRows = nextState.taskRows;
+            reportUiState.businessRows = nextState.businessRows;
+            AppState.setFiltered('reports', nextState.filteredTasks);
+            _displayReports();
+        } catch (err) {
+            console.error(err);
+            renderEmptyState('Rapor yüklenemedi', '⚠️');
+        }
     }
 
     function _displayReports() {
@@ -511,7 +435,7 @@ const ReportController = (() => {
         renderPagination(pagContainer, filtered.length, page, ITEMS_PER_PAGE, (i) => {
             AppState.setPage('reports', i);
             _displayReports();
-        });
+        }, { compact: true, resultLabel: 'kayıt' });
     }
 
     function switchReportsTab(tab) {
@@ -761,7 +685,7 @@ const ArchiveController = (() => {
             AppState.setPage('archive', i);
             // 'false' gönderiyoruz ki yukarıdaki if(isExplicit) bloğuna girmesin ve sayfayı 1'e sıfırlamasın
             ArchiveController.renderPassiveTasks(false); 
-        });
+        }, { compact: true, resultLabel: 'kayıt' });
     }
 
     return { clearFilters, renderPassiveTasks };

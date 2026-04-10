@@ -45,13 +45,13 @@ export class AccountsController {
   }
 
   @Patch(':id')
-  @MinRole(Roles.MANAGER)
+  @MinRole(Roles.SALESPERSON)
   update(@Param('id') id: string, @Body() body: UpdateAccountDto) {
     return this.svc.update(id, body)
   }
 
   @Patch(':id/status')
-  @MinRole(Roles.MANAGER)
+  @MinRole(Roles.SALESPERSON)
   changeStatus(@Req() req: Request, @Param('id') id: string, @Body() body: ChangeStatusDto) {
     const user = (req as any).user
     return this.svc.changeStatus(id, body.businessStatus, user?.id)

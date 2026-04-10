@@ -34,6 +34,31 @@ function shouldCreateInitialTaskNote(details?: string, systemLogText?: string) {
 export class TasksService {
   constructor(private prisma: PrismaService, @Optional() private notifications?: NotificationsService, @Optional() private audit?: AuditService) {}
 
+  private mapTaskListItem(task: any) {
+    const companyName = task.account?.accountName || task.account?.businessName || null
+    const businessName = task.account?.businessName || task.account?.accountName || null
+    return {
+      ...task,
+      companyName,
+      businessName,
+      city: task.account?.city || null,
+      specificCampaignUrl: task.campaignUrl,
+      ...this.resolveSpecificContact(task),
+      nextCallDate: task.logs?.[0]?.followUpDate || null,
+    }
+  }
+
+  private async managerHasDirectSales(userId: string) {
+    const count = await this.prisma.user.count({
+      where: {
+        isActive: true,
+        role: 'SALESPERSON' as any,
+        managerId: userId,
+      },
+    })
+    return count > 0
+  }
+
   private mapTeamToPoolTeam(team: string) {
     const normalized = String(team || '').trim()
     if (normalized === 'Team 1') return 'TEAM_1'
@@ -717,6 +742,7 @@ export class TasksService {
   async list(filter: any, user?: { id: string; role: string }) {
     const where: any = {}
     if (filter.taskListId) where.taskListId = filter.taskListId
+    if (filter.projectId) where.projectId = filter.projectId
     const assignee = filter.assigneeId ?? filter.ownerId
     if (assignee !== undefined) {
       if (assignee === 'null') where.ownerId = null
@@ -772,6 +798,13 @@ export class TasksService {
       where.OR = [
         { id: { contains: q, mode: 'insensitive' } },
         { account: { accountName: { contains: q, mode: 'insensitive' } } },
+        { account: { businessContact: { contains: q, mode: 'insensitive' } } },
+        { account: { contactPerson: { contains: q, mode: 'insensitive' } } },
+        { account: { contacts: { some: { OR: [
+          { name: { contains: q, mode: 'insensitive' } },
+          { phone: { contains: q, mode: 'insensitive' } },
+          { email: { contains: q, mode: 'insensitive' } },
+        ] } } } },
         { details: { contains: q, mode: 'insensitive' } },
       ]
     }
@@ -788,10 +821,11 @@ export class TasksService {
         // but business/archive/report surfaces need the full task history so
         // the same detail view can be rendered for every role.
       } else if (user.role === 'MANAGER') {
+        const hasDirectSales = await this.managerHasDirectSales(user.id)
         // Historical assignee rows are ownerless archive imports; keep them visible for reports/filters.
         if (!(where.ownerId === null)) {
           where.OR = [
-            { owner: { is: { managerId: user.id, role: 'SALESPERSON' } } as any },
+            { owner: { is: hasDirectSales ? { managerId: user.id, role: 'SALESPERSON' } : { role: 'SALESPERSON' } } as any },
             { historicalAssignee: { not: null } },
           ]
         }
@@ -812,50 +846,101 @@ export class TasksService {
       }
     }
 
+    const isSummaryView = String(filter.view || '').toLowerCase() === 'summary'
     const page = filter.page ? Number(filter.page) : undefined
-    const limit = filter.limit ? Math.min(Number(filter.limit), 100) : undefined
+    const limitCap = isSummaryView ? 250 : 100
+    const limit = filter.limit ? Math.min(Number(filter.limit), limitCap) : undefined
+    const sort = String(filter.sort || '').toLowerCase()
+    const orderBy: any = sort === 'oldest' ? { creationDate: 'asc' } : { creationDate: 'desc' }
     if (page && limit) {
       const skip = (page - 1) * limit
+      const pagedQuery: any = isSummaryView
+        ? {
+            where,
+            orderBy,
+            take: limit,
+            skip,
+            select: {
+              id: true,
+              accountId: true,
+              projectId: true,
+              ownerId: true,
+              createdById: true,
+              poolTeam: true,
+              historicalAssignee: true,
+              creationChannel: true,
+              status: true,
+              source: true,
+              mainCategory: true,
+              subCategory: true,
+              details: true,
+              campaignUrl: true,
+              creationDate: true,
+              createdAt: true,
+              account: { select: { accountName: true, businessName: true, city: true } },
+              owner: { select: { id: true, name: true, email: true } },
+              logs: { orderBy: { createdAt: 'desc' }, take: 1, select: { reason: true, followUpDate: true, text: true, createdAt: true } },
+            },
+          }
+        : {
+            where,
+            orderBy,
+            take: limit,
+            skip,
+            include: {
+              account: { select: { accountName: true, ...this.accountPrimaryContactInclude() } as any },
+              owner: { select: { id: true, name: true, email: true } },
+              logs: { orderBy: { createdAt: 'desc' }, take: 1, select: { reason: true, followUpDate: true, text: true, createdAt: true } },
+              ...this.taskContactInclude(),
+            },
+          }
       const [items, total] = await this.prisma.$transaction([
-        this.prisma.task.findMany({
+        this.prisma.task.findMany(pagedQuery),
+        this.prisma.task.count({ where }),
+      ])
+      const itemsMapped = items.map((t: any) => this.mapTaskListItem(t))
+      return { items: itemsMapped, total, page, limit }
+    }
+    const listQuery: any = isSummaryView
+      ? {
           where,
-          orderBy: { creationDate: 'desc' },
-          take: limit,
-          skip,
+          orderBy,
+          take: 50,
+          select: {
+            id: true,
+            accountId: true,
+            projectId: true,
+            ownerId: true,
+            createdById: true,
+            poolTeam: true,
+            historicalAssignee: true,
+            creationChannel: true,
+            status: true,
+            source: true,
+            mainCategory: true,
+            subCategory: true,
+            details: true,
+            campaignUrl: true,
+            creationDate: true,
+            createdAt: true,
+            account: { select: { accountName: true, businessName: true, city: true } },
+            owner: { select: { id: true, name: true, email: true } },
+            logs: { orderBy: { createdAt: 'desc' }, take: 1, select: { reason: true, followUpDate: true, text: true, createdAt: true } },
+          },
+        }
+      : {
+          where,
+          orderBy,
+          take: 50,
           include: {
             account: { select: { accountName: true, ...this.accountPrimaryContactInclude() } as any },
             owner: { select: { id: true, name: true, email: true } },
             logs: { orderBy: { createdAt: 'desc' }, take: 1, select: { reason: true, followUpDate: true, text: true, createdAt: true } },
             ...this.taskContactInclude(),
           },
-        }),
-        this.prisma.task.count({ where }),
-      ])
-      const itemsMapped = items.map((t: any) => ({
-        ...t,
-        specificCampaignUrl: t.campaignUrl,
-        ...this.resolveSpecificContact(t),
-        nextCallDate: t.logs?.[0]?.followUpDate || null
-      }))
-      return { items: itemsMapped, total, page, limit }
-    }
-    const rawItems = await this.prisma.task.findMany({
-      where,
-      orderBy: { creationDate: 'desc' },
-      take: 50,
-      include: {
-        account: { select: { accountName: true, ...this.accountPrimaryContactInclude() } as any },
-        owner: { select: { id: true, name: true, email: true } },
-        logs: { orderBy: { createdAt: 'desc' }, take: 1, select: { reason: true, followUpDate: true, text: true, createdAt: true } },
-        ...this.taskContactInclude(),
-      },
-    })
-    return rawItems.map((t: any) => ({
-      ...t,
-      specificCampaignUrl: t.campaignUrl,
-      ...this.resolveSpecificContact(t),
-      nextCallDate: t.logs?.[0]?.followUpDate || null
-    }))
+        }
+    const rawItems = await this.prisma.task.findMany(listQuery)
+    return rawItems.map((t: any) => this.mapTaskListItem(t))
   }
 
   async search(q: string, take = 10) {

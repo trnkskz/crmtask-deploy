@@ -616,7 +616,7 @@ describe('TasksService.list', () => {
   function buildService(overrides: Record<string, any> = {}) {
     const prisma = {
       task: { findMany: jest.fn(), count: jest.fn() },
-      user: { findUnique: jest.fn() },
+      user: { findUnique: jest.fn(), count: jest.fn() },
       $transaction: jest.fn(),
       ...overrides,
     } as any
@@ -704,6 +704,7 @@ describe('TasksService.list', () => {
 
   it('keeps historical assignee tasks visible in manager-scoped lists for filters and reports', async () => {
     const { service, prisma } = buildService()
+    prisma.user.count.mockResolvedValue(2)
     prisma.task.findMany.mockResolvedValue([])
 
     await service.list({}, { id: 'manager_1', role: 'MANAGER' })
@@ -713,6 +714,25 @@ describe('TasksService.list', () => {
         where: expect.objectContaining({
           OR: [
             { owner: { is: { managerId: 'manager_1', role: 'SALESPERSON' } } },
+            { historicalAssignee: { not: null } },
+          ],
+        }),
+      }),
+    )
+  })
+
+  it('falls back to all sales-owned tasks for managers when no direct manager links exist', async () => {
+    const { service, prisma } = buildService()
+    prisma.user.count.mockResolvedValue(0)
+    prisma.task.findMany.mockResolvedValue([])
+
+    await service.list({}, { id: 'manager_1', role: 'MANAGER' })
+
+    expect(prisma.task.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: [
+            { owner: { is: { role: 'SALESPERSON' } } },
             { historicalAssignee: { not: null } },
           ],
         }),

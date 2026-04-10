@@ -2,7 +2,9 @@ const { loadController } = require('../testUtils/controllerTestUtils');
 
 describe('SyncService cache warm-up', () => {
     it('warms derived caches after full snapshot bootstrap', async () => {
+        const fetchCalls = [];
         const fetchOnce = jest.fn(async (path) => {
+            fetchCalls.push(path);
             if (path === 'pricingData') return {};
             if (path === 'categories') return {};
             return [];
@@ -48,6 +50,10 @@ describe('SyncService cache warm-up', () => {
 
         expect(warmDerivedCaches).toHaveBeenCalled();
         expect(warmDerivedCaches.mock.calls[0][0]).toContain('tasks');
-        expect(warmDerivedCaches.mock.calls[0][0]).toContain('projects');
+        expect(warmDerivedCaches.mock.calls[0][0]).not.toContain('projects');
+        expect(fetchCalls.slice(0, 5)).toEqual(['users', 'businesses', 'tasks', 'notifications', 'categories']);
+        expect(fetchCalls).toContain('projects');
+        expect(fetchCalls).toContain('pricingData');
+        expect(fetchCalls).toContain('systemLogs');
     });
 });

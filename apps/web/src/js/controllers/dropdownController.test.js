@@ -137,7 +137,7 @@ describe('DropdownController project filters', () => {
         expect(projectGroup.children).toEqual([{ label: 'Proje: Taslak Proje', value: 'TARGET_POOL_proj-draft' }]);
     });
 
-    it('keeps active assignees under Personeller even when users list is unavailable', () => {
+    it('keeps legacy assignees out of Personeller when users list is unavailable', () => {
         const passiveFilterAssignee = createSelectElement();
         const document = createDocument({
             filterAllTasksProject: createSelectElement(),
@@ -188,11 +188,10 @@ describe('DropdownController project filters', () => {
         const personnelGroup = passiveFilterAssignee.options.find((option) => option.label === 'Personeller');
         const archivedGroup = passiveFilterAssignee.options.find((option) => option.label === 'Arşiv / Eski Personeller');
 
-        expect(personnelGroup.children).toEqual([
+        expect(personnelGroup.children).toEqual([]);
+        expect(archivedGroup.children).toEqual([
             { label: 'Elif Yavuzaslan', value: 'Elif Yavuzaslan' },
             { label: 'Nazlı Polat', value: 'Nazlı Polat' },
-        ]);
-        expect(archivedGroup.children).toEqual([
             { label: 'Eski Personel', value: 'Eski Personel' },
         ]);
     });
@@ -251,5 +250,56 @@ describe('DropdownController project filters', () => {
         expect(personnelGroup.children).toEqual([
             { label: 'Elif Yavuzaslan', value: 'Elif Yavuzaslan' },
         ]);
+    });
+
+    it('preserves the selected all tasks assignee filter after dropdown refresh', () => {
+        const filterAllTasksAssignee = createSelectElement();
+        filterAllTasksAssignee.value = 'Elif Yavuzaslan';
+
+        const document = createDocument({
+            filterAllTasksProject: createSelectElement(),
+            repFilterProject: createSelectElement(),
+            passiveFilterProject: createSelectElement(),
+            newBizAssignee: createSelectElement(),
+            assigneeDropdown: createSelectElement(),
+            existAssigneeSelect: createSelectElement(),
+            filterAllTasksAssignee,
+            repFilterAssignee: createSelectElement(),
+            passiveFilterAssignee: createSelectElement(),
+            filterBizAssignee: createSelectElement(),
+            csvAssigneeSelect: createSelectElement(),
+            transferAssigneeSelect: createSelectElement(),
+        });
+        document.createElement = jest.fn(() => ({
+            style: {},
+            className: '',
+            innerHTML: '',
+            children: [],
+            appendChild(node) {
+                this.children.push(node);
+            },
+        }));
+
+        const { controller } = loadController('controllers/dropdownController.js', 'DropdownController', {
+            document,
+            AppState: {
+                projects: [],
+                users: [
+                    { name: 'Elif Yavuzaslan', role: 'Satış Temsilcisi', status: 'Aktif', team: 'Team 1' },
+                    { name: 'Nazlı Polat', role: 'Satış Temsilcisi', status: 'Aktif', team: 'Team 1' },
+                ],
+                tasks: [],
+                loggedInUser: { role: 'Yönetici' },
+                getProjectTaskMap() { return {}; },
+            },
+            Option: function Option(label, value) {
+                return { label, value };
+            },
+            normalizeForComparison: (value) => String(value || '').toLowerCase(),
+        });
+
+        controller.updateAssigneeDropdowns();
+
+        expect(filterAllTasksAssignee.value).toBe('Elif Yavuzaslan');
     });
 });

@@ -23,6 +23,10 @@ export class ExtraContactDto {
 
 export class AccountListQueryDto {
   @IsOptional()
+  @IsIn(['summary', 'detail'])
+  view?: 'summary' | 'detail'
+
+  @IsOptional()
   @IsString()
   q?: string
 
@@ -33,6 +37,18 @@ export class AccountListQueryDto {
   @IsOptional()
   @IsString()
   sourceType?: string
+
+  @IsOptional()
+  @IsString()
+  assignee?: string
+
+  @IsOptional()
+  @IsString()
+  team?: string
+
+  @IsOptional()
+  @IsIn(['all', 'open', 'closed'])
+  taskScope?: 'all' | 'open' | 'closed'
 
   @IsOptional()
   @IsString()

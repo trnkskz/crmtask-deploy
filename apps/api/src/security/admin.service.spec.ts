@@ -4,9 +4,12 @@ describe('AdminService maintenance operations', () => {
   function buildService(overrides: Record<string, any> = {}) {
     const prisma = {
       task: { findMany: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
+      account: { findMany: jest.fn(), update: jest.fn() },
       activityLog: { update: jest.fn(), findMany: jest.fn(), deleteMany: jest.fn() },
       offer: { findMany: jest.fn(), deleteMany: jest.fn() },
       user: { findMany: jest.fn() },
+      categoryMain: { create: jest.fn(), updateMany: jest.fn() },
+      categorySub: { createMany: jest.fn(), updateMany: jest.fn() },
       $transaction: jest.fn().mockImplementation((ops) => Promise.all(ops)),
       ...overrides,
     } as any
@@ -162,5 +165,51 @@ describe('AdminService maintenance operations', () => {
       select: { id: true },
     })
     expect(result.updatedTaskCount).toBe(0)
+  })
+
+  it('migrates Grupanya categories on the server without per-browser batching', async () => {
+    const { service, prisma } = buildService()
+    prisma.categoryMain.updateMany.mockResolvedValue({ count: 2 })
+    prisma.categorySub.updateMany.mockResolvedValue({ count: 4 })
+    prisma.categoryMain.create.mockResolvedValue({ id: 'main-1' })
+    prisma.categorySub.createMany.mockResolvedValue({ count: 2 })
+    prisma.task.findMany.mockResolvedValue([
+      {
+        id: 'task_1',
+        businessId: 'biz_1',
+        mainCategory: 'Iftar Menusu',
+        subCategory: 'Ramazan',
+        createdAt: new Date('2026-04-01T10:00:00.000Z'),
+        account: { businessName: 'Acme Iftar' },
+      },
+    ])
+    prisma.account.findMany.mockResolvedValue([
+      {
+        id: 'biz_1',
+        businessName: 'Acme Iftar',
+        mainCategory: 'Iftar Menusu',
+        subCategory: 'Ramazan',
+        createdAt: new Date('2026-04-01T10:00:00.000Z'),
+      },
+    ])
+    prisma.task.update.mockResolvedValue({ id: 'task_1' })
+    prisma.account.update.mockResolvedValue({ id: 'biz_1' })
+
+    const result = await service.migrateGrupanyaCategories()
+
+    expect(prisma.task.update).toHaveBeenCalledWith({
+      where: { id: 'task_1' },
+      data: { mainCategory: 'İftar (Core)', subCategory: 'Restoranda İftar' },
+    })
+    expect(prisma.account.update).toHaveBeenCalledWith({
+      where: { id: 'biz_1' },
+      data: {
+        mainCategory: 'İftar (Core)',
+        subCategory: 'Restoranda İftar',
+        category: 'İftar (Core) / Restoranda İftar',
+      },
+    })
+    expect(result.updatedTaskCount).toBe(1)
+    expect(result.updatedBusinessCount).toBe(1)
   })
 })

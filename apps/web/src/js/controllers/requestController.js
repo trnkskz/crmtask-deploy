@@ -550,6 +550,13 @@ const RequestController = (() => {
             method: 'POST',
             body: JSON.stringify(accountPayload)
         }).then(account => {
+            const mappedAccount = typeof DataService.mapBusiness === 'function' ? DataService.mapBusiness(account) : account;
+            const nextBusinesses = Array.isArray(AppState.businesses) ? [...AppState.businesses] : [];
+            const existingIndex = nextBusinesses.findIndex((b) => b.id === mappedAccount.id);
+            if (existingIndex >= 0) nextBusinesses[existingIndex] = mappedAccount;
+            else nextBusinesses.unshift(mappedAccount);
+            AppState.businesses = nextBusinesses;
+            if (typeof AppState.setBusinessDetail === 'function') AppState.setBusinessDetail(mappedAccount.id, mappedAccount);
             // 2. Task oluştur
             const taskPayload = {
                 accountId: account.id,
@@ -563,11 +570,6 @@ const RequestController = (() => {
                 mainCategory: getValue('reqMainCat'),
                 subCategory: getValue('reqSubCat'),
                 systemLogText: '<span class="manager-note">[Sistem]</span> Yeni kayıt oluşturuldu ve satışçı görevi başlattı.',
-                newContact: {
-                    name: toTitleCase(getValue('reqContactName')),
-                    phone: phone,
-                    email: email,
-                }
             };
             if (taskNote) taskPayload.details = taskNote;
             if (campaignUrl) {
@@ -577,13 +579,32 @@ const RequestController = (() => {
                 method: 'POST',
                 body: JSON.stringify(taskPayload)
             });
-        }).then(() => {
+        }).then(async (task) => {
+            const refreshedTask = task?.id ? await DataService.readPath(`tasks/${task.id}`, { force: true }).catch(() => null) : null;
+            if (refreshedTask) {
+                const nextTasks = Array.isArray(AppState.tasks) ? [...AppState.tasks] : [];
+                const existingIndex = nextTasks.findIndex((item) => item.id === refreshedTask.id);
+                if (existingIndex >= 0) nextTasks[existingIndex] = refreshedTask;
+                else nextTasks.unshift(refreshedTask);
+                AppState.tasks = nextTasks;
+                if (typeof AppState.setTaskDetail === 'function') AppState.setTaskDetail(refreshedTask.id, refreshedTask);
+            }
             if (btn) { btn.disabled = false; btn.innerText = "🚀 Kaydet ve Görevi Başlat"; }
             addSystemLog(`${user}, ${titleName} için yeni kayıt oluşturdu ve görevi aldı.`);
             pushRecentSearch(titleName);
             updateWorkspaceState({ lastSearchLabel: titleName, lastHint: `${titleName} için yeni kayıt ve görev oluşturuldu.` });
             showToast("Yeni işletme eklendi ve görev başlatıldı!", "success");
+            if (typeof DataService.invalidateCollectionCache === 'function') {
+                DataService.invalidateCollectionCache('tasks');
+                DataService.invalidateCollectionCache('businesses');
+            }
+            if (typeof SyncService !== 'undefined' && typeof SyncService.requestSync === 'function') {
+                SyncService.requestSync(['tasks', 'businesses']);
+            }
             switchPage('page-my-tasks');
+            if (typeof window.renderMyTasks === 'function') {
+                setTimeout(() => window.renderMyTasks(), 0);
+            }
         }).catch(err => {
             if (btn) { btn.disabled = false; btn.innerText = "🚀 Kaydet ve Görevi Başlat"; }
             showToast("Kaydedilirken bir hata oluştu: " + err.message, "error");

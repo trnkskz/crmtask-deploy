@@ -343,6 +343,11 @@ const DataService = (() => {
             campaignUrl: b.campaignUrl || '',
             notes: b.notes || '',
             createdAt: b.creationDate || b.createdAt || new Date().toISOString(),
+            latestTaskStatus: b.latestTaskStatus ? apiTaskStatusToUi(b.latestTaskStatus) : '',
+            latestTaskAssignee: b.latestTaskAssignee || '',
+            latestTaskSource: b.latestTaskSource ? apiSourceToUi(b.latestTaskSource) : '',
+            latestTaskCreatedAt: b.latestTaskCreatedAt || '',
+            hasActiveTask: typeof b.hasActiveTask === 'boolean' ? b.hasActiveTask : undefined,
         };
     }
 
@@ -350,6 +355,9 @@ const DataService = (() => {
         const logs = Array.isArray(t.logs) ? t.logs.map(normalizeLog).filter(Boolean) : [];
         const offers = Array.isArray(t.offers) ? t.offers : [];
         const resolvedProjectId = t.projectId || extractProjectId(t.details);
+        const companyName = t.companyName || t.businessName || t.account?.accountName || t.account?.businessName || '';
+        const businessName = t.businessName || t.companyName || t.account?.businessName || t.account?.accountName || '';
+        const city = t.city || t.account?.city || '';
         const poolTeam = String(t.poolTeam || '').toUpperCase();
         let poolAssignee = 'UNASSIGNED';
         if (poolTeam === 'TEAM_1') poolAssignee = 'Team 1';
@@ -382,6 +390,9 @@ const DataService = (() => {
             offers,
             dealDetails: parseDealDetails(t.logs, offers),
             createdAt: t.creationDate || t.createdAt || new Date().toISOString(),
+            companyName,
+            businessName,
+            city,
         };
     }
 
@@ -497,7 +508,8 @@ const DataService = (() => {
                 ...(categoryMap.has(lookupKey) ? categoryItems[categoryMap.get(lookupKey)] : {}),
                 id: x.id,
                 name: categoryMap.has(lookupKey) ? categoryItems[categoryMap.get(lookupKey)].name : name,
-                val: `%${x.commissionRate ?? 0}`,
+                val: formatCommissionValue(x.commissionRate, x.description),
+                description: x.description || '',
             };
 
             if (categoryMap.has(lookupKey)) {
@@ -553,17 +565,92 @@ const DataService = (() => {
         return true;
     }
 
+    const COMMISSION_DISPLAY_MARKER = '__commission_display__:';
+
+    function splitCommissionDescription(description) {
+        const raw = String(description || '');
+        if (!raw) return { display: '', plain: '' };
+        const lines = raw.split('\n');
+        let display = '';
+        const plainLines = [];
+        lines.forEach((line) => {
+            const trimmed = String(line || '').trim();
+            if (!trimmed) return;
+            if (trimmed.startsWith(COMMISSION_DISPLAY_MARKER)) {
+                display = trimmed.slice(COMMISSION_DISPLAY_MARKER.length).trim();
+                return;
+            }
+            plainLines.push(line);
+        });
+        return {
+            display,
+            plain: plainLines.join('\n').trim(),
+        };
+    }
+
+    function normalizeCommissionDisplay(value) {
+        const raw = String(value || '').trim();
+        if (!raw) return '';
+        return raw.replace(/^%+/, '').replace(/\s+/g, '');
+    }
+
+    function buildCommissionDescription(value, existingDescription = '') {
+        const display = normalizeCommissionDisplay(value);
+        const { plain } = splitCommissionDescription(existingDescription);
+        if (!display) return plain || undefined;
+        return [plain, `${COMMISSION_DISPLAY_MARKER}${display}`].filter(Boolean).join('\n');
+    }
+
+    function formatCommissionValue(rate, description = '') {
+        const { display } = splitCommissionDescription(description);
+        if (display) return `%${display}`;
+        const numeric = Number(rate ?? 0);
+        if (!Number.isFinite(numeric)) return '%0';
+        return `%${String(numeric)}`;
+    }
+
     function parseCommissionRate(value) {
         const raw = String(value || '').replace(',', '.');
-        const m = raw.match(/-?\d+(\.\d+)?/);
-        if (!m) return 0;
-        const n = Number(m[0]);
-        return Number.isFinite(n) ? n : 0;
+        const normalized = raw.replace(/[–—−]/g, '-');
+        const matches = normalized.match(/\d+(\.\d+)?/g) || [];
+        const numbers = matches
+            .map((part) => Number(part))
+            .filter((n) => Number.isFinite(n));
+        if (numbers.length === 0) return 0;
+        if (numbers.length === 1) return numbers[0];
+        const avg = numbers.reduce((sum, n) => sum + n, 0) / numbers.length;
+        return Number(avg.toFixed(2));
     }
 
     function parsePrice(value) {
         const n = Number(String(value ?? '').replace(',', '.'));
         return Number.isFinite(n) ? n : 0;
+    }
+
+    function decodeJwtPayload(token) {
+        try {
+            const [, payload] = String(token || '').split('.');
+            if (!payload) return null;
+            const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+            const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
+            if (typeof atob === 'function') {
+                return JSON.parse(atob(padded));
+            }
+            if (typeof Buffer !== 'undefined') {
+                return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'));
+            }
+        } catch (_) {
+            return null;
+        }
+        return null;
+    }
+
+    function isAccessTokenExpiringSoon(token, thresholdSeconds = 45) {
+        const payload = decodeJwtPayload(token);
+        const exp = Number(payload?.exp || 0);
+        if (!Number.isFinite(exp) || exp <= 0) return false;
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        return exp <= (nowSeconds + thresholdSeconds);
     }
 
     async function rawApiRequest(path, init = {}, includeAuth = true) {
@@ -605,10 +692,25 @@ const DataService = (() => {
         }
     }
 
+    async function ensureFreshAccessToken() {
+        const storage = getStorage();
+        const accessToken = storage?.getItem('accessToken');
+        if (!accessToken) return;
+        if (!isAccessTokenExpiringSoon(accessToken)) return;
+        const refreshed = await refreshAccessToken();
+        if (!refreshed) {
+            await clearAuthCookiesBestEffort();
+            clearAuthTokens();
+        }
+    }
+
     async function apiRequest(path, init = {}, options = {}) {
         const allowRefreshRetry = options.allowRefreshRetry !== false;
         const allowUnauthenticatedRetry = options.allowUnauthenticatedRetry !== false;
         const includeAuth = options.includeAuth !== false;
+        if (includeAuth) {
+            await ensureFreshAccessToken();
+        }
         const { res, payload } = await rawApiRequest(path, init, includeAuth);
 
         if (!res.ok) {
@@ -667,6 +769,38 @@ const DataService = (() => {
             if (safety > 2000) break;
         }
         return all;
+    }
+
+    async function fetchTaskPage(query = {}) {
+        const params = new URLSearchParams();
+        Object.entries(query || {}).forEach(([key, value]) => {
+            if (value === undefined || value === null || value === '') return;
+            params.set(key, String(value));
+        });
+        const data = await apiRequest(`/tasks?${params.toString()}`);
+        const items = Array.isArray(data?.items) ? data.items.map(mapTask) : [];
+        return {
+            items,
+            total: Number(data?.total || items.length || 0),
+            page: Number(data?.page || query.page || 1),
+            limit: Number(data?.limit || query.limit || items.length || 0),
+        };
+    }
+
+    async function fetchBusinessPage(query = {}) {
+        const params = new URLSearchParams();
+        Object.entries(query || {}).forEach(([key, value]) => {
+            if (value === undefined || value === null || value === '') return;
+            params.set(key, String(value));
+        });
+        const data = await apiRequest(`/accounts?${params.toString()}`);
+        const items = Array.isArray(data?.items) ? data.items.map(mapBusiness) : [];
+        return {
+            items,
+            total: Number(data?.total || items.length || 0),
+            page: Number(data?.page || query.page || 1),
+            limit: Number(data?.limit || query.limit || items.length || 0),
+        };
     }
 
     function toApiSourceType(value) {
@@ -1068,13 +1202,13 @@ const DataService = (() => {
             return clone(out);
         }
         if (root === 'businesses') {
-            const items = (await fetchAll('/accounts')).map(mapBusiness);
+            const items = (await fetchAll('/accounts?view=summary', 250)).map(mapBusiness);
             const out = Object.fromEntries(items.map((x) => [x.id, x]));
             setCollectionCache(root, out);
             return clone(out);
         }
         if (root === 'tasks') {
-            const items = (await fetchAll('/tasks')).map(mapTask);
+            const items = (await fetchAll('/tasks?view=summary', 250)).map(mapTask);
             const out = Object.fromEntries(items.map((x) => [x.id, x]));
             setCollectionCache(root, out);
             return clone(out);
@@ -1163,13 +1297,27 @@ const DataService = (() => {
         return {};
     }
 
-    async function readPath(path) {
+    async function readPath(path, options = {}) {
         const { root, id } = parsePath(path);
-        if (root === 'tasks' && id) {
+        const normalizedRoot = root === 'businesses' ? 'accounts' : root;
+        const force = Boolean(options?.force);
+        if (normalizedRoot === 'tasks' && id) {
+            const cachedDetail = !force && typeof AppState?.getTaskDetail === 'function' ? AppState.getTaskDetail(id) : null;
+            if (cachedDetail) return clone(cachedDetail);
             const item = await apiRequest(`/tasks/${id}`);
-            return mapTask(item);
+            const mapped = mapTask(item);
+            if (typeof AppState?.setTaskDetail === 'function') AppState.setTaskDetail(id, mapped);
+            return mapped;
         }
-        const col = await readCollectionObject(root);
+        if (normalizedRoot === 'accounts' && id) {
+            const cachedDetail = !force && typeof AppState?.getBusinessDetail === 'function' ? AppState.getBusinessDetail(id) : null;
+            if (cachedDetail) return clone(cachedDetail);
+            const item = await apiRequest(`/accounts/${id}`);
+            const mapped = mapBusiness(item);
+            if (typeof AppState?.setBusinessDetail === 'function') AppState.setBusinessDetail(id, mapped);
+            return mapped;
+        }
+        const col = await readCollectionObject(normalizedRoot);
         return id ? (col?.[id] ?? null) : col;
     }
 
@@ -1313,6 +1461,7 @@ const DataService = (() => {
         }
 
         if (root === 'businesses') {
+            if (id && typeof AppState?.clearBusinessDetail === 'function') AppState.clearBusinessDetail(id);
             if (id && method === 'remove') return;
             if (id && method !== 'remove') {
                 if (!tail.length && value && typeof value === 'object' && (value.companyName || value.businessName)) {
@@ -1400,6 +1549,7 @@ const DataService = (() => {
         }
 
         if (root === 'tasks') {
+            if (id && typeof AppState?.clearTaskDetail === 'function') AppState.clearTaskDetail(id);
             if (id && method === 'remove') {
                 await apiRequest(`/tasks/${id}`, { method: 'DELETE' });
                 return;
@@ -1507,10 +1657,12 @@ const DataService = (() => {
     // --- REST API Doğrudan Yazma Sarmalayıcıları ---
 
     function deleteTask(taskId) {
+        if (typeof AppState?.clearTaskDetail === 'function') AppState.clearTaskDetail(taskId);
         return apiRequest(`/tasks/${taskId}`, { method: 'DELETE' });
     }
 
     function deleteBusiness(bizId) {
+        if (typeof AppState?.clearBusinessDetail === 'function') AppState.clearBusinessDetail(bizId);
         return apiRequest(`/accounts/${bizId}`, { method: 'DELETE' });
     }
 
@@ -1658,6 +1810,7 @@ const DataService = (() => {
                     category: 'COMMISSION',
                     unitPrice: 0,
                     commissionRate: parseCommissionRate(x?.val),
+                    description: buildCommissionDescription(x?.val, x?.description),
                     status: 'ACTIVE',
                 });
             });
@@ -1743,8 +1896,11 @@ const DataService = (() => {
     return {
         apiRequest,
         mapBusiness,
+        mapTask,
         subscribeToCollection,
         fetchOnce,
+        fetchTaskPage,
+        fetchBusinessPage,
         readPath,
         deleteTask,
         deleteBusiness,

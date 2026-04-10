@@ -4,49 +4,18 @@
 // ============================================================
 
 const DropdownController = (() => {
-    function buildDerivedActiveUsers(baseUsers) {
-        const normalizedActive = new Map();
-        const isOperationalUserLike = (userLike) => {
-            if (!userLike) return false;
-            if (String(userLike.status || '') === 'Pasif') return false;
-            const rawRole = String(userLike.role || '').trim().toUpperCase();
-            return rawRole !== 'TEAM_LEADER'
-                && rawRole !== 'TAKIM LIDERI'
-                && rawRole !== 'MANAGER'
-                && rawRole !== 'YÖNETICI'
-                && rawRole !== 'YONETICI'
-                && rawRole !== 'YÖNETİCİ';
-        };
-        const addUser = (userLike) => {
-            const name = String(userLike?.name || '').trim();
-            if (!name) return;
-            if (!isOperationalUserLike(userLike)) return;
-            const key = normalizeForComparison(name);
-            if (!key) return;
-            if (!normalizedActive.has(key)) {
-                normalizedActive.set(key, {
-                    name,
-                    role: userLike?.role || 'Satış Temsilcisi',
-                    status: userLike?.status || 'Aktif',
-                    team: userLike?.team || '-',
-                });
-            }
-        };
+    function _restoreSelectValue(el, previousValue) {
+        if (!el) return;
+        const value = String(previousValue || '');
+        if (!value) {
+            el.value = '';
+            return;
+        }
 
-        (baseUsers || []).forEach(addUser);
-
-        AppState.tasks.forEach((task) => {
-            const assignee = String(task?.assignee || '').trim();
-            if (!assignee || assignee.startsWith('TARGET_POOL_')) return;
-            const normalized = normalizeForComparison(assignee);
-            if (!normalized || ['unassigned', 'team1', 'team2', 'targetpool'].includes(normalized)) return;
-            if (typeof isActiveTask === 'function' && !isActiveTask(task.status)) return;
-            const matchedUser = (AppState.users || []).find((user) => normalizeForComparison(user?.name) === normalized);
-            if (matchedUser && !isOperationalUserLike(matchedUser)) return;
-            addUser({ name: assignee, role: 'Satış Temsilcisi', status: 'Aktif' });
-        });
-
-        return Array.from(normalizedActive.values());
+        const hasDirectOption = Array.from(el.options || []).some((option) => String(option.value) === value);
+        if (hasDirectOption) {
+            el.value = value;
+        }
     }
 
     /**
@@ -67,7 +36,6 @@ const DropdownController = (() => {
         let assignableUsers = AppState.users.filter(u =>
             u.role === 'Satış Temsilcisi' && u.status !== 'Pasif'
         );
-        assignableUsers = buildDerivedActiveUsers(assignableUsers);
 
         // Eğer giriş yapan kişi Takım Lideri ise sadece SADECE KENDİ TAKIMI görünür
         if (isTeamLeader && currentUser.team && currentUser.team !== '-') {
@@ -123,6 +91,7 @@ const DropdownController = (() => {
     function _populateAssignee(elId, users, projects, opts) {
         const el = document.getElementById(elId);
         if (!el) return;
+        const previousValue = el.value;
         el.innerHTML = opts.defaultOption;
 
         if (opts.includeTeams) {
@@ -185,6 +154,8 @@ const DropdownController = (() => {
             ));
             el.appendChild(optGroup);
         }
+
+        _restoreSelectValue(el, previousValue);
     }
 
     /**

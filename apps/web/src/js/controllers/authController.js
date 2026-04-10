@@ -176,6 +176,7 @@ const AuthController = (() => {
         }
 
         if (!LOGIN_SHOWCASE_MESSAGES.length) return;
+        if (!document.getElementById('loginShowcaseTitle')) return;
 
         let activeIndex = 0;
         renderLoginShowcaseMessage(LOGIN_SHOWCASE_MESSAGES[activeIndex]);
@@ -188,6 +189,21 @@ const AuthController = (() => {
     async function onSystemReady() {
         const user = await restoreSession();
         if (user) {
+            const restoredFromCache = Boolean(
+                typeof SyncService !== 'undefined'
+                && typeof SyncService.restoreCachedShell === 'function'
+                && await SyncService.restoreCachedShell(user)
+            );
+            if (restoredFromCache) {
+                hideLoader();
+                AppController.init();
+                if (typeof SyncService !== 'undefined' && typeof SyncService.bootstrapFullSync === 'function') {
+                    SyncService.bootstrapFullSync().catch((err) => {
+                        console.warn('Arka plan bootstrap tamamlanamadi:', err);
+                    });
+                }
+                return user;
+            }
             if (typeof SyncService !== 'undefined' && typeof SyncService.bootstrapFullSync === 'function') {
                 await SyncService.bootstrapFullSync();
             }

@@ -5,6 +5,7 @@
 
 const AppController = (() => {
     const DISMISSED_NOTIFICATION_STORAGE_KEY = 'crm_dismissed_notifications_v1';
+    const BACKEND_ADMIN_ONLY_PERMISSIONS = new Set(['manageUsers', 'manageRoles', 'manageSettings', 'viewAuditLogs']);
     const dismissedNotificationIds = new Set();
 
     function getNotificationDismissKey(id) {
@@ -46,6 +47,7 @@ const AppController = (() => {
     function getDefaultPermissionsForRole(role = '', user = null) {
         const normalizedRole = String(role || '').trim();
         const apiRole = String(user?._apiRole || '').toUpperCase();
+        const isBackendAdmin = apiRole === 'ADMIN';
         const defaults = {
             export: false,
             createBiz: normalizedRole !== 'Satış Temsilcisi',
@@ -60,14 +62,19 @@ const AppController = (() => {
             viewReports: normalizedRole === 'Yönetici' || normalizedRole === 'Takım Lideri',
             exportReports: normalizedRole === 'Yönetici' || normalizedRole === 'Takım Lideri',
             importCsv: normalizedRole === 'Yönetici' || normalizedRole === 'Takım Lideri',
-            manageUsers: normalizedRole === 'Yönetici',
-            manageRoles: normalizedRole === 'Yönetici',
-            manageSettings: normalizedRole === 'Yönetici',
-            viewAuditLogs: normalizedRole === 'Yönetici' || normalizedRole === 'Takım Lideri',
+            manageUsers: isBackendAdmin,
+            manageRoles: isBackendAdmin,
+            manageSettings: isBackendAdmin,
+            viewAuditLogs: isBackendAdmin,
         };
 
-        if (normalizedRole === 'Yönetici' || apiRole === 'ADMIN') {
+        if (normalizedRole === 'Yönetici' || isBackendAdmin) {
             Object.keys(defaults).forEach((key) => { defaults[key] = true; });
+            if (!isBackendAdmin) {
+                BACKEND_ADMIN_ONLY_PERMISSIONS.forEach((permissionKey) => {
+                    defaults[permissionKey] = false;
+                });
+            }
         }
 
         if (normalizedRole === 'Operasyon') {
@@ -91,6 +98,10 @@ const AppController = (() => {
 
     function hasPermission(permissionKey, user = AppState.loggedInUser) {
         if (!permissionKey) return true;
+        const apiRole = String(user?._apiRole || '').toUpperCase();
+        if (BACKEND_ADMIN_ONLY_PERMISSIONS.has(permissionKey) && apiRole !== 'ADMIN') {
+            return false;
+        }
         const permissions = getUserPermissions(user);
         return Boolean(permissions?.[permissionKey]);
     }
@@ -239,7 +250,7 @@ const AppController = (() => {
             'page-task-list': () => PoolController.switchTab(AppState.currentPoolTab),
             'page-my-tasks': () => TaskController.renderMyTasks(),
             'page-rep-request': () => { if(typeof RequestController !== 'undefined') RequestController.initWizard(); },
-            'page-all-tasks': () => { AppState.setPage('allTasks', 1); TaskController.renderAllTasks(); },
+            'page-all-tasks': () => { if (typeof TaskController.resetAllTasksFilters === 'function') TaskController.resetAllTasksFilters(); TaskController.renderAllTasks(); },
             'page-add-business': () => ProjectController.switchTaskCreateTab('new'),
             'page-reports': () => ReportController.clearFilters(),
             'page-passive-tasks': () => ArchiveController.clearFilters(),
@@ -379,6 +390,75 @@ const AppController = (() => {
         if (el) el.style.display = el.style.display === 'block' ? 'none' : 'block';
         const nd = document.getElementById('notifDropdown');
         if (nd && nd.style.display === 'block') nd.style.display = 'none';
+    }
+
+    function formatCalculatorCurrency(amount) {
+        const value = Number(amount || 0);
+        return `${value.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`;
+    }
+
+    function getCalculatorValue(id) {
+        return Number(document.getElementById(id)?.value || 0);
+    }
+
+    function renderRevenueCalculator(result) {
+        const setText = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = value;
+        };
+
+        setText('calcScenarioLabel', result.includeVat ? 'Paylar üzerinden KDV hesaplanıyor' : 'KDV uygulanmayan senaryo');
+        setText('calcBrandShare', formatCalculatorCurrency(result.brandNetShare));
+        setText('calcPartnerShare', formatCalculatorCurrency(result.partnerNetShare));
+        setText('calcMetaSale', formatCalculatorCurrency(result.salePrice));
+        setText('calcMetaCommission', `%${result.commissionRate.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}`);
+        setText('calcNetBase', formatCalculatorCurrency(result.salePrice));
+        setText('calcVatAmount', formatCalculatorCurrency(result.totalVatAmount));
+        setText('calcCommissionAmount', formatCalculatorCurrency(result.commissionAmount));
+        setText('calcFinalBrandShare', formatCalculatorCurrency(result.brandNetShare));
+        setText('calcFinalPartnerShare', formatCalculatorCurrency(result.partnerNetShare));
+    }
+
+    function updateRevenueCalculator() {
+        const salePrice = Math.max(0, getCalculatorValue('calcSalePrice'));
+        const commissionRate = Math.max(0, getCalculatorValue('calcCommissionRate'));
+        const includeVat = Boolean(document.getElementById('calcIncludeVat')?.checked);
+        const vatRate = Math.max(0, getCalculatorValue('calcVatRate'));
+
+        const commissionAmount = salePrice * (commissionRate / 100);
+        const partnerGrossShare = Math.max(0, salePrice - commissionAmount);
+        const brandVatAmount = includeVat ? commissionAmount * (vatRate / 100) : 0;
+        const partnerVatAmount = includeVat ? partnerGrossShare * (vatRate / 100) : 0;
+        const totalVatAmount = brandVatAmount + partnerVatAmount;
+        const brandNetShare = Math.max(0, commissionAmount - brandVatAmount);
+        const partnerNetShare = Math.max(0, partnerGrossShare - partnerVatAmount);
+
+        renderRevenueCalculator({
+            salePrice,
+            commissionRate,
+            includeVat,
+            vatRate,
+            commissionAmount,
+            partnerGrossShare,
+            brandVatAmount,
+            partnerVatAmount,
+            totalVatAmount,
+            brandNetShare,
+            partnerNetShare,
+        });
+    }
+
+    function toggleRevenueVatFields() {
+        const includeVat = Boolean(document.getElementById('calcIncludeVat')?.checked);
+        const vatGroup = document.getElementById('calcVatRateGroup');
+        if (vatGroup) vatGroup.style.display = includeVat ? 'block' : 'none';
+        updateRevenueCalculator();
+    }
+
+    function openRevenueCalculatorModal() {
+        const modal = document.getElementById('revenueCalculatorModal');
+        if (modal) modal.style.display = 'flex';
+        updateRevenueCalculator();
     }
 
     async function clearNotifs() {
@@ -536,6 +616,9 @@ const AppController = (() => {
         updateNotificationsUI,
         toggleNotif,
         toggleUserMenu,
+        openRevenueCalculatorModal,
+        updateRevenueCalculator,
+        toggleRevenueVatFields,
         clearNotifs,
         markNotifRead,
         markDynamicNotifRead,
@@ -552,6 +635,9 @@ window.switchPage = AppController.switchPage.bind(AppController);
 window.toggleMobileMenu = AppController.toggleMobileMenu;
 window.toggleNotif = AppController.toggleNotif;
 window.toggleUserMenu = AppController.toggleUserMenu;
+window.openRevenueCalculatorModal = AppController.openRevenueCalculatorModal;
+window.updateRevenueCalculator = AppController.updateRevenueCalculator;
+window.toggleRevenueVatFields = AppController.toggleRevenueVatFields;
 window.clearNotifs = AppController.clearNotifs;
 window.markNotifRead = AppController.markNotifRead;
 window.markDynamicNotifRead = AppController.markDynamicNotifRead;

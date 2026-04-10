@@ -195,7 +195,7 @@ const PoolController = (() => {
         renderPagination(pagContainer, taskList.length, currentPage, ITEMS_PER_PAGE, (i) => {
             setPageVar(i);
             renderPoolTasks();
-        });
+        }, { compact: true, resultLabel: 'kayıt' });
     }
 
     function _updatePoolActionBar() {

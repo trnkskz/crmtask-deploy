@@ -140,6 +140,63 @@ describe('BusinessController parity flows', () => {
         expect(businessDetailArea.innerHTML).toContain('0544 204 67 86');
     });
 
+    it('removes stale cached business entries when detail endpoint returns 404', async () => {
+        const businessDetailArea = createElement();
+        const businessDetailModal = createElement({ style: {}, classList: { add: jest.fn() } });
+        const elements = {
+            modalContentArea: createElement(),
+            businessDetailArea,
+            businessDetailModal,
+        };
+        const document = createDocument(elements);
+        const showToast = jest.fn();
+        const invalidateBizMapCache = jest.fn();
+
+        const appState = {
+            businesses: [
+                {
+                    id: 'missing-biz',
+                    companyName: 'Ghost Co',
+                    businessStatus: 'Aktif',
+                },
+            ],
+            tasks: [],
+            loggedInUser: { role: 'Yönetici' },
+            getTaskMap: () => ({}),
+            invalidateBizMapCache,
+        };
+
+        const { controller } = loadController('controllers/businessController.js', 'BusinessController', {
+            document,
+            AppState: appState,
+            DataService: {
+                apiRequest: jest.fn().mockRejectedValue(Object.assign(new Error('Business not found'), { status: 404 })),
+                mapBusiness: (value) => value,
+            },
+            ContactParity: {
+                isPlaceholderContactName: () => false,
+                buildBusinessContactSnapshot: () => ({
+                    primaryContact: { name: 'Test', phones: [], emails: [] },
+                    otherContacts: [],
+                }),
+            },
+            formatDate: () => '05.04.2026 10:00',
+            showToast,
+            closeModal: jest.fn(),
+            setTimeout: (fn) => {
+                fn();
+                return 0;
+            },
+        });
+
+        await controller.openDetailModal('missing-biz');
+
+        expect(appState.businesses).toEqual([]);
+        expect(invalidateBizMapCache).toHaveBeenCalled();
+        expect(showToast).toHaveBeenCalledWith('Bu isletme kaydi artik bulunamiyor. Liste yenilendi.', 'warning');
+        expect(businessDetailModal.style.display).not.toBe('flex');
+    });
+
     it('keeps row numbers and follow-up dates when preparing CSV import chunks', async () => {
         const importButton = createElement({ innerText: 'Verileri İçeri Aktar 🚀' });
         const csvInput = createElement({
@@ -168,9 +225,7 @@ describe('BusinessController parity flows', () => {
             }),
         };
 
-        const fetchMock = jest.fn().mockResolvedValue({
-            ok: true,
-            json: async () => ({
+        const apiRequest = jest.fn().mockResolvedValue({
                 addedBizCount: 1,
                 addedTaskCount: 2,
                 processedRowCount: 2,
@@ -187,8 +242,7 @@ describe('BusinessController parity flows', () => {
                     },
                 ],
                 errors: [],
-            }),
-        });
+            });
 
         const showToast = jest.fn();
         const addSystemLog = jest.fn();
@@ -208,18 +262,17 @@ describe('BusinessController parity flows', () => {
             showToast,
             addSystemLog,
             CsvImportUtils,
-            fetch: fetchMock,
-            localStorage: { getItem: jest.fn(() => 'token-123') },
-            sessionStorage: { getItem: jest.fn(() => '') },
+            DataService: { apiRequest },
             console: { ...console, groupCollapsed: jest.fn(), table: jest.fn(), groupEnd: jest.fn(), error: jest.fn() },
         });
 
         await controller.importCSV();
         await new Promise((resolve) => setImmediate(resolve));
 
-        expect(fetchMock).toHaveBeenCalledTimes(1);
-        const [, request] = fetchMock.mock.calls[0];
+        expect(apiRequest).toHaveBeenCalledTimes(1);
+        const [path, request] = apiRequest.mock.calls[0];
         const payload = JSON.parse(request.body);
+        expect(path).toBe('/accounts/import');
         expect(payload.defaultAssigneeId).toBe('user-42');
         expect(payload.rows).toEqual([
             expect.objectContaining({
@@ -245,6 +298,74 @@ describe('BusinessController parity flows', () => {
         expect(addSystemLog).toHaveBeenCalledWith(
             "CSV IMPORT: 1 işletme, 2 görev eklendi. 1 tarih alanı 01.01.2000'a alındı."
         );
+    });
+
+    it('detects a blank-header status column and sends imported task statuses', async () => {
+        const importButton = createElement({ innerText: 'Verileri İçeri Aktar 🚀' });
+        const csvInput = createElement({
+            files: [{ name: 'import.csv' }],
+            value: 'import.csv',
+        });
+        const assigneeSelect = createElement({ value: 'UNASSIGNED' });
+        const loader = createElement({ style: {} });
+        const elements = {
+            csvFileInput: csvInput,
+            csvAssigneeSelect: assigneeSelect,
+            'global-loader': loader,
+        };
+
+        const rows = [
+            ['İşletme Adı', 'Loglama', '', 'Task Yaratma Tarihi', 'Son Satışçı'],
+            ['Alpha Ltd', 'ilk not', 'hot', '01/01/25', 'Ayse'],
+            ['Beta Ltd', 'ikinci not', 'not hot', '02/01/25', 'Mehmet'],
+        ];
+
+        const document = {
+            ...createDocument(elements),
+            querySelector: jest.fn((selector) => {
+                if (selector === 'button[onclick="importCSV()"]') return importButton;
+                return null;
+            }),
+        };
+
+        const apiRequest = jest.fn().mockResolvedValue({
+            addedBizCount: 1,
+            addedTaskCount: 2,
+            processedRowCount: 2,
+            failedRowCount: 0,
+            warningCount: 0,
+            warnings: [],
+            errors: [],
+        });
+
+        const { controller } = loadController('controllers/businessController.js', 'BusinessController', {
+            document,
+            AppState: {
+                isBizSearched: false,
+            },
+            Papa: {
+                parse: (_file, options) => {
+                    rows.forEach((row) => options.step({ data: row }));
+                    return options.complete();
+                },
+            },
+            askConfirm: (_message, callback) => callback(true),
+            showToast: jest.fn(),
+            addSystemLog: jest.fn(),
+            CsvImportUtils,
+            DataService: { apiRequest },
+            console: { ...console, groupCollapsed: jest.fn(), table: jest.fn(), groupEnd: jest.fn(), error: jest.fn() },
+        });
+
+        await controller.importCSV();
+        await new Promise((resolve) => setImmediate(resolve));
+
+        const [, request] = apiRequest.mock.calls[0];
+        const payload = JSON.parse(request.body);
+        expect(payload.rows).toEqual([
+            expect.objectContaining({ companyName: 'Alpha Ltd', durum: 'hot' }),
+            expect.objectContaining({ companyName: 'Beta Ltd', durum: 'not hot' }),
+        ]);
     });
 
     it('includes businesses when any historical task matches the selected category filter', () => {

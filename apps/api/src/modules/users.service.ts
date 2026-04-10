@@ -6,6 +6,17 @@ import { hashPassword } from '../security/token.util'
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
+  private async managerHasDirectSales(userId: string) {
+    const count = await this.prisma.user.count({
+      where: {
+        isActive: true,
+        role: 'SALESPERSON' as any,
+        managerId: userId,
+      },
+    })
+    return count > 0
+  }
+
   private hasLegacyProfileFieldError(error: any) {
     const msg = String(error?.message || '')
     return /User\.(team|phone|settings)/i.test(msg) || /Unknown (argument|field).*(team|phone|settings)/i.test(msg)
@@ -117,8 +128,10 @@ export class UsersService {
         }
     let where: any = base
     if (current?.role === 'MANAGER') {
-      // Manager sees only self and own salespersons
-      where = { ...base, OR: [ { id: current.id }, { role: 'SALESPERSON', managerId: current.id } ] }
+      const hasDirectSales = await this.managerHasDirectSales(current.id)
+      where = hasDirectSales
+        ? { ...base, OR: [ { id: current.id }, { role: 'SALESPERSON', managerId: current.id } ] }
+        : { ...base, OR: [ { id: current.id }, { role: 'SALESPERSON' } ] }
     }
     if (current?.role === 'TEAM_LEADER') {
       const actor = await this.prisma.user.findUnique({

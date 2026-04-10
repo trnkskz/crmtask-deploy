@@ -414,7 +414,13 @@ const PricingController = (() => {
 
         if (apiCategory === 'COMMISSION') {
             const rawRate = val.replace('%', '');
-            payload.commissionRate = parseFloat(rawRate) || 0;
+            const normalizedRate = String(rawRate).replace(',', '.').replace(/[–—−]/g, '-');
+            const rateParts = normalizedRate.match(/\d+(\.\d+)?/g) || [];
+            const rates = rateParts.map((part) => Number(part)).filter((n) => Number.isFinite(n));
+            payload.commissionRate = rates.length > 1
+                ? Number((rates.reduce((sum, n) => sum + n, 0) / rates.length).toFixed(2))
+                : (rates[0] || 0);
+            payload.description = `__commission_display__:${val.replace(/^%+/, '').trim()}`;
         } else {
             const priceEx = parseFloat(val.replace(',', '.'));
             if (isNaN(priceEx)) return showToast('Lütfen KDV Hariç geçerli bir rakam girin.', 'error');
@@ -654,6 +660,7 @@ const PricingController = (() => {
         renderAdminPricing,
         addDraftItem,
         removeDraftItem,
+        editDraftItem,
         addRuleItem,
         removeRuleItem,
         editRuleItem,

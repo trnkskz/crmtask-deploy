@@ -7,6 +7,7 @@ const AdminController = (() => {
 
     let _activeTab = 'users';
     let _usersHydrationInFlight = false;
+    const BACKEND_ADMIN_ONLY_PERMISSIONS = new Set(['manageUsers', 'manageRoles', 'manageSettings', 'viewAuditLogs']);
     const PERMISSION_MATRIX_DEFS = [
         { key: 'viewAllTasks', label: 'Ekip görevlerini görüntüleyebilir', title: 'Ekip görevleri', group: 'Operasyon', detail: 'Tüm ekip akışını izleyebilir.' },
         { key: 'assignTasks', label: 'Görev atama yapabilir', title: 'Görev atama', group: 'Operasyon', detail: 'Görevleri kullanıcıya atayabilir.' },
@@ -70,20 +71,22 @@ const AdminController = (() => {
             viewReports: normalizedRole === 'Yönetici' || normalizedRole === 'Takım Lideri',
             exportReports: normalizedRole === 'Yönetici' || normalizedRole === 'Takım Lideri',
             importCsv: normalizedRole === 'Yönetici' || normalizedRole === 'Takım Lideri',
-            manageUsers: normalizedRole === 'Yönetici',
-            manageRoles: normalizedRole === 'Yönetici',
-            manageSettings: normalizedRole === 'Yönetici',
-            viewAuditLogs: normalizedRole === 'Yönetici' || normalizedRole === 'Takım Lideri',
+            manageUsers: false,
+            manageRoles: false,
+            manageSettings: false,
+            viewAuditLogs: false,
         };
         if (normalizedRole === 'Yönetici') {
             Object.keys(defaults).forEach((key) => { defaults[key] = true; });
+            BACKEND_ADMIN_ONLY_PERMISSIONS.forEach((permissionKey) => {
+                defaults[permissionKey] = false;
+            });
         }
         if (normalizedRole === 'Operasyon') {
             defaults.export = true;
             defaults.createBiz = true;
             defaults.viewAllTasks = true;
             defaults.importCsv = true;
-            defaults.viewAuditLogs = true;
         }
         return defaults;
     }
@@ -455,6 +458,10 @@ const AdminController = (() => {
             if (btn) { btn.disabled = false; btn.innerText = '🚀 Yeni Kullanıcıyı Sisteme Ekle'; }
             return showToast('Zorunlu alanları doldurun.', 'error');
         }
+        if (pass.length < 6) {
+            if (btn) { btn.disabled = false; btn.innerText = '🚀 Yeni Kullanıcıyı Sisteme Ekle'; }
+            return showToast('Sifre en az 6 karakter olmalidir.', 'warning');
+        }
         if (getUserEmailMap().has(email)) {
             if (btn) { btn.disabled = false; btn.innerText = '🚀 Yeni Kullanıcıyı Sisteme Ekle'; }
             return showToast('E-posta kayıtlı!', 'error');
@@ -495,6 +502,10 @@ const AdminController = (() => {
             
             closeModal('createUserModal');
             renderUsers();
+        }).catch((err) => {
+            console.error('User create failed:', err);
+            if (btn) { btn.disabled = false; btn.innerText = '🚀 Yeni Kullanıcıyı Sisteme Ekle'; }
+            showToast(err?.message || 'Kullanici olusturulamadi.', 'error');
         });
     }
 
@@ -606,6 +617,10 @@ const AdminController = (() => {
         const oldName = u.name;
         const newName = getValue('editUserName');
         const rawNewPass = document.getElementById('editUserPassword')?.value || '';
+        if (rawNewPass && rawNewPass.length < 6) {
+            if (btn) { btn.disabled = false; btn.innerText = '💾 Değişiklikleri Kaydet'; }
+            return showToast('Yeni sifre en az 6 karakter olmalidir.', 'warning');
+        }
         const canExport = document.getElementById('editPermExport')?.checked || false;
         const canCreate = document.getElementById('editPermCreateBiz')?.checked || false;
         const canDelArch = document.getElementById('editPermDeleteArchive')?.checked || false;
@@ -664,7 +679,7 @@ const AdminController = (() => {
         }).catch(err => {
             console.error(err);
             if (btn) { btn.disabled = false; btn.innerText = '💾 Değişiklikleri Kaydet'; }
-            showToast("Veritabanı güncelleme hatası!", "error");
+            showToast(err?.message || 'Veritabani guncelleme hatasi!', 'error');
         });
     }
 
@@ -770,8 +785,15 @@ const AdminController = (() => {
         });
     }
 
-    function openUserProfileModal(userName) {
-        const u = getUserNameMap().get(userName);
+    function openUserProfileModal(userRef) {
+        const rawRef = String(userRef || '').trim();
+        const normalizedRef = rawRef.toLocaleLowerCase('tr-TR');
+        const u = getUserNameMap().get(rawRef)
+            || AppState.users.find((user) =>
+                String(user?.id || '').trim() === rawRef
+                || String(user?.email || '').trim().toLocaleLowerCase('tr-TR') === normalizedRef
+                || String(user?.name || '').trim().toLocaleLowerCase('tr-TR') === normalizedRef
+            );
         if (!u) return showToast('Bilgi bulunamadı.', 'warning');
         const summary = getUserTaskSummaryMap().get(u.name) || { tasks: [], openCount: 0, monthlyStats: {} };
         const monthKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
@@ -1166,7 +1188,7 @@ const AdminController = (() => {
         renderPagination(pagContainer, filtered.length, page, ITEMS_PER_PAGE, (i) => {
             AppState.setPage('logs', i);
             displaySystemLogs();
-        });
+        }, { compact: true, resultLabel: 'kayıt' });
     }
 
     function fixPastRecordsDates() {
@@ -1655,146 +1677,35 @@ window.executeGrupanyaMigration = function() {
     askConfirm("DİKKAT! Sistemdeki eski kategoriler tamamen SİLİNECEK, Grupanya formatı eklenecek ve eşleşmeyen işletmeler 'Eski Kategoriler' altında toplanacaktır. Onaylıyor musunuz?", (res) => {
         if(!res) return;
 
-        const newGrupanyaTree = createGrupanyaCategoryTree();
         showProgressOverlay("Grupanya Altyapısına Geçiliyor", "Kategori ağacı hazırlanıyor", {
             percent: 8,
-            meta: 'Mevcut görev ve işletme kayıtları yeni kategori ağacına eşlenecek.',
-        });
-        let affectedBizIds = new Set();
-        let quarantineCount = 0;
-        const taskUpdates = [];
-        const businessCategoryUpdates = new Map();
-
-        AppState.tasks.forEach(t => {
-            const biz = AppState.getBizMap().get(t.businessId) || {};
-            const resolved = resolveCanonicalCategory(t.mainCategory, t.subCategory, biz.companyName || '');
-            let newMain = resolved.mainCategory;
-            let newSub = resolved.subCategory;
-            const matched = resolved.matched;
-
-            if (!matched) {
-                newMain = "Eski Kategoriler";
-                newSub = t.subCategory || "";
-            }
-
-            if (!matched) quarantineCount++;
-
-            const prevBizCategory = businessCategoryUpdates.get(t.businessId);
-            const taskCreatedAt = new Date(t.createdAt || 0).getTime() || 0;
-            if (!prevBizCategory || taskCreatedAt >= prevBizCategory.createdAt) {
-                businessCategoryUpdates.set(t.businessId, {
-                    createdAt: taskCreatedAt,
-                    mainCategory: newMain,
-                    subCategory: newSub
-                });
-            }
-
-            // Görevi güncelle
-            taskUpdates.push(() =>
-                DataService.apiRequest(`/tasks/${t.id}`, {
-                    method: 'PATCH',
-                    body: JSON.stringify({ mainCategory: newMain, subCategory: newSub })
-                }).then(() => ({ ok: true, type: 'task', id: t.id }))
-                  .catch(err => {
-                      console.warn(`Task ${t.id} grupanya migration failed:`, err);
-                      return { ok: false, type: 'task', id: t.id, error: err };
-                  })
-            );
-            affectedBizIds.add(t.businessId);
+            meta: 'Görev ve işletme kayıtları sunucuda toplu olarak dönüştürülüyor.',
         });
 
-        AppState.businesses.forEach((biz) => {
-            if (businessCategoryUpdates.has(biz.id)) return;
-            const resolved = resolveCanonicalCategory(biz.mainCategory, biz.subCategory, biz.companyName || '');
-            let newMain = resolved.mainCategory;
-            let newSub = resolved.subCategory;
-            if (!resolved.matched) {
-                newMain = 'Eski Kategoriler';
-                newSub = biz.subCategory || '';
-                quarantineCount++;
-            }
-            businessCategoryUpdates.set(biz.id, {
-                createdAt: new Date(biz.createdAt || 0).getTime() || 0,
-                mainCategory: newMain,
-                subCategory: newSub,
+        DataService.apiRequest('/admin/maintenance/migrate-grupanya-categories', {
+            method: 'POST',
+        }).then((result) => {
+            updateProgressOverlay("Arayüz yenileniyor", {
+                percent: 92,
+                meta: 'Yeni kategori ağacı ve güncel kayıtlar eşitleniyor.',
             });
-            affectedBizIds.add(biz.id);
-        });
 
-        const transferredCount = affectedBizIds.size;
-
-        const businessUpdates = Array.from(businessCategoryUpdates.entries()).map(([bizId, categoryInfo]) => () =>
-            DataService.apiRequest(`/accounts/${bizId}`, {
-                method: 'PATCH',
-                body: JSON.stringify({
-                    mainCategory: categoryInfo.mainCategory,
-                    subCategory: categoryInfo.subCategory
-                })
-            }).then(() => ({ ok: true, type: 'business', id: bizId }))
-              .catch(err => {
-                  console.warn(`Business ${bizId} grupanya migration failed:`, err);
-                  return { ok: false, type: 'business', id: bizId, error: err };
-              })
-        );
-
-        let taskResults = [];
-        let businessResults = [];
-        DataService.saveCategories(newGrupanyaTree).then(() => {
-            updateProgressOverlay("Görev kayıtları dönüştürülüyor", {
-                percent: 35,
-                meta: `${taskUpdates.length} görev Grupanya kategorilerine taşınıyor.`,
-            });
-            return runBatched(taskUpdates, 5);
-        }).then((taskBatchResults) => {
-            taskResults = Array.isArray(taskBatchResults) ? taskBatchResults : [];
-            updateProgressOverlay("İşletme kartları güncelleniyor", {
-                percent: 74,
-                meta: `${businessUpdates.length} işletme yeni kategori ağacına hizalanıyor.`,
-            });
-            return runBatched(businessUpdates, 5);
-        }).then((businessBatchResults) => {
-            businessResults = Array.isArray(businessBatchResults) ? businessBatchResults : [];
-            const failedUpdates = [...taskResults, ...businessResults].filter((result) => result && result.ok === false);
-            if (failedUpdates.length > 0) {
-                if (typeof SyncService !== 'undefined' && typeof SyncService.requestSync === 'function') {
-                    SyncService.requestSync(['tasks', 'businesses', 'categories']);
-                }
-                throw new Error(`Grupanya gecisinde ${failedUpdates.length} kayit kalici olarak guncellenemedi.`);
-            }
-
-            updateProgressOverlay("Arayüz yenileniyor", { percent: 96 });
-            AppState.tasks = AppState.tasks.map((task) => {
-                const biz = AppState.getBizMap().get(task.businessId) || {};
-                const resolved = resolveCanonicalCategory(task.mainCategory, task.subCategory, biz.companyName || '');
-                return {
-                    ...task,
-                    mainCategory: resolved.matched ? resolved.mainCategory : 'Eski Kategoriler',
-                    subCategory: resolved.matched ? resolved.subCategory : (task.subCategory || ''),
-                };
-            });
-            AppState.businesses = AppState.businesses.map((biz) => {
-                const nextCategory = businessCategoryUpdates.get(biz.id);
-                if (!nextCategory) return biz;
-                return {
-                    ...biz,
-                    mainCategory: nextCategory.mainCategory,
-                    subCategory: nextCategory.subCategory,
-                };
-            });
-            AppState.dynamicCategories = newGrupanyaTree;
+            const transferredCount = Number(result?.updatedBusinessCount || 0);
+            const quarantineCount = Number(result?.quarantineCount || 0);
+            AppState.dynamicCategories = createGrupanyaCategoryTree();
             addSystemLog(`GRUPANYA GÖÇÜ TAMAMLANDI: ${transferredCount} işletme aktarıldı, ${quarantineCount} tanesi karantinaya alındı.`);
-            
+
             let toastMsg = `Mükemmel! Sistem Grupanya standartlarına geçti. ${transferredCount} işletme yerleştirildi.`;
             if(quarantineCount > 0) toastMsg += ` (${quarantineCount} işletme Eski Kategoriler'e alındı, lütfen inceleyin.)`;
-            
+
             showToast(toastMsg, "success");
-            
-            if (typeof AdminController !== 'undefined') AdminController.renderCategoryList();
-            if (typeof DropdownController !== 'undefined') DropdownController.populateMainCategoryDropdowns();
-            if (typeof BusinessController !== 'undefined' && AppState.isBizSearched) BusinessController.search(false);
+
             if (typeof SyncService !== 'undefined' && typeof SyncService.requestSync === 'function') {
                 SyncService.requestSync(['tasks', 'businesses', 'categories']);
             }
+            if (typeof AdminController !== 'undefined') AdminController.renderCategoryList();
+            if (typeof DropdownController !== 'undefined') DropdownController.populateMainCategoryDropdowns();
+            if (typeof BusinessController !== 'undefined' && AppState.isBizSearched) BusinessController.search(false);
         }).catch(err => {
             console.error(err);
             showToast(err?.message || 'Göç sırasında bir hata oluştu.', 'error');

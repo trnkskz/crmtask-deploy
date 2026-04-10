@@ -35,6 +35,11 @@ export class AdminController {
   @RequirePermission('manageSettings')
   deleteAdminTestData() { return this.svc.deleteAdminTestData() }
 
+  @Post('maintenance/migrate-grupanya-categories')
+  @MinRole(Roles.ADMIN)
+  @RequirePermission('manageSettings')
+  migrateGrupanyaCategories() { return this.svc.migrateGrupanyaCategories() }
+
   @Get('roles')
   @MinRole(Roles.ADMIN)
   @RequirePermission('manageRoles')

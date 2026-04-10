@@ -227,6 +227,46 @@ describe('DataService persistence helpers', () => {
         );
     });
 
+    it('refreshes an about-to-expire access token before sending the protected request', async () => {
+        const dataService = loadService();
+        const expSoonPayload = Buffer.from(JSON.stringify({
+            exp: Math.floor(Date.now() / 1000) + 20,
+        })).toString('base64url');
+        global.window.localStorage.setItem('accessToken', `header.${expSoonPayload}.sig`);
+        global.window.localStorage.setItem('refreshToken', 'refresh-token');
+
+        global.fetch = jest.fn()
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                text: async () => JSON.stringify({ accessToken: 'fresh-token' }),
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                text: async () => JSON.stringify({ id: 'task-1' }),
+            });
+
+        const result = await dataService.apiRequest('/tasks/task-1');
+
+        expect(result).toEqual({ id: 'task-1' });
+        expect(global.fetch).toHaveBeenNthCalledWith(1,
+            'http://localhost:3001/api/auth/refresh',
+            expect.objectContaining({
+                method: 'POST',
+                credentials: 'include',
+                body: JSON.stringify({ refreshToken: 'refresh-token' }),
+            }),
+        );
+        expect(global.fetch).toHaveBeenNthCalledWith(2,
+            'http://localhost:3001/api/tasks/task-1',
+            expect.objectContaining({
+                credentials: 'include',
+                headers: expect.objectContaining({ Authorization: 'Bearer fresh-token' }),
+            }),
+        );
+    });
+
     it('keeps the default pricing catalog stable and only overlays known persisted items', async () => {
         const dataService = loadService();
 

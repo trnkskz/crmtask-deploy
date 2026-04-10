@@ -8,8 +8,12 @@ const TaskController = (() => {
     const teamPulseUiState = {
         selectedUserKey: '',
         modalPeriod: 'daily',
+        selectedMetric: 'open',
         recordsByKey: {},
     };
+    let teamPulseResizeBound = false;
+    let teamPulseRequestId = 0;
+    let taskSurfaceRefreshTimer = null;
 
     function getTeamPulsePeriodLabel(period) {
         if (period === 'weekly') return 'Bu Hafta';
@@ -122,7 +126,7 @@ const TaskController = (() => {
                 }));
 
             const openedItems = entries
-                .filter((entry) => entry.createdMs >= rangeStart)
+                .filter((entry) => entry.createdMs >= rangeStart && String(entry.task.createdById || '') === String(user.id || ''))
                 .sort((a, b) => b.createdMs - a.createdMs)
                 .map((entry) => ({
                     taskId: entry.taskId,
@@ -179,28 +183,78 @@ const TaskController = (() => {
         };
     }
 
-    function buildTeamPulseSummaryHtml(metric, activePeriod) {
-        const labels = {
-            contacted: 'Görüşülen',
-            opened: 'Create Task',
+    function getTeamPulseMetricConfig(metricKey) {
+        const configs = {
+            open: {
+                label: 'Açık',
+                tone: 'open',
+                period: 'monthly',
+                helper: 'Anlık açık görev yükü',
+                empty: 'Bu kullanıcıya ait açık görev bulunmuyor.',
+                icon: 'A',
+            },
+            deal: {
+                label: 'Deal',
+                tone: 'deal',
+                period: 'monthly',
+                helper: 'Bu ay deal kapanışları',
+                empty: 'Bu ay deal kapanışı bulunmuyor.',
+                icon: 'D',
+            },
+            cold: {
+                label: 'Cold',
+                tone: 'cold',
+                period: 'monthly',
+                helper: 'Bu ay cold sonuçları',
+                empty: 'Bu ay cold sonucu bulunmuyor.',
+                icon: 'C',
+            },
+            contacted: {
+                label: 'Bugün Görüşülen',
+                tone: 'contacted',
+                period: 'daily',
+                helper: 'Bugün temas edilen işletmeler',
+                empty: 'Bugün görüşülen işletme yok.',
+                icon: 'G',
+            },
+            opened: {
+                label: 'Aylık Create Task',
+                tone: 'opened',
+                period: 'monthly',
+                helper: 'Bu ay oluşturduğu görevler',
+                empty: 'Bu ay oluşturulan görev bulunmuyor.',
+                icon: 'T',
+            },
         };
-        const accents = {
-            contacted: 'contacted',
-            opened: 'opened',
+        return configs[metricKey] || configs.open;
+    }
+
+    function getTeamPulseMetric(record, metricKey) {
+        const config = getTeamPulseMetricConfig(metricKey);
+        const periodMetrics = record?.metrics?.[config.period] || {};
+        const metric = periodMetrics?.[metricKey] || { count: 0, items: [] };
+        return {
+            ...config,
+            count: Number(metric?.count || 0),
+            items: Array.isArray(metric?.items) ? metric.items : [],
         };
+    }
 
-        return Object.keys(labels).map((metricKey) => {
-            const activeValue = metric[activePeriod]?.[metricKey]?.count || 0;
-            const helperText = metricKey === 'contacted'
-                ? 'Seçili dönemde tamamlanan görüşmeler'
-                : 'Seçili dönemde açılan yeni görevler';
-
+    function buildTeamPulseSummaryHtml(record) {
+        const metricOrder = ['open', 'deal', 'cold', 'contacted', 'opened'];
+        return metricOrder.map((metricKey) => {
+            const metric = getTeamPulseMetric(record, metricKey);
+            const isActive = teamPulseUiState.selectedMetric === metricKey;
             return `
-                <div class="team-pulse-metric ${accents[metricKey]}">
-                    <div class="team-pulse-metric-label">${labels[metricKey]}</div>
-                    <div class="team-pulse-metric-value">${activeValue}</div>
-                    <div class="team-pulse-metric-helper">${helperText}</div>
-                </div>
+                <button
+                    type="button"
+                    class="team-pulse-metric ${metric.tone} ${isActive ? 'active' : ''}"
+                    onclick="event.stopPropagation(); setTeamPulseModalMetric('${metricKey}')"
+                >
+                    <div class="team-pulse-metric-label">${metric.label}</div>
+                    <div class="team-pulse-metric-value">${metric.count}</div>
+                    <div class="team-pulse-metric-helper">${metric.helper}</div>
+                </button>
             `;
         }).join('');
     }
@@ -208,11 +262,10 @@ const TaskController = (() => {
     function buildTeamPulseDetailList(items, emptyText, options = {}) {
         const itemClass = options.itemClass || 'team-pulse-detail-item';
         const limit = Number.isFinite(Number(options.limit)) ? Number(options.limit) : 6;
-        const emptyIcon = options.emptyIcon || '•';
+        const ownerName = options.ownerName || '';
         if (!items.length) {
             return `
                 <div class="team-pulse-empty">
-                    <span class="team-pulse-empty-icon">${emptyIcon}</span>
                     <div class="team-pulse-empty-copy">
                         <strong>Bu görünüm şu an boş.</strong>
                         <span>${emptyText}</span>
@@ -222,10 +275,10 @@ const TaskController = (() => {
         }
         return items.slice(0, limit).map((item) => `
             <button type="button" class="${itemClass}" onclick="event.stopPropagation(); openTaskModal('${escapeHtml(item.taskId)}')">
-                <span class="team-pulse-detail-main">
+                <span class="team-pulse-detail-main team-pulse-detail-main-rich">
                     <strong>${escapeHtml(item.businessName)}</strong>
                 </span>
-                <span class="team-pulse-detail-status">${escapeHtml(TASK_STATUS_LABELS[item.status] || item.status || '-')}</span>
+                <span class="team-pulse-detail-assignee">${escapeHtml(ownerName || '-')}</span>
             </button>
         `).join('');
     }
@@ -239,94 +292,125 @@ const TaskController = (() => {
             open: dailyMetrics.open?.count || 0,
         };
         const idleTone = dailyCounts.idle > 0 ? 'risk' : 'calm';
+        const badgeLabel = dailyCounts.idle > 0 ? 'Takip bekliyor' : dailyCounts.contacted > 0 ? 'Akışta' : 'Sakin';
 
         return `
             <button type="button" class="team-pulse-card ${idleTone}" onclick="openTeamPulseModal('${record.key}')">
                 <div class="team-pulse-card-head">
-                    <div class="team-pulse-user">
-                        <strong>${escapeHtml(record.user.name || '-')}</strong>
-                        <span>${escapeHtml(record.user.team || 'Takım atanmadı')} • Günlük özet</span>
+                    <div class="team-pulse-user-block">
+                        <div class="team-pulse-avatar">${escapeHtml(String(record.user.name || '?').trim().charAt(0) || '?')}</div>
+                        <div class="team-pulse-user">
+                            <strong>${escapeHtml(record.user.name || '-')}</strong>
+                            <span>${escapeHtml(record.user.team || 'Takım atanmadı')}</span>
+                        </div>
                     </div>
                     <div class="team-pulse-top-badges">
-                        <span class="team-pulse-top-badge neutral">Bugün</span>
+                        <span class="team-pulse-top-badge neutral">${badgeLabel}</span>
                     </div>
                 </div>
-                <div class="team-pulse-summary-grid">
-                    <div class="team-pulse-mini-stat contacted">
+                <div class="team-pulse-summary-strip">
+                    <div class="team-pulse-summary-cell contacted">
                         <span class="team-pulse-mini-label">Görüşülen</span>
                         <strong>${dailyCounts.contacted}</strong>
                     </div>
-                    <div class="team-pulse-mini-stat open">
+                    <div class="team-pulse-summary-cell open">
                         <span class="team-pulse-mini-label">Open Task</span>
                         <strong>${dailyCounts.open}</strong>
                     </div>
                 </div>
                 <div class="team-pulse-card-footer">
                     <span class="team-pulse-meta-chip">Pasif Görev <strong>${dailyCounts.idle}</strong></span>
-                    <span class="team-pulse-meta-chip">Create Task <strong>${dailyCounts.opened}</strong></span>
+                    <span class="team-pulse-detail-chip">Detayı Aç</span>
                 </div>
             </button>
         `;
     }
 
     function buildTeamPulseModalHtml(record) {
-        const activePeriod = teamPulseUiState.modalPeriod || 'daily';
-        const detailMetrics = record.metrics[activePeriod] || record.metrics.daily;
-        const periodButtons = TEAM_PULSE_PERIODS.map((period) => `
-            <button
-                type="button"
-                class="team-pulse-period-btn ${activePeriod === period ? 'active' : ''}"
-                onclick="setTeamPulseModalPeriod('${period}')"
-            >${period === 'daily' ? 'Günlük' : period === 'weekly' ? 'Haftalık' : 'Aylık'}</button>
-        `).join('');
-        const activePeriodLabel = getTeamPulsePeriodLabel(activePeriod);
-        const summaryPanels = [
-            {
-                title: 'Görüşülen',
-                icon: 'G',
-                tone: 'contacted',
-                empty: 'Bu aralıkta görüşme kaydı yok.',
-                items: detailMetrics.contacted?.items || [],
-            },
-            {
-                title: 'Create Task',
-                icon: 'C',
-                tone: 'opened',
-                empty: 'Bu aralıkta yeni görev açılmamış.',
-                items: detailMetrics.opened?.items || [],
-            },
-        ];
+        const selectedMetric = getTeamPulseMetric(record, teamPulseUiState.selectedMetric || 'open');
+        const openMetric = getTeamPulseMetric(record, 'open');
+        const dealMetric = getTeamPulseMetric(record, 'deal');
+        const coldMetric = getTeamPulseMetric(record, 'cold');
+        const contactedMetric = getTeamPulseMetric(record, 'contacted');
+        const openedMetric = getTeamPulseMetric(record, 'opened');
 
         return `
             <div class="team-pulse-modal-shell">
-                <div class="team-pulse-hero">
-                    <div class="team-pulse-modal-head">
-                        <div class="team-pulse-modal-copy">
-                            <div class="team-pulse-modal-kicker">Personel performans özeti</div>
+                <div class="team-pulse-modal-header">
+                    <div class="team-pulse-modal-head team-pulse-modal-head-inline">
+                        <div class="team-pulse-modal-inline-rail">
+                            <div class="team-pulse-modal-kicker">OPERASYON ÖZETİ</div>
                             <h3 id="teamPulseModalTitle">${escapeHtml(record.user.name || '-')}</h3>
-                            <p>${escapeHtml(record.user.team || 'Takım atanmadı')} • ${activePeriodLabel}</p>
+                            <div class="team-pulse-modal-team-badge">${escapeHtml(record.user.team || 'Takım atanmadı')}</div>
                         </div>
-                        <div class="team-pulse-period-switcher">${periodButtons}</div>
-                    </div>
-                    <div class="team-pulse-metric-grid">
-                        ${buildTeamPulseSummaryHtml(record.metrics, activePeriod)}
                     </div>
                 </div>
-                <div class="team-pulse-modal-layout concise">
-                    ${summaryPanels.map((panel) => `
-                        <div class="team-pulse-modal-panel ${panel.tone}">
-                            <div class="team-pulse-panel-head">
-                                <div class="team-pulse-detail-title"><span>${panel.icon}</span>${panel.title}</div>
-                            </div>
-                            ${buildTeamPulseDetailList(panel.items, panel.empty, { itemClass: 'team-pulse-modal-item', limit: 7, emptyIcon: panel.icon })}
+                <div class="team-pulse-hero-summary">
+                    <button type="button" class="team-pulse-hero-stat open ${teamPulseUiState.selectedMetric === 'open' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('open')">
+                        <span>Açık</span>
+                        <strong>${openMetric.count}</strong>
+                        <small>Anlık açık görev yükü</small>
+                    </button>
+                    <button type="button" class="team-pulse-hero-stat deal ${teamPulseUiState.selectedMetric === 'deal' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('deal')">
+                        <span>Deal</span>
+                        <strong>${dealMetric.count}</strong>
+                        <small>Bu ay deal kapanışları</small>
+                    </button>
+                    <button type="button" class="team-pulse-hero-stat cold ${teamPulseUiState.selectedMetric === 'cold' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('cold')">
+                        <span>Cold</span>
+                        <strong>${coldMetric.count}</strong>
+                        <small>Bu ay cold sonuçları</small>
+                    </button>
+                    <button type="button" class="team-pulse-hero-stat contacted ${teamPulseUiState.selectedMetric === 'contacted' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('contacted')">
+                        <span>Bugün Görüşülen</span>
+                        <strong>${contactedMetric.count}</strong>
+                        <small>Bugün temas edilen işletmeler</small>
+                    </button>
+                    <button type="button" class="team-pulse-hero-stat opened ${teamPulseUiState.selectedMetric === 'opened' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('opened')">
+                        <span>Aylık Create Task</span>
+                        <strong>${openedMetric.count}</strong>
+                        <small>Bu ay oluşturduğu görevler</small>
+                    </button>
+                </div>
+                <div class="team-pulse-modal-layout single">
+                    <div class="team-pulse-modal-panel ${selectedMetric.tone}">
+                        <div class="team-pulse-panel-head">
+                            <div class="team-pulse-detail-title">${selectedMetric.label}</div>
+                            <div class="team-pulse-panel-count">${selectedMetric.items.length}</div>
                         </div>
-                    `).join('')}
+                        <div class="team-pulse-modal-grid">
+                            ${buildTeamPulseDetailList(selectedMetric.items, selectedMetric.empty, { itemClass: 'team-pulse-modal-item', limit: 10, ownerName: record.user?.name || '-' })}
+                        </div>
+                    </div>
                 </div>
             </div>
         `;
     }
 
-    function renderTeamPulse(taskIndex) {
+    function applyTeamPulseStageScale() {
+        const stage = document.getElementById('teamPulseStage');
+        const container = document.getElementById('teamPulseContainer');
+        if (!stage || !container) return;
+
+        const cards = Array.from(container.querySelectorAll('.team-pulse-card'));
+        if (!cards.length || window.innerWidth < 1180) {
+            stage.style.setProperty('--team-pulse-scale', '1');
+            stage.style.setProperty('--team-pulse-stage-height', 'auto');
+            return;
+        }
+
+        const stageWidth = stage.clientWidth || 0;
+        const cardWidth = 240;
+        const gap = 14;
+        const requiredWidth = (cards.length * cardWidth) + (Math.max(cards.length - 1, 0) * gap);
+        const scale = requiredWidth > stageWidth ? Math.max(0.68, stageWidth / requiredWidth) : 1;
+        const sampleHeight = cards[0]?.offsetHeight || 0;
+
+        stage.style.setProperty('--team-pulse-scale', String(scale));
+        stage.style.setProperty('--team-pulse-stage-height', sampleHeight > 0 ? `${Math.ceil(sampleHeight * scale)}px` : 'auto');
+    }
+
+    function renderTeamPulseLocal(taskIndex) {
         const pulseContainer = document.getElementById('teamPulseContainer');
         if (!pulseContainer) return;
 
@@ -362,6 +446,14 @@ const TaskController = (() => {
         }
 
         pulseContainer.innerHTML = records.map(buildTeamPulseCardHtml).join('');
+        requestAnimationFrame(() => {
+            applyTeamPulseStageScale();
+        });
+
+        if (!teamPulseResizeBound) {
+            window.addEventListener('resize', applyTeamPulseStageScale, { passive: true });
+            teamPulseResizeBound = true;
+        }
 
         if (teamPulseUiState.selectedUserKey && document.getElementById('teamPulseModal')?.style.display === 'flex') {
             if (teamPulseUiState.recordsByKey[teamPulseUiState.selectedUserKey]) {
@@ -369,6 +461,55 @@ const TaskController = (() => {
             } else {
                 closeModal('teamPulseModal');
             }
+        }
+    }
+
+    async function renderTeamPulse(taskIndex) {
+        const pulseContainer = document.getElementById('teamPulseContainer');
+        if (!pulseContainer) return;
+
+        const requestId = ++teamPulseRequestId;
+        pulseContainer.innerHTML = `<div class="team-pulse-empty-board">Personel performans kartları yükleniyor...</div>`;
+
+        try {
+            const payload = await DataService.apiRequest('/reports/team-pulse');
+            if (requestId !== teamPulseRequestId) return;
+
+            const records = Array.isArray(payload?.records) ? payload.records : [];
+            teamPulseUiState.recordsByKey = records.reduce((acc, record) => {
+                acc[record.key] = record;
+                return acc;
+            }, {});
+
+            if (!records.length) {
+                pulseContainer.innerHTML = `<div class="team-pulse-empty-board">Bu filtrede gösterilecek personel performans kartı yok.</div>`;
+                if (document.getElementById('teamPulseModal')?.style.display === 'flex') {
+                    closeModal('teamPulseModal');
+                }
+                return;
+            }
+
+            pulseContainer.innerHTML = records.map(buildTeamPulseCardHtml).join('');
+            requestAnimationFrame(() => {
+                applyTeamPulseStageScale();
+            });
+
+            if (!teamPulseResizeBound) {
+                window.addEventListener('resize', applyTeamPulseStageScale, { passive: true });
+                teamPulseResizeBound = true;
+            }
+
+            if (teamPulseUiState.selectedUserKey && document.getElementById('teamPulseModal')?.style.display === 'flex') {
+                if (teamPulseUiState.recordsByKey[teamPulseUiState.selectedUserKey]) {
+                    renderTeamPulseModal();
+                } else {
+                    closeModal('teamPulseModal');
+                }
+            }
+        } catch (err) {
+            console.error('Team pulse summary load failed, falling back to local metrics:', err);
+            if (requestId !== teamPulseRequestId) return;
+            renderTeamPulseLocal(taskIndex);
         }
     }
 
@@ -621,7 +762,7 @@ const TaskController = (() => {
         renderPagination(pagination, rows.length, currentPage, ITEMS_PER_PAGE_TASKS, (nextPage) => {
             AppState.setPage('taskReports', nextPage);
             displayTaskReportRows();
-        });
+        }, { compact: true, resultLabel: 'kayıt' });
     }
 
     function clearTaskReportFilters() {
@@ -696,16 +837,31 @@ const TaskController = (() => {
         overlay.style.display = 'flex';
     }
 
-    function openTeamPulseModal(userKey) {
+    function openTeamPulseModal(userKey, metricKey = 'open') {
         if (!userKey || !teamPulseUiState.recordsByKey[userKey]) return;
         teamPulseUiState.selectedUserKey = userKey;
         teamPulseUiState.modalPeriod = 'daily';
+        teamPulseUiState.selectedMetric = metricKey || 'open';
         renderTeamPulseModal();
     }
 
     function setTeamPulseModalPeriod(period) {
         teamPulseUiState.modalPeriod = TEAM_PULSE_PERIODS.includes(period) ? period : 'daily';
         renderTeamPulseModal();
+    }
+
+    function setTeamPulseModalMetric(metricKey) {
+        if (!metricKey) return;
+        teamPulseUiState.selectedMetric = metricKey;
+        renderTeamPulseModal();
+    }
+
+    function setTeamPulseRecords(records) {
+        const safeRecords = Array.isArray(records) ? records : [];
+        teamPulseUiState.recordsByKey = safeRecords.reduce((acc, record) => {
+            if (record?.key) acc[record.key] = record;
+            return acc;
+        }, {});
     }
 
     function getTaskDerivedIndex() {
@@ -903,8 +1059,10 @@ const TaskController = (() => {
         return card;
     }
 
+    window.createMinimalTaskCard = createMinimalCard;
+
     // --- Görev Listesi Render ---
-    function renderMyTasks() {
+    function renderMyTasksLocal() {
         const list = document.getElementById('myActiveTaskList');
         if (!list) return;
         list.innerHTML = '';
@@ -948,7 +1106,7 @@ const TaskController = (() => {
         }
     }
 
-    function renderAllTasks() {
+    function renderAllTasksLocal() {
         const list = document.getElementById('allActiveTaskList');
         if (!list) return;
         list.innerHTML = '';
@@ -1013,28 +1171,208 @@ const TaskController = (() => {
         if (pagContainer) {
             renderPagination(pagContainer, filtered.length, page, ITEMS_PER_PAGE_TASKS, (i) => {
                 AppState.setPage('allTasks', i);
-                renderAllTasks();
-            });
+                renderAllTasksLocal();
+            }, { compact: true, resultLabel: 'kayıt' });
+        }
+    }
+
+    function getSelectedTaskStatuses(selector) {
+        const values = Array.from(document.querySelectorAll(selector))
+            .filter((el) => el.checked)
+            .map((el) => String(el.value || '').trim().toLowerCase());
+        return values.map((value) => {
+            if (value === 'nothot') return 'NOT_HOT';
+            if (value === 'followup') return 'FOLLOWUP';
+            return value.toUpperCase();
+        });
+    }
+
+    function resolveTaskAssigneeQuery(filterValue) {
+        const raw = String(filterValue || '').trim();
+        if (!raw) return {};
+        if (raw === 'Team 1' || raw === 'Team 2') {
+            return { team: raw };
+        }
+        const matchedUser = AppState.users.find((user) => (
+            String(user?.id || '').trim() === raw
+            || String(user?.name || '').trim() === raw
+            || String(user?.email || '').trim() === raw
+        ));
+        if (matchedUser?.id) {
+            return { ownerId: matchedUser.id };
+        }
+        return { historicalAssignee: raw };
+    }
+
+    async function refreshTodayOutcomeCountsFromBackend() {
+        const today = new Date().toISOString().split('T')[0];
+        const [dealPayload, coldPayload] = await Promise.all([
+            DataService.fetchTaskPage({
+                view: 'summary',
+                status: 'DEAL',
+                createdFrom: today,
+                createdTo: today,
+                page: 1,
+                limit: 1,
+            }),
+            DataService.fetchTaskPage({
+                view: 'summary',
+                status: 'COLD',
+                createdFrom: today,
+                createdTo: today,
+                page: 1,
+                limit: 1,
+            }),
+        ]);
+
+        const todayDealEl = document.getElementById('btnTodayDealCount');
+        const todayColdEl = document.getElementById('btnTodayColdCount');
+        if (todayDealEl) todayDealEl.innerText = dealPayload.total;
+        if (todayColdEl) todayColdEl.innerText = coldPayload.total;
+    }
+
+    function resetAllTasksFilters() {
+        const search = document.getElementById('allFilterBizName');
+        const project = document.getElementById('filterAllTasksProject');
+        const assignee = document.getElementById('filterAllTasksAssignee');
+        const sort = document.getElementById('allTaskSort');
+        if (search) search.value = '';
+        if (project) project.value = '';
+        if (assignee) assignee.value = '';
+        if (sort) sort.value = 'newest';
+        document.querySelectorAll('.all-status-filter').forEach((el) => {
+            el.checked = false;
+        });
+        AppState.setPage('allTasks', 1);
+    }
+
+    async function renderMyTasks() {
+        const list = document.getElementById('myActiveTaskList');
+        const pagination = document.getElementById('myTasksPagination');
+        if (!list) return;
+        list.innerHTML = `<div class="no-tasks-message">Görevler yükleniyor...</div>`;
+        if (pagination) pagination.innerHTML = '';
+
+        try {
+            const me = AppState.loggedInUser || {};
+            const query = {
+                view: 'summary',
+                generalStatus: 'OPEN',
+                ownerId: me.id || '',
+                q: String(document.getElementById('myFilterBizName')?.value || '').trim(),
+                status: getSelectedTaskStatuses('.my-status-filter').join(','),
+                sort: document.getElementById('myTaskSort')?.value || 'newest',
+                page: AppState.pagination.myTasks || 1,
+                limit: ITEMS_PER_PAGE_TASKS,
+            };
+
+            const payload = await DataService.fetchTaskPage(query);
+            const countEl = document.getElementById('myActiveCount');
+            if (countEl) countEl.innerText = payload.total;
+
+            if (!payload.items.length && payload.total > 0 && payload.page > 1) {
+                const lastPage = Math.max(1, Math.ceil(payload.total / Math.max(payload.limit || ITEMS_PER_PAGE_TASKS, 1)));
+                AppState.setPage('myTasks', lastPage);
+                return renderMyTasks();
+            }
+
+            if (!payload.items.length) {
+                list.innerHTML = `<div class="no-tasks-message">Gösterilecek açık görev yok.</div>`;
+                return;
+            }
+
+            list.innerHTML = '';
+            payload.items.forEach((task) => list.appendChild(createMinimalCard(task)));
+
+            if (pagination) {
+                renderPagination(pagination, payload.total, payload.page, payload.limit, (nextPage) => {
+                    AppState.setPage('myTasks', nextPage);
+                    renderMyTasks();
+                }, { compact: true, resultLabel: 'kayıt' });
+            }
+        } catch (err) {
+            console.error('My tasks backend list failed, falling back to local state:', err);
+            renderMyTasksLocal();
+        }
+    }
+
+    async function renderAllTasks() {
+        const list = document.getElementById('allActiveTaskList');
+        const pagContainer = document.getElementById('allTasksPagination');
+        if (!list) return;
+        list.innerHTML = `<div class="no-tasks-message-empty">Açık görevler yükleniyor...</div>`;
+        if (pagContainer) pagContainer.innerHTML = '';
+
+        try {
+            const assigneeFilter = document.getElementById('filterAllTasksAssignee')?.value || '';
+            const query = {
+                view: 'summary',
+                generalStatus: 'OPEN',
+                q: String(document.getElementById('allFilterBizName')?.value || '').trim(),
+                projectId: document.getElementById('filterAllTasksProject')?.value || '',
+                status: getSelectedTaskStatuses('.all-status-filter').join(','),
+                sort: document.getElementById('allTaskSort')?.value || 'newest',
+                page: AppState.pagination.allTasks || 1,
+                limit: ITEMS_PER_PAGE_TASKS,
+                ...resolveTaskAssigneeQuery(assigneeFilter),
+            };
+
+            const [payload] = await Promise.all([
+                DataService.fetchTaskPage(query),
+                refreshTodayOutcomeCountsFromBackend().catch((err) => {
+                    console.warn('Today outcome counts could not be refreshed from backend:', err);
+                }),
+                renderTeamPulse(getTaskDerivedIndex()).catch((err) => {
+                    console.warn('Team pulse backend refresh failed:', err);
+                }),
+            ]);
+
+            const countEl = document.getElementById('allActiveCount');
+            if (countEl) countEl.innerText = payload.total;
+
+            if (!payload.items.length && payload.total > 0 && payload.page > 1) {
+                const lastPage = Math.max(1, Math.ceil(payload.total / Math.max(payload.limit || ITEMS_PER_PAGE_TASKS, 1)));
+                AppState.setPage('allTasks', lastPage);
+                return renderAllTasks();
+            }
+
+            if (!payload.items.length) {
+                list.innerHTML = `<div class="no-tasks-message-empty">Açık görev bulunamadı.</div>`;
+                return;
+            }
+
+            list.innerHTML = '';
+            payload.items.forEach((task) => list.appendChild(createMinimalCard(task)));
+
+            if (pagContainer) {
+                renderPagination(pagContainer, payload.total, payload.page, payload.limit, (nextPage) => {
+                    AppState.setPage('allTasks', nextPage);
+                    renderAllTasks();
+                }, { compact: true, resultLabel: 'kayıt' });
+            }
+        } catch (err) {
+            console.error('All tasks backend list failed, falling back to local state:', err);
+            renderAllTasksLocal();
         }
     }
 
     // --- Görev Modal & Inline Render ---
     async function openTaskModal(taskId, scrollToOffers = false) {
         let task = AppState.tasks.find(t => t.id === taskId);
-        if (!task) return;
         try {
-            const freshTask = await DataService.readPath('tasks/' + taskId);
+            const freshTask = await DataService.readPath('tasks/' + taskId, { force: true });
             if (freshTask) {
-                const taskIndex = AppState.tasks.findIndex(t => t.id === taskId);
-                if (taskIndex >= 0) {
-                    AppState.tasks[taskIndex] = freshTask;
-                    if (typeof AppState.invalidateTaskMapCache === 'function') AppState.invalidateTaskMapCache();
-                }
+                _updateTaskInState(freshTask);
                 task = freshTask;
             }
         } catch (err) {
+            if (!task) {
+                showToast('Gorev detayi yuklenemedi.', 'error');
+                return;
+            }
             console.warn('Task detail fetch failed, using cached task state.', err);
         }
+        if (!task) return;
         const biz = AppState.getBizMap().get(task.businessId) || task;
         task.logs = task.logs || [];
         task.offers = task.offers || [];
@@ -1443,7 +1781,7 @@ const TaskController = (() => {
             <div class="tm-header-content" style="padding-right: 85px;">
                 <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:15px;">
                     <div class="tm-title-row" style="margin-bottom:0;">
-                        <h2 class="tm-title" style="cursor:pointer; transition:0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'" onclick="closeModal('taskModal'); openBusinessDetailModal('${biz.id}')" title="İşletme Detaylarını Görüntüle">
+                        <h2 class="tm-title" style="cursor:pointer; transition:0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'" onclick="closeModal('taskModal'); openBusinessDetailModal('${task.businessId}')" title="İşletme Detaylarını Görüntüle">
                             ${biz.companyName || '-'}
                         </h2>
                         <div class="tm-badge-group">
@@ -1883,7 +2221,7 @@ const TaskController = (() => {
                     note: note || undefined,
                 }),
             });
-            const refreshedTask = await DataService.readPath(`tasks/${taskId}`);
+            const refreshedTask = await DataService.readPath(`tasks/${taskId}`, { force: true });
             _updateTaskInState(refreshedTask);
             closeMiniModal();
             _refreshTaskViews(taskId);
@@ -1930,20 +2268,12 @@ const TaskController = (() => {
             closeMiniModal();
             
             const [refreshedTask, refreshedBiz] = await Promise.all([
-                DataService.readPath('tasks/' + taskId).catch(() => null),
-                DataService.readPath('businesses/' + task.businessId).catch(() => null),
+                DataService.readPath('tasks/' + taskId, { force: true }).catch(() => null),
+                DataService.readPath('accounts/' + task.businessId, { force: true }).catch(() => null),
             ]);
 
-            const taskIndex = AppState.tasks.findIndex((t) => t.id === taskId);
-            if (taskIndex >= 0 && refreshedTask) {
-                AppState.tasks[taskIndex] = refreshedTask;
-                if (typeof AppState.invalidateTaskMapCache === 'function') AppState.invalidateTaskMapCache();
-            }
-            const bizIndex = AppState.businesses.findIndex((b) => b.id === task.businessId);
-            if (bizIndex >= 0 && refreshedBiz) {
-                AppState.businesses[bizIndex] = refreshedBiz;
-                if (typeof AppState.invalidateBizMapCache === 'function') AppState.invalidateBizMapCache();
-            }
+            _updateTaskInState(refreshedTask);
+            _updateBusinessInState(refreshedBiz);
             
             if (document.getElementById('inlineTaskContainer')) {
                 if (window.renderTaskInline) window.renderTaskInline(taskId, 'inlineTaskContainer');
@@ -2057,15 +2387,10 @@ const TaskController = (() => {
 
             // Verileri tazele (Local State Update - Sadece ilgili görev çekilir ve UI güncellenir)
             try {
-                const refreshedTask = await DataService.readPath('tasks/' + taskId);
-                const tIdx = AppState.tasks.findIndex(t => t.id === taskId);
-                if (tIdx >= 0) {
-                    // Update state properly
-                    AppState.tasks[tIdx] = refreshedTask;
-                    if (typeof AppState.invalidateTaskMapCache === 'function') {
-                        AppState.invalidateTaskMapCache();
-                    }
-                }
+                const refreshedTask = await DataService.readPath('tasks/' + taskId, { force: true });
+                _updateTaskInState(refreshedTask);
+                const refreshedBiz = task.businessId ? await DataService.readPath('accounts/' + task.businessId, { force: true }).catch(() => null) : null;
+                _updateBusinessInState(refreshedBiz);
             } catch (rErr) {
                 console.warn('Görevi yeniden çekerken hata:', rErr);
             }
@@ -2103,26 +2428,72 @@ const TaskController = (() => {
     function _updateTaskInState(refreshedTask) {
         if (!refreshedTask?.id) return null;
         const taskIndex = AppState.tasks.findIndex((task) => task.id === refreshedTask.id);
-        if (taskIndex < 0) return null;
-        AppState.tasks[taskIndex] = refreshedTask;
-        if (typeof AppState.invalidateTaskMapCache === 'function') {
-            AppState.invalidateTaskMapCache();
+        if (taskIndex < 0) {
+            AppState.tasks = [...AppState.tasks, refreshedTask];
+        } else {
+            const nextTasks = [...AppState.tasks];
+            nextTasks[taskIndex] = refreshedTask;
+            AppState.tasks = nextTasks;
         }
+        if (typeof AppState.setTaskDetail === 'function') {
+            AppState.setTaskDetail(refreshedTask.id, refreshedTask);
+        }
+        if (taskSurfaceRefreshTimer) {
+            clearTimeout(taskSurfaceRefreshTimer);
+        }
+        taskSurfaceRefreshTimer = setTimeout(() => {
+            taskSurfaceRefreshTimer = null;
+            if (document.getElementById('myActiveTaskList')) {
+                renderMyTasksLocal();
+                renderMyTasks();
+            }
+            if (document.getElementById('allActiveTaskList')) {
+                renderAllTasksLocal();
+                renderAllTasks();
+            }
+            if (typeof DashboardController !== 'undefined' && typeof DashboardController.render === 'function') {
+                DashboardController.render(true);
+            }
+        }, 0);
         return refreshedTask;
+    }
+
+    function _updateBusinessInState(refreshedBiz) {
+        if (!refreshedBiz?.id) return null;
+        const bizIndex = AppState.businesses.findIndex((biz) => biz.id === refreshedBiz.id);
+        if (bizIndex < 0) {
+            AppState.businesses = [...AppState.businesses, refreshedBiz];
+        } else {
+            const nextBusinesses = [...AppState.businesses];
+            nextBusinesses[bizIndex] = refreshedBiz;
+            AppState.businesses = nextBusinesses;
+        }
+        if (typeof AppState.setBusinessDetail === 'function') {
+            AppState.setBusinessDetail(refreshedBiz.id, refreshedBiz);
+        }
+        return refreshedBiz;
     }
 
     function _refreshTaskViews(taskId) {
         const activePage = document.querySelector('.page-content.active')?.id || '';
-        if (activePage === 'page-my-tasks') {
+        if (document.getElementById('myActiveTaskList')) {
+            renderMyTasksLocal();
             renderMyTasks();
-        } else if (activePage === 'page-all-tasks') {
+        }
+        if (document.getElementById('allActiveTaskList')) {
+            renderAllTasksLocal();
             renderAllTasks();
-        } else if (activePage === 'page-businesses' && typeof BusinessController !== 'undefined' && AppState.isBizSearched) {
+        }
+        if (activePage === 'page-businesses' && typeof BusinessController !== 'undefined' && AppState.isBizSearched) {
             BusinessController.search(false);
         } else if (activePage === 'page-passive-tasks' && typeof ArchiveController !== 'undefined') {
             ArchiveController.renderPassiveTasks(false);
         } else if (activePage === 'page-reports' && typeof ReportController !== 'undefined') {
             ReportController.renderReports();
+        }
+
+        if (typeof DashboardController !== 'undefined' && typeof DashboardController.render === 'function') {
+            DashboardController.render(true);
         }
 
         if (document.getElementById('inlineTaskContainer')) {
@@ -2217,6 +2588,8 @@ const TaskController = (() => {
         switchTaskListSubtab,
         openTeamPulseModal,
         setTeamPulseModalPeriod,
+        setTeamPulseModalMetric,
+        setTeamPulseRecords,
         openTaskModal,
         renderTaskInline,
         _buildTabbedLogsHTML,
@@ -2241,6 +2614,7 @@ const TaskController = (() => {
         markActiveQuickFollowup,
         pickQuickFollowup,
         refreshFollowupSummary,
+        resetAllTasksFilters,
     };
 })();
 
@@ -2256,10 +2630,13 @@ window.switchTaskListSubtab = TaskController.switchTaskListSubtab.bind(TaskContr
 window.updateTaskReportSubCategories = TaskController.updateTaskReportSubCategories.bind(TaskController);
 window.openTeamPulseModal = TaskController.openTeamPulseModal.bind(TaskController);
 window.setTeamPulseModalPeriod = TaskController.setTeamPulseModalPeriod.bind(TaskController);
+window.setTeamPulseModalMetric = TaskController.setTeamPulseModalMetric.bind(TaskController);
+window.setTeamPulseRecords = TaskController.setTeamPulseRecords.bind(TaskController);
 window.openTaskModal = TaskController.openTaskModal.bind(TaskController);
 window.markActiveQuickFollowup = TaskController.markActiveQuickFollowup.bind(TaskController);
 window.pickQuickFollowup = TaskController.pickQuickFollowup.bind(TaskController);
 window.refreshFollowupSummary = TaskController.refreshFollowupSummary.bind(TaskController);
+window.resetAllTasksFilters = TaskController.resetAllTasksFilters.bind(TaskController);
 window.renderTaskInline = TaskController.renderTaskInline.bind(TaskController);
 window.triggerSaveAction = TaskController.triggerSaveAction.bind(TaskController);
 window.closeMiniModal = TaskController.closeMiniModal.bind(TaskController);
@@ -2297,7 +2674,7 @@ window.deleteTaskLog = async function(taskId, logId) {
             
             showToast("Log başarıyla silindi.", "success");
 
-            const refreshedTask = await DataService.readPath(`tasks/${taskId}`);
+            const refreshedTask = await DataService.readPath(`tasks/${taskId}`, { force: true });
             _updateTaskInState(refreshedTask);
             _refreshTaskViews(taskId);
         } catch (err) {

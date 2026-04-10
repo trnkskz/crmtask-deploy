@@ -580,6 +580,42 @@ describe('AccountsService.importBulkData', () => {
     )
   })
 
+  it('stores blank imported task dates on the sentinel fallback date even for new businesses', async () => {
+    const { service, prisma } = buildService()
+    prisma.account.findMany.mockResolvedValue([])
+    prisma.user.findMany.mockResolvedValue([])
+    prisma.taskList.findFirst
+      .mockResolvedValueOnce({ id: 'list_active', isActive: true })
+      .mockResolvedValueOnce({ id: 'list_archive', name: 'Geçmiş Kayıtlar (CSV Arşivi)' })
+    prisma.account.create.mockResolvedValue({ id: 'acc_blank_date' })
+    prisma.accountContact.findMany.mockResolvedValue([])
+    prisma.accountContact.create.mockResolvedValue({
+      id: 'contact_blank_date',
+      accountId: 'acc_blank_date',
+      name: 'Yetkili',
+      phone: null,
+      email: null,
+      isPrimary: true,
+    })
+    prisma.task.create.mockResolvedValue({ id: 'task_blank_date' })
+
+    await service.importBulkData(
+      [
+        { rowNumber: 2, companyName: 'Tarihsiz Yeni Isletme', taskTarihi: '', loglama: 'bos tarih' },
+      ],
+      'admin_1',
+      'UNASSIGNED',
+    )
+
+    expect(prisma.task.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          creationDate: new Date('2000-01-01T12:00:00.000Z'),
+        }),
+      }),
+    )
+  })
+
   it('rejects malformed shifted csv rows before they become sentinel-dated tasks', async () => {
     const { service, prisma } = buildService()
     prisma.account.findMany.mockResolvedValue([])

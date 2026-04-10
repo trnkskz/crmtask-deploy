@@ -3,8 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Grupanya Task Yönetim Modülü</title>
-    <link rel="stylesheet" href="style.css?v=99">
+    <title>Grupanya CRM</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="alternate icon" href="/favicon.ico">
+    <link rel="stylesheet" href="style.css?v=100">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap">
@@ -12,6 +14,9 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap">
     
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <script>
+        window.__API_BASE_URL__ = '/api';
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <script src="https://npmcdn.com/flatpickr/dist/l10n/tr.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
@@ -89,52 +94,27 @@
 
     <div id="login-wrapper" style="display: none;">
         <div class="login-container">
-            <div class="login-showcase">
-                <div class="login-showcase-orb orb-one"></div>
-                <div class="login-showcase-orb orb-two"></div>
-                <div class="login-showcase-orb orb-three"></div>
-                <div class="login-showcase-orb orb-four"></div>
-                <div class="login-showcase-badge">
-                    <span class="login-showcase-badge-icon">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <circle cx="11" cy="11" r="7"></circle>
-                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                        </svg>
-                    </span>
-                </div>
-                <div class="login-showcase-content">
-                    <div class="login-showcase-brand">Grupanya Task Yönetimi</div>
-                    <div class="login-showcase-live-label">Canlı Operasyon Önerisi</div>
-                    <h1 id="loginShowcaseTitle" class="login-showcase-title">Bugün ilk 30 dakikada sıcak fırsatları ayırın, günü daha kontrollü açın.</h1>
-                    <p id="loginShowcaseCopy" class="login-showcase-copy">Önce hızlı kapanma ihtimali yüksek işletmeleri filtreleyin, ardından takip tarihi yaklaşan görevleri tek akışta temizleyin.</p>
-                    <div class="login-showcase-tip-card">
-                        <span class="login-showcase-tip-kicker">Günün notu</span>
-                        <strong id="loginShowcaseTip">Kararsız müşteride ürün anlatmadan önce ihtiyaç cümlesini netleştirmek dönüşüm oranını yükseltir.</strong>
-                    </div>
-                    <div class="login-showcase-pills">
-                        <span id="loginShowcasePillOne" class="login-showcase-pill">İlk arama: sıcak liste</span>
-                        <span id="loginShowcasePillTwo" class="login-showcase-pill">İkinci odak: takipler</span>
-                        <span id="loginShowcasePillThree" class="login-showcase-pill">Son kontrol: not disiplini</span>
-                    </div>
-                </div>
-            </div>
-            <div class="login-panel">
-                <div class="logo-container">
-                    <div class="logo login-panel-logo">
-                        <div class="logo-icon">
+            <div class="login-panel login-panel-minimal">
+                <div class="login-brand-shell">
+                    <div class="login-brand-mark">
+                        <div class="login-brand-icon">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
                                 <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
                                 <path d="M9 14l2 2 4-4"></path>
                             </svg>
                         </div>
-                        <div class="logo-text">Grupanya <span>Task Yönetim Modülü</span></div>
+                        <div class="login-brand-copy">
+                            <div class="login-brand-line">
+                                <div class="login-brand-wordmark">Grupanya</div>
+                                <div class="login-brand-workspace">CRM Workspace</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                <div class="login-card">
-                    <div class="login-card-header">
-                        <h1 class="login-card-title">Hoş Geldiniz</h1>
-                        <p class="login-card-subtitle">Operasyon panelinize giriş yapmak için bilgilerinizi girin.</p>
+                <div class="login-shell-card">
+                    <div class="login-shell-header">
+                        <h1 class="login-shell-title">Hoş Geldiniz</h1>
                     </div>
                     <form id="loginForm">
                         <div class="login-field-group"><label>E-Posta Adresi</label><div class="login-input-wrapper"><input type="email" id="loginEmail" class="login-text-input" autocomplete="email" required /></div></div>
@@ -172,6 +152,19 @@
                 <button id="nav-admin" class="manager-only" onclick="switchPage('page-admin')">Yönetim</button>
             </div>
             <div class="user-info nav-user-info">
+                <button type="button" class="premium-tool-btn" onclick="openRevenueCalculatorModal()" title="Komisyon Hesapla" aria-label="Komisyon Hesapla">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="5" y="2" width="14" height="20" rx="2"></rect>
+                        <line x1="8" y1="6" x2="16" y2="6"></line>
+                        <line x1="8" y1="10" x2="8" y2="10"></line>
+                        <line x1="12" y1="10" x2="12" y2="10"></line>
+                        <line x1="16" y1="10" x2="16" y2="10"></line>
+                        <line x1="8" y1="14" x2="8" y2="14"></line>
+                        <line x1="12" y1="14" x2="12" y2="14"></line>
+                        <line x1="16" y1="14" x2="16" y2="14"></line>
+                        <line x1="8" y1="18" x2="16" y2="18"></line>
+                    </svg>
+                </button>
                 <div class="premium-notif-container" id="notifContainer" onclick="toggleNotif(event)">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
                     <span class="premium-notif-dot" id="notifBadge"></span>
@@ -418,9 +411,9 @@
                             </div>
                             <div class="kpi-card kpi-orange">
                                 <div class="kpi-watermark">📈</div>
-                                <div class="kpi-title">Sistem Başarı Oranı</div>
+                                <div class="kpi-title">Aylık Sistem Başarı Oranı</div>
                                 <div class="kpi-value" id="mgrDealRatio">%0</div>
-                                <div class="kpi-sub">İşleme alınan görevlerdeki başarı</div>
+                                <div class="kpi-sub">Bu ay sonuçlanan açık görevlerde deal başarısı</div>
                             </div>
                         </div>
 
@@ -444,7 +437,7 @@
                             <div class="manager-module-head">
                                 <div>
                                     <h3 class="module-title" style="margin-bottom:6px; border-bottom:none; padding-bottom:0;">🏁 Ekip Performans Panosu</h3>
-                                    <p class="manager-module-copy">Açık yük, aylık deal ve cold performansını kişi bazında karşılaştırın.</p>
+                                    <p class="manager-module-copy">Açık yük, aylık deal-cold, bugün görüşülen ve aylık create task verilerini kişi bazında izleyin.</p>
                                 </div>
                             </div>
                             <div id="mgrPerformanceGrid" class="performance-grid"></div>
@@ -543,19 +536,15 @@
                     <h3 style="margin:0; font-size:16px; color:var(--secondary-color);">🟢 Open Task</h3>
                     <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">* Sıralama: Acil aramalar > Yeni > Hot > Not Hot.</div>
                 </div>
-                <span style="font-weight: bold; font-size: 14px; background:#fff; padding:6px 12px; border-radius:12px; border:1px solid var(--border-light);">Toplam: <span id="myActiveCount" style="color:var(--primary-color);">0</span></span>
+                <div class="list-toolbar-right">
+                    <span style="font-weight: bold; font-size: 14px; background:#fff; padding:6px 12px; border-radius:12px; border:1px solid var(--border-light);">Toplam: <span id="myActiveCount" style="color:var(--primary-color);">0</span></span>
+                    <div id="myTasksPagination" class="pagination-container"></div>
+                </div>
             </div>
             <div id="myActiveTaskList" class="task-grid-2col"></div>
         </div>
 
         <div id="page-all-tasks" class="page-content manager-only">
-            <div class="dashboard-hero saas-premium-header team-task-dashboard-hero" style="margin-bottom: 15px; border-radius: 16px; padding: 18px 20px; display:flex; flex-direction:column; align-items:stretch; gap:16px;">
-                <div id="teamPulseContainer"></div>
-                <div class="team-task-dashboard-bottom-pills">
-                    <button class="btn-action summary-btn-green" onclick="openTodayTasksModal('deal')">✅ Deal: <span id="btnTodayDealCount">0</span></button>
-                    <button class="btn-action summary-btn-blue" onclick="openTodayTasksModal('cold')">❄️ Cold: <span id="btnTodayColdCount">0</span></button>
-                </div>
-            </div>
             <div class="silver-filter-bar">
                 <div class="sfb-grid">
                     <div class="filter-col">
@@ -1697,6 +1686,100 @@
                 </svg>
             </button>
             <div id="teamPulseModalBody"></div>
+        </div>
+    </div>
+
+    <div id="revenueCalculatorModal" class="modal-overlay" onclick="closeModalOnOutsideClick(event)">
+        <div class="modal-content modal-md revenue-calculator-modal">
+            <button class="modal-close-btn" onclick="closeModal('revenueCalculatorModal')">X</button>
+            <div class="revenue-calculator-shell">
+                <div class="revenue-calculator-head">
+                    <div>
+                        <span class="revenue-calculator-kicker">Hesaplama Aracı</span>
+                        <h3>Komisyon Hesaplayıcı</h3>
+                        <p>Satış ve komisyon üzerinden Grupanya ile işletme payını hesaplayın. İsterseniz her iki taraf için KDV düşülmüş net sonucu da görün.</p>
+                    </div>
+                </div>
+
+                <div class="revenue-calculator-grid">
+                    <section class="revenue-card revenue-card-inputs">
+                        <div class="revenue-section-head">
+                            <strong>Girdi</strong>
+                            <span>Temel değerleri girin</span>
+                        </div>
+                        <div class="form-grid revenue-form-grid">
+                            <div class="form-group">
+                                <label>Satış Fiyatı</label>
+                                <input type="number" id="calcSalePrice" class="modern-capsule-input" min="0" step="0.01" placeholder="0,00" oninput="updateRevenueCalculator()">
+                            </div>
+                            <div class="form-group">
+                                <label>Komisyon Oranı (%)</label>
+                                <input type="number" id="calcCommissionRate" class="modern-capsule-input" min="0" step="0.01" placeholder="0" oninput="updateRevenueCalculator()">
+                            </div>
+                            <div class="form-group full-width">
+                                <label class="revenue-toggle">
+                                    <input type="checkbox" id="calcIncludeVat" onchange="toggleRevenueVatFields()">
+                                    <span>Paylar üzerinden KDV hesapla</span>
+                                </label>
+                            </div>
+                            <div class="form-group" id="calcVatRateGroup" style="display:none;">
+                                <label>KDV Oranı (%)</label>
+                                <input type="number" id="calcVatRate" class="modern-capsule-input" min="0" step="0.01" placeholder="20" oninput="updateRevenueCalculator()">
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="revenue-card revenue-card-summary">
+                        <div class="revenue-section-head">
+                            <strong>Sonuç Özeti</strong>
+                            <span id="calcScenarioLabel">KDV hariç senaryo</span>
+                        </div>
+                        <div class="revenue-summary-grid">
+                            <div class="revenue-summary-tile revenue-summary-brand">
+                                <span>Grupanya Payı</span>
+                                <strong id="calcBrandShare">0,00 TL</strong>
+                            </div>
+                            <div class="revenue-summary-tile revenue-summary-partner">
+                                <span>İşletme Payı</span>
+                                <strong id="calcPartnerShare">0,00 TL</strong>
+                            </div>
+                        </div>
+                        <div class="revenue-meta-row">
+                            <span>Satış: <strong id="calcMetaSale">0,00 TL</strong></span>
+                            <span>Komisyon: <strong id="calcMetaCommission">0%</strong></span>
+                        </div>
+                    </section>
+                </div>
+
+                <section class="revenue-card revenue-card-breakdown">
+                    <div class="revenue-section-head">
+                        <strong>Detay Kırılım</strong>
+                        <span>Hesabın bileşenleri</span>
+                    </div>
+                    <div class="revenue-breakdown-list">
+                        <div class="revenue-breakdown-item">
+                            <span>Toplam Satış Bazı</span>
+                            <strong id="calcNetBase">0,00 TL</strong>
+                        </div>
+                        <div class="revenue-breakdown-item">
+                            <span>Toplam KDV Tutarı</span>
+                            <strong id="calcVatAmount">0,00 TL</strong>
+                        </div>
+                        <div class="revenue-breakdown-item">
+                            <span>Komisyon Tutarı</span>
+                            <strong id="calcCommissionAmount">0,00 TL</strong>
+                        </div>
+                        <div class="revenue-breakdown-item">
+                            <span>Grupanya Net Payı</span>
+                            <strong id="calcFinalBrandShare">0,00 TL</strong>
+                        </div>
+                        <div class="revenue-breakdown-item">
+                            <span>İşletme Net Payı</span>
+                            <strong id="calcFinalPartnerShare">0,00 TL</strong>
+                        </div>
+                    </div>
+                </section>
+            </div>
         </div>
     </div>
 

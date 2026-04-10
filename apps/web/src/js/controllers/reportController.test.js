@@ -204,6 +204,83 @@ describe('ReportController exportTasksCSV', () => {
 });
 
 describe('ReportController.renderReports', () => {
+    it('renders from the existing snapshot even while background sync is running', () => {
+        const filteredStore = { reports: [] };
+        const elements = {
+            repFilterAssignee: createElement({ value: '' }),
+            repFilterStatus: createElement({ value: '' }),
+            repFilterSource: createElement({ value: '' }),
+            repFilterCategory: createElement({ value: '' }),
+            repFilterSubCategory: createElement({ value: '' }),
+            repFilterLogType: createElement({ value: '' }),
+            repFilterDealFee: createElement({ value: '' }),
+            repFilterCity: createElement({ value: '' }),
+            repFilterDistrict: createElement({ value: '' }),
+            repStartDate: createElement({ value: '' }),
+            repEndDate: createElement({ value: '' }),
+            reportsTbody: createElement(),
+            reportsPagination: createElement(),
+            reportsTableHead: createElement(),
+            reportsExportTasksBtn: createElement({ style: {} }),
+            reportsExportAccountsBtn: createElement({ style: {} }),
+            repMetricLabel1: createElement(),
+            repMetricLabel2: createElement(),
+            repMetricLabel3: createElement(),
+            repMetricLabel4: createElement(),
+            repMetricLabel5: createElement(),
+            repMetricLabel6: createElement(),
+            repMetricValue1: createElement({ style: {} }),
+            repMetricValue2: createElement({ style: {} }),
+            repMetricValue3: createElement({ style: {} }),
+            repMetricValue4: createElement({ style: {} }),
+            repMetricValue5: createElement({ style: {} }),
+            repMetricValue6: createElement({ style: {} }),
+            repTabTasks: createElement({ classList: { toggle: jest.fn() } }),
+            repTabBusinesses: createElement({ classList: { toggle: jest.fn() } }),
+        };
+        const document = {
+            ...createDocument(elements),
+            querySelector: jest.fn(() => ({ nextSibling: null })),
+        };
+
+        const task = {
+            id: 'task-1',
+            businessId: 'biz-1',
+            status: 'new',
+            assignee: 'Ayse',
+            sourceType: 'Old Account',
+            createdAt: '2026-04-06T10:00:00.000Z',
+            logs: [],
+        };
+
+        const { controller } = loadController('controllers/reportController.js', 'ReportController', {
+            document,
+            AppState: {
+                isDataSyncing: true,
+                tasks: [task],
+                users: [],
+                loadedState: { tasks: true, businesses: true },
+                filtered: filteredStore,
+                pagination: { reports: 1 },
+                setFiltered: jest.fn((key, value) => { filteredStore[key] = value; }),
+                setPage: jest.fn(),
+                getBizMap: () => new Map([['biz-1', { companyName: 'Acme' }]]),
+            },
+            matchesAssigneeFilter: () => true,
+            matchesCategoryFilter: () => true,
+            getOrCreatePaginationContainer: () => elements.reportsPagination,
+            renderPagination: jest.fn(),
+            ITEMS_PER_PAGE: 25,
+            TASK_STATUS_LABELS: { new: 'Yeni' },
+            formatDate: () => '06.04.2026 10:00',
+        });
+
+        controller.renderReports(true);
+
+        expect(elements.reportsTbody.innerHTML).toContain('Acme');
+        expect(elements.reportsTbody.innerHTML).not.toContain('Veriler Senkronize Ediliyor');
+    });
+
     it('uses cached report task metadata for filtering and row details', () => {
         const filteredStore = { reports: [] };
         const elements = {
