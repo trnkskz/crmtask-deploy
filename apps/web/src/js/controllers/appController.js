@@ -5,7 +5,8 @@
 
 const AppController = (() => {
     const DISMISSED_NOTIFICATION_STORAGE_KEY = 'crm_dismissed_notifications_v1';
-    const BACKEND_ADMIN_ONLY_PERMISSIONS = new Set(['manageUsers', 'manageRoles', 'manageSettings', 'viewAuditLogs']);
+    const BACKEND_ADMIN_ONLY_PERMISSIONS = new Set(['manageSettings', 'viewAuditLogs']);
+    const MANAGER_PROTECTED_PERMISSIONS = new Set(['reassignTask', 'manageUsers', 'manageRoles']);
     const dismissedNotificationIds = new Set();
 
     function getNotificationDismissKey(id) {
@@ -90,10 +91,17 @@ const AppController = (() => {
 
     function getUserPermissions(user = AppState.loggedInUser) {
         if (!user) return {};
-        return {
+        const permissions = {
             ...getDefaultPermissionsForRole(user.role, user),
             ...(user.settings?.permissions || {}),
         };
+        const apiRole = String(user?._apiRole || '').toUpperCase();
+        if (apiRole === 'MANAGER') {
+            MANAGER_PROTECTED_PERMISSIONS.forEach((permissionKey) => {
+                permissions[permissionKey] = true;
+            });
+        }
+        return permissions;
     }
 
     function hasPermission(permissionKey, user = AppState.loggedInUser) {

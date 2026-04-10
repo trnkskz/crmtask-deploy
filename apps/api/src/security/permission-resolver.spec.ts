@@ -18,6 +18,17 @@ describe('permission resolver', () => {
     expect(hasResolvedPermission('viewReports', permissions)).toBe(false)
   })
 
+  it('keeps manager protected permissions even if a user override disables them', () => {
+    const permissions = resolveEffectivePermissions({
+      role: 'MANAGER',
+      userSettingsPermissions: { reassignTask: false, manageUsers: false, manageRoles: false },
+    })
+
+    expect(hasResolvedPermission('reassignTask', permissions)).toBe(true)
+    expect(hasResolvedPermission('manageUsers', permissions)).toBe(true)
+    expect(hasResolvedPermission('manageRoles', permissions)).toBe(true)
+  })
+
   it('maps legacy app-role permissions to the new capability names', () => {
     const permissions = resolveEffectivePermissions({
       role: 'SALESPERSON',

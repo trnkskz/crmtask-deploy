@@ -35,19 +35,19 @@ export class LovController {
   }
 
   @Post('categories')
-  @MinRole(Roles.ADMIN)
+  @MinRole(Roles.MANAGER)
   createCategory(@Body() body: { name: string; type: 'MAIN'|'SUB'; parentId?: string; order?: number; active?: boolean }) {
     return this.svc.createCategory(body)
   }
 
   @Patch('categories/:id')
-  @MinRole(Roles.ADMIN)
+  @MinRole(Roles.MANAGER)
   updateCategory(@Param('id') id: string, @Body() body: Partial<{ name: string; parentId?: string|null; order?: number; active?: boolean }>) {
     return this.svc.updateCategory(id, body)
   }
 
   @Delete('categories/:id')
-  @MinRole(Roles.ADMIN)
+  @MinRole(Roles.MANAGER)
   deleteCategory(@Param('id') id: string) {
     return this.svc.deleteCategory(id)
   }

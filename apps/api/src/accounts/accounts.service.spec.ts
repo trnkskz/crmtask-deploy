@@ -806,6 +806,54 @@ describe('AccountsService.importBulkData', () => {
   })
 })
 
+describe('AccountsService.remove', () => {
+  function buildRemoveService(overrides: Record<string, any> = {}) {
+    const prisma = {
+      $transaction: jest.fn(),
+      account: {
+        findUnique: jest.fn(),
+        delete: jest.fn(),
+      },
+      lead: { updateMany: jest.fn() },
+      task: {
+        findMany: jest.fn(),
+        deleteMany: jest.fn(),
+      },
+      taskContact: { deleteMany: jest.fn() },
+      offer: { deleteMany: jest.fn() },
+      activityLog: { deleteMany: jest.fn() },
+      notification: { deleteMany: jest.fn() },
+      deal: {
+        findMany: jest.fn(),
+        updateMany: jest.fn(),
+        deleteMany: jest.fn(),
+      },
+      dealHistory: { deleteMany: jest.fn() },
+      accountNote: { deleteMany: jest.fn() },
+      accountContact: { deleteMany: jest.fn() },
+      activityHistory: { deleteMany: jest.fn() },
+      ...overrides,
+    } as any
+    const service = new AccountsService(prisma)
+    return { service, prisma }
+  }
+
+  it('removes tasks linked to the deleted business before deleting the account', async () => {
+    const { service, prisma } = buildRemoveService()
+    prisma.account.findUnique.mockResolvedValue({ id: 'acc_1' })
+    prisma.task.findMany.mockResolvedValue([{ id: 'task_1' }, { id: 'task_2' }])
+    prisma.deal.findMany.mockResolvedValue([])
+    prisma.$transaction
+      .mockResolvedValueOnce([[{ id: 'task_1' }, { id: 'task_2' }], []])
+      .mockResolvedValueOnce([])
+
+    await service.remove('acc_1')
+
+    expect(prisma.task.deleteMany).toHaveBeenCalledWith({ where: { accountId: 'acc_1' } })
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('AccountsService.update', () => {
   function buildUpdateService(overrides: Record<string, any> = {}) {
     const prisma = {

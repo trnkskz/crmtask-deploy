@@ -194,6 +194,44 @@ describe('TaskController.renderAllTasks', () => {
 describe('TaskController._buildActionBarHTML', () => {
     const { loadController } = require('../testUtils/controllerTestUtils');
 
+    it('shows task transfer action for manager users', () => {
+        const { controller } = loadController('controllers/taskController.js', 'TaskController', {
+            AppState: {
+                tasks: [
+                    { id: 'task_1', ownerId: 'sales_1', assignee: 'Ayse', status: 'hot' },
+                    { id: 'task_2', ownerId: 'sales_2', assignee: 'Mehmet', status: 'new' },
+                ],
+                users: [
+                    { id: 'manager_1', name: 'Mudur', role: 'Yönetici', team: '-', status: 'Aktif' },
+                    { id: 'sales_1', name: 'Ayse', role: 'Satış Temsilcisi', team: 'Team 1', status: 'Aktif' },
+                    { id: 'sales_2', name: 'Mehmet', role: 'Satış Temsilcisi', team: 'Team 2', status: 'Aktif' },
+                ],
+                loggedInUser: { id: 'manager_1', role: 'Yönetici', team: '-' },
+            },
+            USER_ROLES: {
+                MANAGER: 'Yönetici',
+                TEAM_LEAD: 'Takım Lideri',
+                SALES_REP: 'Satış Temsilcisi',
+            },
+            PASSIVE_STATUSES: ['deal', 'cold'],
+            TASK_STATUS_LABELS: { hot: 'Hot' },
+            isActiveTask: (status) => ['new', 'hot', 'nothot', 'followup'].includes(status),
+            hasPermission: () => true,
+            window: { hasPermission: () => true },
+        });
+
+        const html = controller._buildActionBarHTML({
+            id: 'task_1',
+            ownerId: 'sales_1',
+            assignee: 'Ayse',
+            status: 'hot',
+            durationDays: 7,
+        });
+
+        expect(html).toContain('Görev Devri');
+        expect(html).toContain('Mehmet');
+    });
+
     it('shows task transfer action and limits transfer candidates to the team leader team', () => {
         const { controller } = loadController('controllers/taskController.js', 'TaskController', {
             AppState: {

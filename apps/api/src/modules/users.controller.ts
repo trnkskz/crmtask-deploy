@@ -27,45 +27,45 @@ export class UsersController {
   }
 
   @Post()
-  @MinRole(Roles.ADMIN)
+  @MinRole(Roles.MANAGER)
   @RequirePermission('manageUsers')
   create(@Body() body: CreateUserDto) {
     return this.users.create(body)
   }
 
   @Patch(':id')
-  @MinRole(Roles.ADMIN)
+  @MinRole(Roles.MANAGER)
   @RequirePermission('manageUsers')
   update(@Param('id') id: string, @Body() body: UpdateUserDto) {
     return this.users.update(id, body)
   }
 
   @Patch(':id/role')
-  @MinRole(Roles.ADMIN)
+  @MinRole(Roles.MANAGER)
   @RequirePermission('manageRoles')
   changeRole(@Param('id') id: string, @Body() body: ChangeRoleDto) {
     return this.users.changeRole(id, body.role, body.managerId)
   }
 
   @Patch(':id/deactivate')
-  @MinRole(Roles.ADMIN)
+  @MinRole(Roles.MANAGER)
   @RequirePermission('manageUsers')
   deactivate(@Param('id') id: string) { return this.users.deactivate(id) }
 
   @Delete(':id')
-  @MinRole(Roles.ADMIN)
+  @MinRole(Roles.MANAGER)
   @RequirePermission('manageUsers')
   remove(@Param('id') id: string) { return this.users.remove(id) }
 
   @Post(':id/transfer-and-deactivate')
-  @MinRole(Roles.ADMIN)
+  @MinRole(Roles.MANAGER)
   @RequirePermission('manageUsers')
   transferAndDeactivate(@Param('id') id: string, @Body() body: TransferAndDeactivateDto) {
     return this.users.transferAndDeactivate(id, body.targetOwnerId, body.isDelete)
   }
 
   @Patch(':id/password')
-  @MinRole(Roles.ADMIN)
+  @MinRole(Roles.MANAGER)
   @RequirePermission('manageUsers')
   setPassword(@Param('id') id: string, @Body() body: SetPasswordDto) { return this.users.setPassword(id, body.password) }
 }

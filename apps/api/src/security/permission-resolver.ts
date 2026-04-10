@@ -26,6 +26,7 @@ const LEGACY_PERMISSION_ALIASES: Record<string, CapabilityKey[]> = {
   'rbac:manage': ['manageUsers', 'manageRoles', 'manageSettings', 'viewAuditLogs'],
   'reports.read': ['viewReports', 'exportReports'],
 }
+const MANAGER_PROTECTED_PERMISSIONS: CapabilityKey[] = ['reassignTask', 'manageUsers', 'manageRoles']
 
 export function getDefaultPermissionsForApiRole(role?: string | null): Record<CapabilityKey, boolean> {
   const normalizedRole = String(role || '').toUpperCase() as ApiRole | ''
@@ -63,6 +64,7 @@ export function resolveEffectivePermissions(input: {
   userSettingsPermissions?: Record<string, unknown> | null
   rolePermissionNames?: string[] | null
 }) {
+  const normalizedRole = String(input.role || '').toUpperCase() as ApiRole | ''
   const defaults = getDefaultPermissionsForApiRole(input.role)
   const granted = new Set<string>()
 
@@ -85,6 +87,12 @@ export function resolveEffectivePermissions(input: {
       continue
     }
     if (rawValue === false) granted.delete(key)
+  }
+
+  if (normalizedRole === 'MANAGER') {
+    MANAGER_PROTECTED_PERMISSIONS.forEach((key) => {
+      granted.add(key)
+    })
   }
 
   return granted

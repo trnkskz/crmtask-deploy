@@ -7,7 +7,7 @@ const AdminController = (() => {
 
     let _activeTab = 'users';
     let _usersHydrationInFlight = false;
-    const BACKEND_ADMIN_ONLY_PERMISSIONS = new Set(['manageUsers', 'manageRoles', 'manageSettings', 'viewAuditLogs']);
+    const BACKEND_ADMIN_ONLY_PERMISSIONS = new Set(['manageSettings', 'viewAuditLogs']);
     const PERMISSION_MATRIX_DEFS = [
         { key: 'viewAllTasks', label: 'Ekip görevlerini görüntüleyebilir', title: 'Ekip görevleri', group: 'Operasyon', detail: 'Tüm ekip akışını izleyebilir.' },
         { key: 'assignTasks', label: 'Görev atama yapabilir', title: 'Görev atama', group: 'Operasyon', detail: 'Görevleri kullanıcıya atayabilir.' },

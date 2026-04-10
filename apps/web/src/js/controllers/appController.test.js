@@ -192,7 +192,7 @@ describe('AppController notifications', () => {
         expect(elements.notifList.innerHTML).not.toContain('3 günden uzun süredir');
     });
 
-    it('blocks backend-admin-only permissions for manager tokens even if UI role is Yonetici', () => {
+    it('keeps settings and audit admin-only while allowing manager user-management permissions', () => {
         const { controller } = loadController('controllers/appController.js', 'AppController', {
             AppState: {
                 loggedInUser: {
@@ -213,8 +213,8 @@ describe('AppController notifications', () => {
             window: { sessionStorage: createStorage() },
         });
 
-        expect(controller.hasPermission('manageUsers')).toBe(false);
-        expect(controller.hasPermission('manageRoles')).toBe(false);
+        expect(controller.hasPermission('manageUsers')).toBe(true);
+        expect(controller.hasPermission('manageRoles')).toBe(true);
         expect(controller.hasPermission('manageSettings')).toBe(false);
         expect(controller.hasPermission('viewAuditLogs')).toBe(false);
         expect(controller.hasPermission('manageProjects')).toBe(true);
