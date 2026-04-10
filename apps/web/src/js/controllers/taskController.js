@@ -1366,6 +1366,10 @@ const TaskController = (() => {
                 task = freshTask;
             }
         } catch (err) {
+            if (err?.message === 'Task not found') {
+                _removeTaskFromState(taskId);
+                _refreshTaskViews(taskId);
+            }
             if (!task) {
                 showToast('Gorev detayi yuklenemedi.', 'error');
                 return;
@@ -2413,9 +2417,14 @@ const TaskController = (() => {
         askConfirm('Bu görevi silmek istediğinize emin misiniz?', (res) => {
             if (!res) return;
             DataService.deleteTask(taskId).then(() => {
+                _removeTaskFromState(taskId);
                 addSystemLog(`Görev silindi: ${taskId}`);
                 showToast('Görev silindi.', 'success');
                 closeModal('taskModal');
+                _refreshTaskViews(taskId);
+            }).catch((err) => {
+                console.error('Task delete failed:', err);
+                showToast(err?.message || 'Görev silinemedi.', 'error');
             });
         });
     }
@@ -2456,6 +2465,14 @@ const TaskController = (() => {
             }
         }, 0);
         return refreshedTask;
+    }
+
+    function _removeTaskFromState(taskId) {
+        if (!taskId) return;
+        AppState.tasks = (AppState.tasks || []).filter((task) => task.id !== taskId);
+        if (typeof AppState.clearTaskDetail === 'function') {
+            AppState.clearTaskDetail(taskId);
+        }
     }
 
     function _updateBusinessInState(refreshedBiz) {
