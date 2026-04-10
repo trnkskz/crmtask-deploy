@@ -1083,31 +1083,38 @@ export class AccountsService {
     const taskIds = tasks.map((x: any) => x.id)
     const dealIds = deals.map((x: any) => x.id)
 
-    await this.prisma.$transaction(async (tx: any) => {
-      await tx.lead.updateMany({ where: { linkedAccountId: id }, data: { linkedAccountId: null } })
+    const ops: Prisma.PrismaPromise<unknown>[] = [
+      this.prisma.lead.updateMany({ where: { linkedAccountId: id }, data: { linkedAccountId: null } }),
+    ]
 
-      if (taskIds.length) {
-        await tx.deal.updateMany({ where: { taskId: { in: taskIds } }, data: { taskId: null } })
-      }
+    if (taskIds.length) {
+      ops.push(
+        this.prisma.deal.updateMany({ where: { taskId: { in: taskIds } }, data: { taskId: null } }),
+        this.prisma.taskContact.deleteMany({ where: { taskId: { in: taskIds } } }),
+        this.prisma.offer.deleteMany({ where: { taskId: { in: taskIds } } }),
+        this.prisma.activityLog.deleteMany({ where: { taskId: { in: taskIds } } }),
+        this.prisma.notification.deleteMany({ where: { taskId: { in: taskIds } } }),
+        this.prisma.task.deleteMany({ where: { accountId: id } }),
+      )
+    } else {
+      ops.push(this.prisma.task.deleteMany({ where: { accountId: id } }))
+    }
 
-      if (dealIds.length) {
-        await tx.dealHistory.deleteMany({ where: { dealId: { in: dealIds } } })
-      }
-      await tx.deal.deleteMany({ where: { accountId: id } })
+    if (dealIds.length) {
+      ops.push(this.prisma.dealHistory.deleteMany({ where: { dealId: { in: dealIds } } }))
+    }
 
-      if (taskIds.length) {
-        await tx.taskContact.deleteMany({ where: { taskId: { in: taskIds } } })
-        await tx.offer.deleteMany({ where: { taskId: { in: taskIds } } })
-        await tx.activityLog.deleteMany({ where: { taskId: { in: taskIds } } })
-        await tx.notification.deleteMany({ where: { taskId: { in: taskIds } } })
-      }
-      await tx.task.deleteMany({ where: { accountId: id } })
+    ops.push(
+      this.prisma.deal.deleteMany({ where: { accountId: id } }),
+      this.prisma.accountNote.deleteMany({ where: { accountId: id } }),
+      this.prisma.accountContact.deleteMany({ where: { accountId: id } }),
+      this.prisma.activityHistory.deleteMany({ where: { accountId: id } }),
+      this.prisma.account.delete({ where: { id } }),
+    )
 
-      await tx.accountNote.deleteMany({ where: { accountId: id } })
-      await tx.accountContact.deleteMany({ where: { accountId: id } })
-      await tx.activityHistory.deleteMany({ where: { accountId: id } })
-
-      await tx.account.delete({ where: { id } })
+    await this.prisma.$transaction(ops, {
+      maxWait: 10000,
+      timeout: 20000,
     })
     return { ok: true }
   }
