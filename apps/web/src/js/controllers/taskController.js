@@ -2602,6 +2602,8 @@ const TaskController = (() => {
         executeSaveAction,
         refreshTaskModalInPlace,
         deleteTask,
+        updateTaskInState: _updateTaskInState,
+        refreshTaskViews: _refreshTaskViews,
         selectModalStatus,
         toggleCustomLogTypeMenu,
         selectModalLogType,
@@ -2674,9 +2676,13 @@ window.deleteTaskLog = async function(taskId, logId) {
             
             showToast("Log başarıyla silindi.", "success");
 
-            const refreshedTask = await DataService.readPath(`tasks/${taskId}`, { force: true });
-            _updateTaskInState(refreshedTask);
-            _refreshTaskViews(taskId);
+            try {
+                const refreshedTask = await DataService.readPath(`tasks/${taskId}`, { force: true });
+                TaskController.updateTaskInState(refreshedTask);
+            } catch (refreshErr) {
+                console.warn('Log silindikten sonra gorev detayi yenilenemedi, mevcut durum korunuyor.', refreshErr);
+            }
+            TaskController.refreshTaskViews(taskId);
         } catch (err) {
             console.error("Log silme hatası:", err);
             showToast(`Log silinirken hata oluştu: ${err.message}`, "error");
