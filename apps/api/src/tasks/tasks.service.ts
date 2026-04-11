@@ -42,10 +42,81 @@ export class TasksService {
       companyName,
       businessName,
       city: task.account?.city || null,
+      district: task.account?.district || null,
       specificCampaignUrl: task.campaignUrl,
       ...this.resolveSpecificContact(task),
       nextCallDate: task.logs?.[0]?.followUpDate || null,
     }
+  }
+
+  private buildSummaryTaskSelect() {
+    return {
+      id: true,
+      accountId: true,
+      projectId: true,
+      ownerId: true,
+      createdById: true,
+      poolTeam: true,
+      historicalAssignee: true,
+      creationChannel: true,
+      status: true,
+      source: true,
+      mainCategory: true,
+      subCategory: true,
+      details: true,
+      campaignUrl: true,
+      creationDate: true,
+      createdAt: true,
+      updatedAt: true,
+      account: { select: { accountName: true, businessName: true, city: true, district: true } },
+      owner: { select: { id: true, name: true, email: true } },
+      logs: { orderBy: { createdAt: 'desc' }, take: 1, select: { reason: true, followUpDate: true, text: true, createdAt: true } },
+    } as const
+  }
+
+  private getTaskLastActivityTime(task: any) {
+    const latestLogAt = task?.logs?.[0]?.createdAt ? new Date(task.logs[0].createdAt).getTime() : 0
+    const updatedAt = task?.updatedAt ? new Date(task.updatedAt).getTime() : 0
+    const createdAt = task?.creationDate
+      ? new Date(task.creationDate).getTime()
+      : (task?.createdAt ? new Date(task.createdAt).getTime() : 0)
+    return Math.max(latestLogAt, updatedAt, createdAt)
+  }
+
+  private getHybridOpenTaskSortBucket(task: any, nowMs: number) {
+    const status = String(task?.status || '').trim().toUpperCase()
+    const nextCallMs = task?.logs?.[0]?.followUpDate ? new Date(task.logs[0].followUpDate).getTime() : 0
+    if (status === 'FOLLOWUP' && nextCallMs > 0 && nextCallMs <= nowMs) return 0
+    if (status === 'NEW') return 1
+    if (status === 'FOLLOWUP') return 3
+    return 2
+  }
+
+  private sortHybridOpenTasks(items: any[]) {
+    const nowMs = Date.now()
+    return [...items].sort((left, right) => {
+      const leftBucket = this.getHybridOpenTaskSortBucket(left, nowMs)
+      const rightBucket = this.getHybridOpenTaskSortBucket(right, nowMs)
+      if (leftBucket !== rightBucket) return leftBucket - rightBucket
+
+      const leftNextCallMs = left?.logs?.[0]?.followUpDate ? new Date(left.logs[0].followUpDate).getTime() : 0
+      const rightNextCallMs = right?.logs?.[0]?.followUpDate ? new Date(right.logs[0].followUpDate).getTime() : 0
+      if (leftBucket === 0 || leftBucket === 3) {
+        if (leftNextCallMs !== rightNextCallMs) {
+          if (!leftNextCallMs) return 1
+          if (!rightNextCallMs) return -1
+          return leftNextCallMs - rightNextCallMs
+        }
+      }
+
+      const leftLastActivity = this.getTaskLastActivityTime(left)
+      const rightLastActivity = this.getTaskLastActivityTime(right)
+      if (leftLastActivity !== rightLastActivity) return rightLastActivity - leftLastActivity
+
+      const leftCreatedAt = left?.creationDate ? new Date(left.creationDate).getTime() : 0
+      const rightCreatedAt = right?.creationDate ? new Date(right.creationDate).getTime() : 0
+      return rightCreatedAt - leftCreatedAt
+    })
   }
 
   private async managerHasDirectSales(userId: string) {
@@ -201,7 +272,16 @@ export class TasksService {
     const task: any = await this.prisma.task.findUnique({
       where: { id },
       include: {
-        account: { select: { id: true, accountName: true, ...this.accountPrimaryContactInclude() } as any },
+        account: {
+          select: {
+            id: true,
+            accountName: true,
+            businessName: true,
+            city: true,
+            district: true,
+            ...this.accountPrimaryContactInclude(),
+          },
+        } as any,
         owner: { select: { id: true, name: true, email: true } },
         logs: { include: { author: { select: { id: true, name: true, role: true } } }, orderBy: { createdAt: 'desc' }, take: 100 },
         offers: { orderBy: { createdAt: 'desc' } },
@@ -210,7 +290,7 @@ export class TasksService {
     })
     if (!task) throw new NotFoundException('Task not found')
     const nextCallDate = task.logs?.[0]?.followUpDate || null
-    return { ...task, ...this.resolveSpecificContact(task), nextCallDate }
+    return { ...task, ...this.mapTaskListItem(task), ...this.resolveSpecificContact(task), nextCallDate }
   }
 
   async create(user: { id: string; role: string }, dto: CreateTaskDto) {
@@ -866,35 +946,27 @@ export class TasksService {
     const limit = filter.limit ? Math.min(Number(filter.limit), limitCap) : undefined
     const sort = String(filter.sort || '').toLowerCase()
     const orderBy: any = sort === 'oldest' ? { creationDate: 'asc' } : { creationDate: 'desc' }
+    const useHybridOpenSort = isSummaryView && String(filter.generalStatus || '').toUpperCase() === 'OPEN' && sort !== 'oldest'
     if (page && limit) {
       const skip = (page - 1) * limit
+      if (useHybridOpenSort) {
+        const rawItems = await this.prisma.task.findMany({
+          where,
+          orderBy: { creationDate: 'desc' },
+          select: this.buildSummaryTaskSelect(),
+        } as any)
+        const sortedItems = this.sortHybridOpenTasks(rawItems)
+        const pagedItems = sortedItems.slice(skip, skip + limit)
+        const itemsMapped = pagedItems.map((t: any) => this.mapTaskListItem(t))
+        return { items: itemsMapped, total: sortedItems.length, page, limit }
+      }
       const pagedQuery: any = isSummaryView
         ? {
             where,
             orderBy,
             take: limit,
             skip,
-            select: {
-              id: true,
-              accountId: true,
-              projectId: true,
-              ownerId: true,
-              createdById: true,
-              poolTeam: true,
-              historicalAssignee: true,
-              creationChannel: true,
-              status: true,
-              source: true,
-              mainCategory: true,
-              subCategory: true,
-              details: true,
-              campaignUrl: true,
-              creationDate: true,
-              createdAt: true,
-              account: { select: { accountName: true, businessName: true, city: true } },
-              owner: { select: { id: true, name: true, email: true } },
-              logs: { orderBy: { createdAt: 'desc' }, take: 1, select: { reason: true, followUpDate: true, text: true, createdAt: true } },
-            },
+            select: this.buildSummaryTaskSelect(),
           }
         : {
             where,
@@ -920,27 +992,7 @@ export class TasksService {
           where,
           orderBy,
           take: 50,
-          select: {
-            id: true,
-            accountId: true,
-            projectId: true,
-            ownerId: true,
-            createdById: true,
-            poolTeam: true,
-            historicalAssignee: true,
-            creationChannel: true,
-            status: true,
-            source: true,
-            mainCategory: true,
-            subCategory: true,
-            details: true,
-            campaignUrl: true,
-            creationDate: true,
-            createdAt: true,
-            account: { select: { accountName: true, businessName: true, city: true } },
-            owner: { select: { id: true, name: true, email: true } },
-            logs: { orderBy: { createdAt: 'desc' }, take: 1, select: { reason: true, followUpDate: true, text: true, createdAt: true } },
-          },
+          select: this.buildSummaryTaskSelect(),
         }
       : {
           where,
@@ -954,7 +1006,8 @@ export class TasksService {
           },
         }
     const rawItems = await this.prisma.task.findMany(listQuery)
-    return rawItems.map((t: any) => this.mapTaskListItem(t))
+    const finalItems = useHybridOpenSort ? this.sortHybridOpenTasks(rawItems) : rawItems
+    return finalItems.map((t: any) => this.mapTaskListItem(t))
   }
 
   async search(q: string, take = 10) {

@@ -296,9 +296,18 @@ describe('TasksService.detail', () => {
     const followUpDate = new Date('2026-04-06T09:30:00.000Z')
     prisma.task.findUnique.mockResolvedValue({
       id: 'task_1',
+      account: {
+        id: 'acc_1',
+        accountName: 'Liste Isletmesi',
+        businessName: 'Liste Isletmesi',
+        city: 'Istanbul',
+        district: 'Kadikoy',
+        contacts: [],
+      },
       owner: { id: 'owner_1', name: 'Ayse', email: 'ayse@example.com' },
       logs: [{ id: 'log_1', followUpDate }],
       offers: [{ id: 'offer_2' }, { id: 'offer_1' }],
+      taskContacts: [],
     })
 
     const result: any = await service.detail('task_1')
@@ -307,6 +316,15 @@ describe('TasksService.detail', () => {
       expect.objectContaining({
         where: { id: 'task_1' },
         include: expect.objectContaining({
+          account: {
+            select: expect.objectContaining({
+              id: true,
+              accountName: true,
+              businessName: true,
+              city: true,
+              district: true,
+            }),
+          },
           owner: { select: { id: true, name: true, email: true } },
           offers: { orderBy: { createdAt: 'desc' } },
         }),
@@ -314,6 +332,9 @@ describe('TasksService.detail', () => {
     )
     expect(result.nextCallDate).toBe(followUpDate)
     expect(result.owner?.name).toBe('Ayse')
+    expect(result.city).toBe('Istanbul')
+    expect(result.district).toBe('Kadikoy')
+    expect(result.companyName).toBe('Liste Isletmesi')
     expect(result.offers).toHaveLength(2)
   })
 
@@ -822,6 +843,61 @@ describe('TasksService.list', () => {
         where: {},
       }),
     )
+  })
+
+  it('applies hybrid ordering for open summary lists', async () => {
+    const { service, prisma } = buildService()
+    const now = new Date('2026-04-11T12:00:00.000Z')
+    jest.spyOn(Date, 'now').mockReturnValue(now.getTime())
+
+    prisma.task.findMany.mockResolvedValue([
+      {
+        id: 'followup_future',
+        status: 'FOLLOWUP',
+        creationDate: new Date('2026-04-10T09:00:00.000Z'),
+        updatedAt: new Date('2026-04-10T09:00:00.000Z'),
+        logs: [{ createdAt: new Date('2026-04-10T10:00:00.000Z'), followUpDate: new Date('2026-04-12T09:00:00.000Z') }],
+        account: { accountName: 'Future', businessName: 'Future', city: 'Istanbul', district: 'Sisli' },
+      },
+      {
+        id: 'active_hot',
+        status: 'HOT',
+        creationDate: new Date('2026-04-10T09:00:00.000Z'),
+        updatedAt: new Date('2026-04-10T09:00:00.000Z'),
+        logs: [{ createdAt: new Date('2026-04-11T11:00:00.000Z'), followUpDate: null }],
+        account: { accountName: 'Hot', businessName: 'Hot', city: 'Istanbul', district: 'Kadikoy' },
+      },
+      {
+        id: 'new_task',
+        status: 'NEW',
+        creationDate: new Date('2026-04-11T08:00:00.000Z'),
+        updatedAt: new Date('2026-04-11T08:00:00.000Z'),
+        logs: [],
+        account: { accountName: 'New', businessName: 'New', city: 'Istanbul', district: 'Besiktas' },
+      },
+      {
+        id: 'followup_due',
+        status: 'FOLLOWUP',
+        creationDate: new Date('2026-04-09T09:00:00.000Z'),
+        updatedAt: new Date('2026-04-09T09:00:00.000Z'),
+        logs: [{ createdAt: new Date('2026-04-09T10:00:00.000Z'), followUpDate: new Date('2026-04-11T08:00:00.000Z') }],
+        account: { accountName: 'Due', businessName: 'Due', city: 'Istanbul', district: 'Beyoglu' },
+      },
+    ])
+
+    const result: any = await service.list(
+      { view: 'summary', generalStatus: 'OPEN', sort: 'newest', page: 1, limit: 10 },
+      { id: 'admin_1', role: 'ADMIN' },
+    )
+
+    expect(result.items.map((item: any) => item.id)).toEqual([
+      'followup_due',
+      'new_task',
+      'active_hot',
+      'followup_future',
+    ])
+
+    jest.restoreAllMocks()
   })
 })
 
