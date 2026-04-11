@@ -270,7 +270,7 @@ const AppController = (() => {
         // Her sayfanın ilk yükleme işlevi
         const pageInitMap = {
             'page-dashboard': () => DashboardController.render(),
-            'page-task-list': () => PoolController.switchTab(AppState.currentPoolTab),
+            'page-task-list': () => PoolController.switchTab(AppState.currentPoolTab, { preserveState: true }),
             'page-my-tasks': () => TaskController.renderMyTasks(),
             'page-rep-request': () => { if(typeof RequestController !== 'undefined') RequestController.initWizard(); },
             'page-all-tasks': () => { if (typeof TaskController.resetAllTasksFilters === 'function') TaskController.resetAllTasksFilters(); TaskController.renderAllTasks(); },

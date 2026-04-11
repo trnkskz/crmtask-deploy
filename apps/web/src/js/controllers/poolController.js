@@ -57,7 +57,8 @@ const PoolController = (() => {
         return raw;
     }
 
-    function switchTab(tab) {
+    function switchTab(tab, options = {}) {
+        const preserveState = Boolean(options?.preserveState);
         AppState.currentPoolTab = tab;
 
         document.querySelectorAll('#page-task-list .header-tab-card').forEach(btn => btn.classList.remove('active'));
@@ -82,9 +83,10 @@ const PoolController = (() => {
         else if (tab === 'reports') {
             document.getElementById('poolReportsContainer').style.display = 'block';
             if (typeof TaskController !== 'undefined') {
-                if (typeof TaskController.resetTaskReportView === 'function') {
+                if (!preserveState && typeof TaskController.resetTaskReportView === 'function') {
                     TaskController.resetTaskReportView();
-                } else if (typeof TaskController.renderTaskReports === 'function') {
+                }
+                if (typeof TaskController.renderTaskReports === 'function') {
                     TaskController.renderTaskReports();
                 }
             }
