@@ -5,7 +5,13 @@ dist
 .git
 .DS_Store
 .env
+.env.*
+!.env.example
 apps/api/.env
 apps/web/.env
 projedisi
 deployhazir
+**/*.test.js
+**/*.spec.ts
+**/*.local.*
+coverage
