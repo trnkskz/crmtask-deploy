@@ -691,7 +691,7 @@
                     </div>
 
                     <div class="reports-dark-emerald-filter task-report-filter-shell" style="margin-bottom:20px; padding:20px; border-radius:16px;">
-                        <div class="horizontal-filter-grid" style="display:grid; grid-template-columns:repeat(5, 1fr); gap:12px; align-items:end; margin-bottom:20px;">
+                        <div class="horizontal-filter-grid" style="display:grid !important; grid-template-columns:repeat(5, 1fr) !important; gap:12px !important; align-items:end; margin-bottom:20px;">
                             <div class="filter-col"><label>Oluşturma Kanalı</label><select id="taskRepCreationChannel"><option value="">Tümü</option><option value="REQUEST_FLOW">Görev Al / Yarat</option><option value="MANUAL_TASK_CREATE">Task Yarat</option><option value="PROJECT_GENERATED">Proje</option></select></div>
                             <div class="filter-col"><label>Görev Tipi</label><select id="taskRepType"><option value="">Tümü</option><option value="GENERAL">Genel</option><option value="PROJECT">Proje</option></select></div>
                             <div class="filter-col"><label>Durum</label><select id="taskRepStatus"><option value="">Tümü</option><option value="new">Yeni</option><option value="hot">Hot</option><option value="nothot">Not Hot</option><option value="followup">Takip</option><option value="deal">Deal</option><option value="cold">Cold</option></select></div>
@@ -1053,7 +1053,7 @@
             </div>
             
             <div class="reports-dark-emerald-filter" style="margin-bottom:20px; padding:20px; border-radius:16px;">
-                <div class="horizontal-filter-grid" style="display:grid; grid-template-columns:repeat(5, 1fr); gap:12px; align-items:end; margin-bottom:20px;">
+                <div class="horizontal-filter-grid" style="display:grid !important; grid-template-columns:repeat(5, 1fr) !important; gap:12px !important; align-items:end; margin-bottom:20px;">
                     <div class="filter-col"><label>Sorumlu / Takım</label><select id="repFilterAssignee"><option value="">Tümü</option><optgroup label="Takımlar" id="repFilterTeamGroup"><option value="Team 1">Team 1</option><option value="Team 2">Team 2</option></optgroup><optgroup label="Personeller" id="repFilterUserGroup"></optgroup></select></div>
                     <div class="filter-col"><label>Görev Durumu</label><select id="repFilterStatus"><option value="">Tümü</option><option value="deal">Deal</option><option value="cold">Cold</option><option value="hot">Hot</option><option value="nothot">Not Hot</option><option value="followup">Takip</option><option value="new">Yeni</option></select></div>
                     <div class="filter-col"><label>Son Log</label><select id="repFilterLogType"><option value="">Tümü</option><option value="İşletmeye Ulaşılamadı">Ulaşılamadı</option><option value="Yetkiliye Ulaşılamadı">Yetkili Yok</option><option value="Yetkiliye Ulaşıldı">Ulaşıldı</option><option value="Teklif Verildi">Teklif Verildi</option><option value="İşletme Çalışmak İstemiyor">İstemiyor</option><option value="Tekrar Aranacak">Tekrar Ara</option></select></div>
