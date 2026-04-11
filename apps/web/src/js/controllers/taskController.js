@@ -521,6 +521,102 @@ const TaskController = (() => {
         return lastActionMs > 0 && lastActionMs < (Date.now() - (5 * 24 * 60 * 60 * 1000));
     }
 
+    const taskReportUiState = {
+        items: [],
+        total: 0,
+        page: 1,
+        limit: ITEMS_PER_PAGE_TASKS,
+        stats: {
+            total: 0,
+            open: 0,
+            closed: 0,
+            deal: 0,
+            cold: 0,
+            idle: 0,
+        },
+    };
+
+    function updateTaskReportDistrictOptions() {
+        const citySelect = document.getElementById('taskRepCity');
+        const districtSelect = document.getElementById('taskRepDistrict');
+        if (!districtSelect) return;
+
+        const selectedCity = citySelect?.value || '';
+        const currentValue = districtSelect.value;
+        districtSelect.innerHTML = '<option value="">Tümü</option>';
+
+        const districtList = selectedCity
+            ? (DISTRICT_DATA[selectedCity] || []).slice()
+            : Array.from(new Set(Object.values(DISTRICT_DATA || {}).flat()));
+
+        districtList
+            .sort((a, b) => String(a || '').localeCompare(String(b || ''), 'tr'))
+            .forEach((district) => districtSelect.add(new Option(district, district)));
+
+        if (currentValue && districtList.includes(currentValue)) {
+            districtSelect.value = currentValue;
+        }
+    }
+
+    function getTaskReportSourceLabel(sourceKey) {
+        if (typeof apiSourceToUi === 'function') return apiSourceToUi(sourceKey || '');
+        const raw = String(sourceKey || '').trim().toUpperCase();
+        if (!raw) return '-';
+        if (raw === 'OLD_RAKIP') return 'Old Account Rakip';
+        if (raw === 'RAKIP') return 'Rakip';
+        if (raw === 'REFERANS') return 'Referans';
+        if (raw === 'QUERY') return 'Old Account Query';
+        if (raw === 'OLD') return 'Old Account';
+        if (raw === 'FRESH') return 'Fresh Account';
+        return String(sourceKey || '-');
+    }
+
+    function normalizeTaskReportStats(stats = {}) {
+        return {
+            total: Number(stats.total || 0),
+            open: Number(stats.open || 0),
+            closed: Number(stats.closed || 0),
+            deal: Number(stats.deal || 0),
+            cold: Number(stats.cold || 0),
+            idle: Number(stats.idle || 0),
+        };
+    }
+
+    function normalizeTaskReportResponse(response, fallbackPage = 1, fallbackLimit = ITEMS_PER_PAGE_TASKS) {
+        if (Array.isArray(response)) {
+            const rows = response;
+            return {
+                items: rows,
+                total: rows.length,
+                page: fallbackPage,
+                limit: fallbackLimit,
+                stats: {
+                    total: rows.length,
+                    open: rows.filter((row) => isActiveTask(String(row?.statusKey || '').toLowerCase())).length,
+                    closed: rows.filter((row) => PASSIVE_STATUSES.includes(String(row?.statusKey || '').toLowerCase())).length,
+                    deal: rows.filter((row) => String(row?.statusKey || '').toLowerCase() === 'deal').length,
+                    cold: rows.filter((row) => String(row?.statusKey || '').toLowerCase() === 'cold').length,
+                    idle: rows.filter((row) => isIdleTask({
+                        status: String(row?.statusKey || '').toLowerCase(),
+                        nextCallDate: row?.followUpDate || '',
+                        createdAt: row?.createdAt || '',
+                        logs: row?.lastActionDate
+                            ? [{ date: formatDate(row.lastActionDate), text: row.logContent || '' }]
+                            : [],
+                    })).length,
+                },
+            };
+        }
+
+        return {
+            items: Array.isArray(response?.items) ? response.items : [],
+            total: Number(response?.total || 0),
+            page: Number(response?.page || fallbackPage),
+            limit: Number(response?.limit || fallbackLimit),
+            stats: normalizeTaskReportStats(response?.stats),
+        };
+    }
+
     function populateTaskReportFilters() {
         const assigneeSelect = document.getElementById('taskRepAssignee');
         if (assigneeSelect && assigneeSelect.options.length <= 1) {
@@ -563,11 +659,12 @@ const TaskController = (() => {
 
         const districtSelect = document.getElementById('taskRepDistrict');
         if (districtSelect && districtSelect.options.length <= 1) {
-            const selectedCity = citySelect?.value || '';
-            const uniqueDistricts = selectedCity
-                ? (DISTRICT_DATA[selectedCity] || []).slice().sort((a, b) => a.localeCompare(b, 'tr'))
-                : Array.from(new Set(Object.values(DISTRICT_DATA || {}).flat())).sort((a, b) => String(a || '').localeCompare(String(b || ''), 'tr'));
-            uniqueDistricts.forEach((district) => districtSelect.add(new Option(district, district)));
+            updateTaskReportDistrictOptions();
+        }
+
+        if (citySelect && !citySelect.dataset.boundTaskReportCityChange) {
+            citySelect.addEventListener('change', updateTaskReportDistrictOptions);
+            citySelect.dataset.boundTaskReportCityChange = 'true';
         }
 
         updateTaskReportSubCategories();
@@ -592,7 +689,7 @@ const TaskController = (() => {
         if (currentValue) subCategorySelect.value = currentValue;
     }
 
-    function buildTaskReportQuery() {
+    function buildTaskReportQuery(options = {}) {
         const getValue = (id) => document.getElementById(id)?.value || '';
         const creationChannel = getValue('taskRepCreationChannel');
         const type = getValue('taskRepType');
@@ -624,6 +721,8 @@ const TaskController = (() => {
         if (assigneeScope.ownerId) query.set('ownerId', assigneeScope.ownerId);
         if (assigneeScope.team) query.set('team', assigneeScope.team);
         if (assigneeScope.historicalAssignee) query.set('historicalAssignee', assigneeScope.historicalAssignee);
+        if (options.page) query.set('page', String(options.page));
+        if (options.limit) query.set('limit', String(options.limit));
         return query.toString();
     }
 
@@ -642,43 +741,47 @@ const TaskController = (() => {
         setTaskReportStat('taskRepDealCount', 0);
         setTaskReportStat('taskRepColdCount', 0);
         setTaskReportStat('taskRepIdleCount', 0);
-        AppState.setFiltered('taskReports', []);
-        AppState.setPage('taskReports', 1);
+        taskReportUiState.items = [];
+        taskReportUiState.total = 0;
+        taskReportUiState.page = 1;
+        taskReportUiState.stats = normalizeTaskReportStats();
         displayTaskReportRows();
     }
 
-    async function renderTaskReports() {
+    async function renderTaskReports(options = {}) {
         populateTaskReportFilters();
         hasAppliedTaskReportFilters = true;
+        const requestedPage = Number.isFinite(Number(options?.page)) ? Math.max(1, Number(options.page)) : 1;
         const tbody = document.getElementById('taskReportTbody');
-        if (tbody) {
+        if (tbody && !options?.silent) {
             tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state"><div style="font-size:42px; opacity:0.28; margin-bottom:10px;">⏳</div><h3>Rapor yükleniyor</h3><p>Görev verileri hazırlanıyor.</p></div></td></tr>`;
         }
 
         try {
-            const query = buildTaskReportQuery();
+            const query = buildTaskReportQuery({ page: requestedPage, limit: taskReportUiState.limit });
             const response = await DataService.apiRequest(`/reports/tasks${query ? `?${query}` : ''}`);
-            const rows = Array.isArray(response) ? response : [];
-            const total = rows.length;
-            const openCount = rows.filter((row) => isActiveTask(String(row?.statusKey || '').toLowerCase())).length;
-            const closedCount = rows.filter((row) => PASSIVE_STATUSES.includes(String(row?.statusKey || '').toLowerCase())).length;
-            const dealCount = rows.filter((row) => String(row?.statusKey || '').toLowerCase() === 'deal').length;
-            const coldCount = rows.filter((row) => String(row?.statusKey || '').toLowerCase() === 'cold').length;
-            const idleCount = 0;
+            const payload = normalizeTaskReportResponse(response, requestedPage, taskReportUiState.limit);
 
-            setTaskReportStat('taskRepTotalCount', total);
-            setTaskReportStat('taskRepOpenCount', openCount);
-            setTaskReportStat('taskRepClosedCount', closedCount);
-            setTaskReportStat('taskRepDealCount', dealCount);
-            setTaskReportStat('taskRepColdCount', coldCount);
-            setTaskReportStat('taskRepIdleCount', idleCount);
+            taskReportUiState.items = payload.items;
+            taskReportUiState.total = payload.total;
+            taskReportUiState.page = payload.page;
+            taskReportUiState.limit = payload.limit;
+            taskReportUiState.stats = payload.stats;
 
-            AppState.setFiltered('taskReports', rows);
-            AppState.setPage('taskReports', 1);
+            setTaskReportStat('taskRepTotalCount', payload.stats.total);
+            setTaskReportStat('taskRepOpenCount', payload.stats.open);
+            setTaskReportStat('taskRepClosedCount', payload.stats.closed);
+            setTaskReportStat('taskRepDealCount', payload.stats.deal);
+            setTaskReportStat('taskRepColdCount', payload.stats.cold);
+            setTaskReportStat('taskRepIdleCount', payload.stats.idle);
+
             displayTaskReportRows();
         } catch (err) {
             console.error('Task reports load failed:', err);
-            AppState.setFiltered('taskReports', []);
+            taskReportUiState.items = [];
+            taskReportUiState.total = 0;
+            taskReportUiState.page = 1;
+            taskReportUiState.stats = normalizeTaskReportStats();
             displayTaskReportRows();
         }
     }
@@ -694,27 +797,24 @@ const TaskController = (() => {
             return;
         }
 
-        const rows = AppState.filtered.taskReports || [];
-        const page = AppState.pagination.taskReports || 1;
+        const rows = taskReportUiState.items || [];
+        const page = taskReportUiState.page || 1;
         if (!rows.length) {
             tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state"><div style="font-size:42px; opacity:0.28; margin-bottom:10px;">🧾</div><h3>Sonuç bulunamadı</h3><p>Filtreleri güncelleyip tekrar deneyin.</p></div></td></tr>`;
             pagination.innerHTML = '';
             return;
         }
 
-        const totalPages = Math.ceil(rows.length / ITEMS_PER_PAGE_TASKS);
-        const currentPage = Math.min(page, totalPages);
-        AppState.setPage('taskReports', currentPage);
-        const start = (currentPage - 1) * ITEMS_PER_PAGE_TASKS;
-        const paginated = rows.slice(start, start + ITEMS_PER_PAGE_TASKS);
+        const totalPages = Math.ceil(taskReportUiState.total / taskReportUiState.limit);
+        const currentPage = Math.min(page, totalPages || 1);
 
-        tbody.innerHTML = paginated.map((row) => `
+        tbody.innerHTML = rows.map((row) => `
             <tr style="cursor:pointer;" onclick="openTaskModal('${escapeHtml(row.id)}')">
                 <td>${escapeHtml(String(row.createdAt || '-').split('T')[0])}</td>
                 <td><strong>${escapeHtml(row.businessName || '-')}</strong><br><span style="font-size:11px; color:#64748b;">📍 ${escapeHtml(row.city || '-')} ${row.district ? `/ ${escapeHtml(row.district)}` : ''}</span></td>
                 <td><span class="modern-badge" style="background:#ecfeff; color:#155e75; border:1px solid #a5f3fc;">${escapeHtml(getTaskReportCreationChannelLabel(row.creationChannel))}</span></td>
                 <td><strong>${escapeHtml(row.projectId ? 'Proje' : 'Genel')}</strong><br><span style="font-size:11px; color:#64748b;">${escapeHtml((AppState.projects || []).find((project) => project.id === row.projectId)?.name || '-')}</span></td>
-                <td><strong>${escapeHtml(row.sourceKey || '-')}</strong><br><span style="font-size:11px; color:#64748b;">${escapeHtml(row.mainCategory || '-')} / ${escapeHtml(row.subCategory || '-')}</span></td>
+                <td><strong>${escapeHtml(row.sourceLabel || getTaskReportSourceLabel(row.sourceKey || ''))}</strong><br><span style="font-size:11px; color:#64748b;">${escapeHtml(row.mainCategory || '-')} / ${escapeHtml(row.subCategory || '-')}</span></td>
                 <td>${escapeHtml(row.mainCategory || '-')}</td>
                 <td>${escapeHtml(row.subCategory || '-')}</td>
                 <td><strong>${escapeHtml(row.assignee || '-')}</strong><br><span style="font-size:11px; color:#64748b;">Oluşturan: ${escapeHtml(row.createdByName || 'Sistem')}</span></td>
@@ -724,9 +824,8 @@ const TaskController = (() => {
             </tr>
         `).join('');
 
-        renderPagination(pagination, rows.length, currentPage, ITEMS_PER_PAGE_TASKS, (nextPage) => {
-            AppState.setPage('taskReports', nextPage);
-            displayTaskReportRows();
+        renderPagination(pagination, taskReportUiState.total, currentPage, taskReportUiState.limit, (nextPage) => {
+            renderTaskReports({ page: nextPage, silent: true });
         }, { compact: true, resultLabel: 'kayıt' });
     }
 
@@ -740,47 +839,55 @@ const TaskController = (() => {
             if (el) el.value = '';
         });
         updateTaskReportSubCategories();
+        updateTaskReportDistrictOptions();
         resetTaskReportView();
     }
 
-    function exportTaskReportExcel() {
-        const rows = AppState.filtered.taskReports || [];
-        if (!rows.length) {
-            showToast('Export için rapor satırı bulunamadı.', 'warning');
-            return;
-        }
-        const csvRows = rows.map((row) => ({
-            olusturma_tarihi: String(row.createdAt || '').split('T')[0],
-            isletme: row.businessName || '',
-            il: row.city || '',
-            ilce: row.district || '',
-            kanal: getTaskReportCreationChannelLabel(row.creationChannel),
-            gorev_tipi: row.projectId ? 'Proje' : 'Genel',
-            proje: (AppState.projects || []).find((project) => project.id === row.projectId)?.name || '',
-            kaynak: row.sourceKey || '',
-            ana_kategori: row.mainCategory || '',
-            alt_kategori: row.subCategory || '',
-            sorumlu: row.assignee || '',
-            olusturan: row.createdByName || 'Sistem',
-            durum: TASK_STATUS_LABELS[String(row.statusKey || '').toLowerCase()] || row.statusKey || '',
-            son_islem_tarihi: row.lastActionDate || '',
-            atil_mi: 'Hayır',
-            gorev_notu: row.logContent || '',
-        }));
+    async function exportTaskReportExcel() {
+        try {
+            const query = buildTaskReportQuery();
+            const response = await DataService.apiRequest(`/reports/tasks${query ? `?${query}` : ''}`);
+            const rows = Array.isArray(response) ? response : (Array.isArray(response?.items) ? response.items : []);
+            if (!rows.length) {
+                showToast('Export için rapor satırı bulunamadı.', 'warning');
+                return;
+            }
+            const csvRows = rows.map((row) => ({
+                olusturma_tarihi: String(row.createdAt || '').split('T')[0],
+                isletme: row.businessName || '',
+                il: row.city || '',
+                ilce: row.district || '',
+                kanal: getTaskReportCreationChannelLabel(row.creationChannel),
+                gorev_tipi: row.projectId ? 'Proje' : 'Genel',
+                proje: (AppState.projects || []).find((project) => project.id === row.projectId)?.name || '',
+                kaynak: row.sourceLabel || getTaskReportSourceLabel(row.sourceKey || ''),
+                ana_kategori: row.mainCategory || '',
+                alt_kategori: row.subCategory || '',
+                sorumlu: row.assignee || '',
+                olusturan: row.createdByName || 'Sistem',
+                durum: TASK_STATUS_LABELS[String(row.statusKey || '').toLowerCase()] || row.statusKey || '',
+                son_islem_tarihi: row.lastActionDate || '',
+                atil_mi: row.isIdle ? 'Evet' : 'Hayır',
+                gorev_notu: row.logContent || '',
+            }));
 
-        const headers = Object.keys(csvRows[0]);
-        const escapeCsv = (value) => {
-            const raw = value == null ? '' : String(value);
-            return /[",\n]/.test(raw) ? `"${raw.replace(/"/g, '""')}"` : raw;
-        };
-        const csv = [headers.join(','), ...csvRows.map((row) => headers.map((header) => escapeCsv(row[header])).join(','))].join('\n');
-        const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = `task_raporlari_${new Date().toISOString().split('T')[0]}.csv`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+            const headers = Object.keys(csvRows[0]);
+            const escapeCsv = (value) => {
+                const raw = value == null ? '' : String(value);
+                return /[",\n]/.test(raw) ? `"${raw.replace(/"/g, '""')}"` : raw;
+            };
+            const csv = [headers.join(','), ...csvRows.map((row) => headers.map((header) => escapeCsv(row[header])).join(','))].join('\n');
+            const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `task_raporlari_${new Date().toISOString().split('T')[0]}.csv`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        } catch (err) {
+            console.error('Task report export failed:', err);
+            showToast('Task raporu dışa aktarılırken hata oluştu.', 'error');
+        }
     }
 
     function switchTaskListSubtab(view) {

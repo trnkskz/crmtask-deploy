@@ -210,6 +210,75 @@ describe('ReportsService.tasksCsv', () => {
     )
     expect(prisma.task.findMany.mock.calls[0][0].where.creationDate).toBeUndefined()
   })
+
+  it('returns paged task report payload with aggregate stats when page and limit are provided', async () => {
+    const { service, prisma } = buildService()
+    prisma.task.findMany.mockResolvedValue([
+      {
+        id: 'task_1',
+        accountId: 'acc_1',
+        account: { accountName: 'Birinci Isletme', businessName: 'Birinci Isletme', city: 'Istanbul', district: 'Kadikoy', source: 'OLD', mainCategory: 'Yemek', subCategory: 'Kahvalti' },
+        owner: { id: 'user_1', email: 'ayse@example.com', name: 'Ayse', team: 'Team 1' },
+        creator: { id: 'creator_1', email: 'yonetici@example.com', name: 'Yonetici' },
+        ownerId: 'user_1',
+        createdById: 'creator_1',
+        projectId: '',
+        creationChannel: 'REQUEST_FLOW',
+        status: 'HOT',
+        source: 'OLD',
+        mainCategory: 'Yemek',
+        subCategory: 'Kahvalti',
+        logs: [{ text: '[Gorusme] Arandi', createdAt: new Date(Date.now() - (7 * 24 * 60 * 60 * 1000)), reason: 'GORUSME', followUpDate: null }],
+        _count: { logs: 1 },
+        creationDate: new Date('2026-04-01T10:00:00.000Z'),
+      },
+      {
+        id: 'task_2',
+        accountId: 'acc_2',
+        account: { accountName: 'Ikinci Isletme', businessName: 'Ikinci Isletme', city: 'Istanbul', district: 'Besiktas', source: 'FRESH', mainCategory: 'Guzellik', subCategory: 'Cilt' },
+        owner: { id: 'user_2', email: 'fatma@example.com', name: 'Fatma', team: 'Team 2' },
+        creator: { id: 'creator_1', email: 'yonetici@example.com', name: 'Yonetici' },
+        ownerId: 'user_2',
+        createdById: 'creator_1',
+        projectId: '',
+        creationChannel: 'MANUAL_TASK_CREATE',
+        status: 'DEAL',
+        source: 'FRESH',
+        mainCategory: 'Guzellik',
+        subCategory: 'Cilt',
+        logs: [{ text: '[Deal] Kapandi', createdAt: new Date('2026-04-10T10:00:00.000Z'), reason: 'GORUSME', followUpDate: null }],
+        _count: { logs: 1 },
+        creationDate: new Date('2026-04-02T10:00:00.000Z'),
+      },
+    ])
+
+    const result = await service.tasksReport(
+      { page: '1', limit: '1' },
+      { id: 'manager_1', role: 'MANAGER' },
+    )
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        total: 2,
+        page: 1,
+        limit: 1,
+        items: expect.any(Array),
+        stats: expect.objectContaining({
+          total: 2,
+          open: 1,
+          closed: 1,
+          deal: 1,
+          cold: 0,
+          idle: 1,
+        }),
+      }),
+    )
+    expect(result.items).toHaveLength(1)
+    expect(result.items[0]).toEqual(expect.objectContaining({
+      sourceKey: 'OLD',
+      sourceLabel: 'Old Account',
+    }))
+  })
 })
 
 describe('ReportsService ratios', () => {

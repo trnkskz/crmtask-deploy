@@ -80,6 +80,18 @@ function readDealField(text: unknown, label: string) {
   return match ? String(match[1]).trim() : ''
 }
 
+function toTaskReportSourceLabel(value: unknown) {
+  const raw = String(value || '').trim().toUpperCase()
+  if (!raw) return '-'
+  if (raw === 'OLD_RAKIP') return 'Old Account Rakip'
+  if (raw === 'RAKIP') return 'Rakip'
+  if (raw === 'REFERANS') return 'Referans'
+  if (raw === 'QUERY') return 'Old Account Query'
+  if (raw === 'OLD') return 'Old Account'
+  if (raw === 'FRESH') return 'Fresh Account'
+  return String(value || '-')
+}
+
 @Injectable()
 export class ReportsService {
   private readonly responseCache = new Map<string, { expiresAt: number; value: any }>()
@@ -120,6 +132,46 @@ export class ReportsService {
       role: user?.role || '',
       query: query || {},
     })
+  }
+
+  private toPositiveInt(value: unknown, fallback: number, max = 200) {
+    const parsed = Number.parseInt(String(value ?? ''), 10)
+    if (!Number.isFinite(parsed) || parsed <= 0) return fallback
+    return Math.min(parsed, max)
+  }
+
+  private isTaskReportOpenStatus(statusKey: unknown) {
+    const raw = String(statusKey || '').toLowerCase()
+    return raw === 'new' || raw === 'hot' || raw === 'nothot' || raw === 'followup'
+  }
+
+  private isTaskReportClosedStatus(statusKey: unknown) {
+    const raw = String(statusKey || '').toLowerCase()
+    return raw === 'deal' || raw === 'cold'
+  }
+
+  private isIdleTaskReportRow(row: any) {
+    if (!this.isTaskReportOpenStatus(row?.statusKey)) return false
+    const followUpTime = row?.followUpDate ? new Date(row.followUpDate).getTime() : 0
+    if (String(row?.statusKey || '').toLowerCase() === 'followup' && followUpTime > Date.now()) return false
+    const lastActionTime = row?.lastActionDate ? new Date(row.lastActionDate).getTime() : 0
+    return lastActionTime > 0 && lastActionTime < (Date.now() - (5 * 24 * 60 * 60 * 1000))
+  }
+
+  private buildTaskReportStats(rows: any[]) {
+    const safeRows = Array.isArray(rows) ? rows : []
+    return safeRows.reduce(
+      (acc, row) => {
+        acc.total += 1
+        if (this.isTaskReportOpenStatus(row?.statusKey)) acc.open += 1
+        if (this.isTaskReportClosedStatus(row?.statusKey)) acc.closed += 1
+        if (String(row?.statusKey || '').toLowerCase() === 'deal') acc.deal += 1
+        if (String(row?.statusKey || '').toLowerCase() === 'cold') acc.cold += 1
+        if (this.isIdleTaskReportRow(row)) acc.idle += 1
+        return acc
+      },
+      { total: 0, open: 0, closed: 0, deal: 0, cold: 0, idle: 0 },
+    )
   }
 
   private async managerHasDirectSales(userId: string) {
@@ -440,7 +492,7 @@ export class ReportsService {
         owner: { select: { id: true, email: true, name: true, team: true } },
         creator: { select: { id: true, email: true, name: true } },
         logs: {
-          select: { text: true, createdAt: true, reason: true },
+          select: { text: true, createdAt: true, reason: true, followUpDate: true },
           orderBy: { createdAt: 'desc' },
           take: 1,
         },
@@ -474,6 +526,7 @@ export class ReportsService {
           statusKey: String(task.status || '').toLowerCase(),
           statusLabel: String(task.status || ''),
           sourceKey: this.normalizeReportSource(task.source || task.account?.source || ''),
+          sourceLabel: toTaskReportSourceLabel(this.normalizeReportSource(task.source || task.account?.source || '')),
           mainCategory: resolvedCategory.mainCategory || '-',
           subCategory: resolvedCategory.subCategory || '-',
           publishedFeeText,
@@ -484,8 +537,13 @@ export class ReportsService {
           logContent: stripHtml(latestLogText) || '-',
           createdAt: task.creationDate?.toISOString?.() || task.creationDate,
           lastActionDate: latestLog?.createdAt?.toISOString?.() || task.creationDate?.toISOString?.() || '',
+          followUpDate: latestLog?.followUpDate?.toISOString?.() || '',
         }
       })
+      .map((row) => ({
+        ...row,
+        isIdle: this.isIdleTaskReportRow(row),
+      }))
       .filter((row) => {
         if (q.creationChannel && String(row.creationChannel || '').toUpperCase() !== String(q.creationChannel).toUpperCase()) return false
         if (q.type === 'PROJECT' && !row.projectId) return false
@@ -1424,8 +1482,27 @@ export class ReportsService {
   }
 
   async tasksReport(q: any, user?: { id: string; role: 'ADMIN'|'MANAGER'|'TEAM_LEADER'|'SALESPERSON' }) {
-    const cacheKey = this.cacheIdentity('tasksReport', user, q || {})
-    return this.withResponseCache(cacheKey, 12000, async () => this.buildTaskReportRows(q, user))
+    const baseQuery = { ...(q || {}) }
+    delete (baseQuery as any).page
+    delete (baseQuery as any).limit
+
+    const cacheKey = this.cacheIdentity('tasksReportRows', user, baseQuery)
+    const rows = await this.withResponseCache(cacheKey, 12000, async () => this.buildTaskReportRows(baseQuery, user))
+    const wantsPaging = q?.page != null || q?.limit != null
+    if (!wantsPaging) return rows
+
+    const page = this.toPositiveInt(q?.page, 1, 10000)
+    const limit = this.toPositiveInt(q?.limit, 25, 200)
+    const total = rows.length
+    const offset = (page - 1) * limit
+    const items = rows.slice(offset, offset + limit)
+    return {
+      items,
+      total,
+      page,
+      limit,
+      stats: this.buildTaskReportStats(rows),
+    }
   }
 
   async accountsCsv(q: { status?: string; source?: string; type?: string; from?: string; to?: string }, user?: { id: string; role: 'ADMIN'|'MANAGER'|'TEAM_LEADER'|'SALESPERSON' }) {

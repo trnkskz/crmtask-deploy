@@ -65,40 +65,6 @@ const AppState = (() => {
             && parsed.getFullYear() === now.getFullYear();
     }
 
-    function extractLogTag(text) {
-        const plainText = String(text || '').replace(/<[^>]*>?/gm, '').trim();
-        const match = plainText.match(/^\[(.*?)\]/);
-        return match ? match[1] : '';
-    }
-
-    function normalizeSourceKey(value) {
-        const raw = String(value || '').trim().toUpperCase();
-        if (!raw) return '';
-        if (raw.includes('OLD ACCOUNT RAKIP') || raw.includes('OLD_RAKIP')) return 'OLD_RAKIP';
-        if (raw.includes('RAKIP')) return 'RAKIP';
-        if (raw.includes('REFERANS')) return 'REFERANS';
-        if (raw.includes('OLD ACCOUNT QUERY') || raw === 'QUERY' || raw.includes('LEAD')) return 'QUERY';
-        if (raw.includes('OLD')) return 'OLD';
-        if (raw.includes('FRESH')) return 'FRESH';
-        return raw;
-    }
-
-    function getTaskEffectiveDate(task) {
-        if (task?.logs?.length > 0) {
-            const latestLogDate = task.logs[0].date;
-            if (typeof globalThis.parseLogDate === 'function') {
-                const parsedMs = globalThis.parseLogDate(latestLogDate);
-                if (parsedMs) return new Date(parsedMs);
-            }
-            const parsed = new Date(latestLogDate);
-            if (!Number.isNaN(parsed.getTime())) return parsed;
-        }
-
-        const createdAt = new Date(task?.createdAt || 0);
-        if (!Number.isNaN(createdAt.getTime())) return createdAt;
-        return null;
-    }
-
     function shouldRequireProjectsForCurrentRole() {
         if (typeof globalThis.hasPermission === 'function') {
             try {
@@ -191,10 +157,6 @@ const AppState = (() => {
     let _userEmailMapRevision = -1;
     let _assignableUsersCache = null;
     let _assignableUsersRevision = -1;
-    let _reportTaskMetaMapCache = null;
-    let _reportTaskMetaMapRevision = -1;
-    let _poolTaskGroupCache = null;
-    let _poolTaskGroupRevision = -1;
     let _taskDetailCache = new Map();
     let _businessDetailCache = new Map();
 
@@ -370,54 +332,7 @@ const AppState = (() => {
             return _assignableUsersCache;
         },
 
-        getReportTaskMetaMap() {
-            if (_reportTaskMetaMapCache && _reportTaskMetaMapRevision === _collectionRevisions.tasks) {
-                return _reportTaskMetaMapCache;
-            }
-
-            _reportTaskMetaMapCache = new Map();
-            for (let i = 0; i < _tasks.length; i++) {
-                const task = _tasks[i];
-                const latestLog = task.logs?.[0] || null;
-                _reportTaskMetaMapCache.set(task.id, {
-                    latestLogText: latestLog?.text || '',
-                    latestLogTag: extractLogTag(latestLog?.text),
-                    lastActionDate: latestLog?.date?.split(' ')[0]
-                        || (task.createdAt ? new Date(task.createdAt).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'İşlem Yok'),
-                    createdDateOnly: (task.createdAt || '').split('T')[0],
-                    feeVal: (task.dealDetails?.fee || 'Yok').toString().toLowerCase(),
-                    jokerVal: (task.dealDetails?.joker || 'Yok').toString().toLowerCase(),
-                });
-            }
-
-            _reportTaskMetaMapRevision = _collectionRevisions.tasks;
-            return _reportTaskMetaMapCache;
-        },
-
-        getPoolTaskGroups() {
-            if (_poolTaskGroupCache && _poolTaskGroupRevision === _collectionRevisions.tasks) {
-                return _poolTaskGroupCache;
-            }
-
-            _poolTaskGroupCache = { general: [], team1: [], team2: [] };
-            for (let i = 0; i < _tasks.length; i++) {
-                const task = _tasks[i];
-                const status = String(task.status || '').toLowerCase();
-                if (status === 'cold' || status === 'deal') continue;
-                if (task.assignee === 'UNASSIGNED') _poolTaskGroupCache.general.push(task);
-                else if (task.assignee === 'Team 1') _poolTaskGroupCache.team1.push(task);
-                else if (task.assignee === 'Team 2') _poolTaskGroupCache.team2.push(task);
-            }
-
-            _poolTaskGroupRevision = _collectionRevisions.tasks;
-            return _poolTaskGroupCache;
-        },
-
         invalidateTaskMapCache() {
-            _reportTaskMetaMapCache = null;
-            _reportTaskMetaMapRevision = -1;
-            _poolTaskGroupCache = null;
-            _poolTaskGroupRevision = -1;
         },
 
         getTaskDetail(id) {
