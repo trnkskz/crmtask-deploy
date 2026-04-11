@@ -76,11 +76,10 @@ export class TasksService {
 
   private getTaskLastActivityTime(task: any) {
     const latestLogAt = task?.logs?.[0]?.createdAt ? new Date(task.logs[0].createdAt).getTime() : 0
-    const updatedAt = task?.updatedAt ? new Date(task.updatedAt).getTime() : 0
     const createdAt = task?.creationDate
       ? new Date(task.creationDate).getTime()
       : (task?.createdAt ? new Date(task.createdAt).getTime() : 0)
-    return Math.max(latestLogAt, updatedAt, createdAt)
+    return latestLogAt || createdAt
   }
 
   private getHybridOpenTaskSortBucket(task: any, nowMs: number) {

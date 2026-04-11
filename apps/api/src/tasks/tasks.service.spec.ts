@@ -855,7 +855,7 @@ describe('TasksService.list', () => {
         id: 'followup_future',
         status: 'FOLLOWUP',
         creationDate: new Date('2026-04-10T09:00:00.000Z'),
-        updatedAt: new Date('2026-04-10T09:00:00.000Z'),
+        updatedAt: new Date('2026-04-11T11:30:00.000Z'),
         logs: [{ createdAt: new Date('2026-04-10T10:00:00.000Z'), followUpDate: new Date('2026-04-12T09:00:00.000Z') }],
         account: { accountName: 'Future', businessName: 'Future', city: 'Istanbul', district: 'Sisli' },
       },
