@@ -269,46 +269,66 @@ function renderPagination(container, totalItems, currentPage, itemsPerPage, onPa
     container.style.display = 'flex';
     container.style.justifyContent = (isInlineToolbar || isCompactToolbar) ? 'flex-end' : 'space-between';
     container.style.alignItems = 'center';
-    container.style.gap = '10px';
-    container.style.padding = (isInlineToolbar || isCompactToolbar) ? '0' : '10px 14px';
+    container.style.gap = '16px';
+    container.style.padding = (isInlineToolbar || isCompactToolbar) ? '0' : '12px 16px';
     container.style.margin = '0';
     const resultLabel = options.resultLabel || 'kayıt';
 
     const controls = document.createElement('div');
     controls.className = 'pagination-controls';
+    controls.style.display = 'flex';
+    controls.style.alignItems = 'center';
+    controls.style.gap = '8px';
 
     const prevBtn = document.createElement('button');
-    prevBtn.innerHTML = '‹ Önce';
-    prevBtn.style.cssText = 'min-width:88px; height:34px; padding:0 12px; border-radius:999px; border:1px solid #dbe3ee; background:#fff; color:#475569; display:flex; align-items:center; justify-content:center; cursor:pointer; font-weight:700; font-size:12px; transition:all 0.2s ease; box-shadow:0 3px 8px rgba(15,23,42,0.04);';
-    prevBtn.onmouseover = () => { if(!prevBtn.disabled) { prevBtn.style.borderColor = '#0f766e'; prevBtn.style.color = '#0f766e'; prevBtn.style.transform = 'translateY(-1px)'; } };
-    prevBtn.onmouseout = () => { if(!prevBtn.disabled) { prevBtn.style.borderColor = '#dbe3ee'; prevBtn.style.color = '#475569'; prevBtn.style.transform = 'translateY(0)'; } };
+    prevBtn.innerHTML = '<i class="fas fa-chevron-left" style="font-size:10px;"></i><span style="margin-left:6px;">Önceki</span>';
+    prevBtn.style.cssText = 'height:36px; padding:0 16px; border-radius:999px; border:1px solid #e2e8f0; background:#ffffff; color:#475569; display:flex; align-items:center; justify-content:center; cursor:pointer; font-weight:700; font-size:13px; transition:all 0.2s ease; box-shadow:0 1px 2px rgba(0,0,0,0.05);';
+    prevBtn.onmouseover = () => { if(!prevBtn.disabled) { prevBtn.style.borderColor = '#cbd5e1'; prevBtn.style.color = '#0f172a'; prevBtn.style.background = '#f8fafc'; prevBtn.style.transform = 'translateY(-1px)'; } };
+    prevBtn.onmouseout = () => { if(!prevBtn.disabled) { prevBtn.style.borderColor = '#e2e8f0'; prevBtn.style.color = '#475569'; prevBtn.style.background = '#ffffff'; prevBtn.style.transform = 'translateY(0)'; } };
 
     if (currentPage <= 1) {
         prevBtn.disabled = true;
-        prevBtn.style.opacity = '0.45';
+        prevBtn.style.opacity = '0.5';
         prevBtn.style.cursor = 'not-allowed';
+        prevBtn.style.boxShadow = 'none';
+        prevBtn.style.background = '#f8fafc';
     } else {
         prevBtn.onclick = () => onPageChange(currentPage - 1);
     }
 
+    // Modern Page Indicator Display
     const infoSpan = document.createElement('div');
-    infoSpan.style.cssText = 'background:linear-gradient(180deg,#f8fafc,#eef4fb); padding:8px 14px; border-radius:999px; font-size:12px; font-weight:800; color:#334155; user-select:none; border:1px solid #dbe3ee; box-shadow:inset 0 1px 1px rgba(255,255,255,0.7); white-space:nowrap;';
+    infoSpan.style.cssText = 'display:flex; align-items:center; gap:8px; padding:4px; border-radius:999px; background:#f1f5f9; border:1px solid #e2e8f0;';
+    
+    let totalItemsHtml = '';
     if (isInlineToolbar || isCompactToolbar) {
-        infoSpan.innerHTML = `<strong style="color:#0f172a; font-size:12px; margin-right:6px;">${totalItems}</strong> ${resultLabel} <span style="color:#94a3b8; margin:0 6px;">•</span> <span style="color:#0f766e; font-size:13px; margin:0 2px;">${currentPage}</span> / <span style="margin:0 2px;">${totalPages}</span>`;
-    } else {
-        infoSpan.innerHTML = `<span style="color:#0f766e; font-size:13px; margin:0 2px;">${currentPage}</span> / <span style="margin:0 2px;">${totalPages}</span>`;
+        totalItemsHtml = `<div style="padding:0 10px; border-right:1px solid #cbd5e1; display:flex; align-items:center;">
+                            <strong style="color:#0f172a; font-size:13px; margin-right:4px;">${totalItems}</strong> 
+                            <span style="color:#64748b; font-size:12px; font-weight:600;">${resultLabel}</span>
+                          </div>`;
     }
 
+    infoSpan.innerHTML = `
+        ${totalItemsHtml}
+        <div style="display:flex; align-items:center; padding-right:8px; padding-left:${(isInlineToolbar || isCompactToolbar) ? '4px' : '8px'};">
+            <span style="display:flex; align-items:center; justify-content:center; min-width:28px; height:28px; background:linear-gradient(135deg, #0ea5e9, #0284c7); color:white; border-radius:50%; font-size:13px; font-weight:800; box-shadow:0 2px 6px rgba(14,165,233,0.3);">${currentPage}</span>
+            <span style="color:#94a3b8; margin:0 8px; font-size:14px;">/</span>
+            <span style="color:#475569; font-weight:700; font-size:13px;">${totalPages}</span>
+        </div>
+    `;
+
     const nextBtn = document.createElement('button');
-    nextBtn.innerHTML = 'Sonra ›';
-    nextBtn.style.cssText = 'min-width:88px; height:34px; padding:0 12px; border-radius:999px; border:1px solid #dbe3ee; background:#fff; color:#475569; display:flex; align-items:center; justify-content:center; cursor:pointer; font-weight:700; font-size:12px; transition:all 0.2s ease; box-shadow:0 3px 8px rgba(15,23,42,0.04);';
-    nextBtn.onmouseover = () => { if(!nextBtn.disabled) { nextBtn.style.borderColor = '#0f766e'; nextBtn.style.color = '#0f766e'; nextBtn.style.transform = 'translateY(-1px)'; } };
-    nextBtn.onmouseout = () => { if(!nextBtn.disabled) { nextBtn.style.borderColor = '#dbe3ee'; nextBtn.style.color = '#475569'; nextBtn.style.transform = 'translateY(0)'; } };
+    nextBtn.innerHTML = '<span style="margin-right:6px;">Sonraki</span><i class="fas fa-chevron-right" style="font-size:10px;"></i>';
+    nextBtn.style.cssText = 'height:36px; padding:0 16px; border-radius:999px; border:1px solid #e2e8f0; background:#ffffff; color:#475569; display:flex; align-items:center; justify-content:center; cursor:pointer; font-weight:700; font-size:13px; transition:all 0.2s ease; box-shadow:0 1px 2px rgba(0,0,0,0.05);';
+    nextBtn.onmouseover = () => { if(!nextBtn.disabled) { nextBtn.style.borderColor = '#cbd5e1'; nextBtn.style.color = '#0f172a'; nextBtn.style.background = '#f8fafc'; nextBtn.style.transform = 'translateY(-1px)'; } };
+    nextBtn.onmouseout = () => { if(!nextBtn.disabled) { nextBtn.style.borderColor = '#e2e8f0'; nextBtn.style.color = '#475569'; nextBtn.style.background = '#ffffff'; nextBtn.style.transform = 'translateY(0)'; } };
 
     if (currentPage >= totalPages) {
         nextBtn.disabled = true;
-        nextBtn.style.opacity = '0.45';
+        nextBtn.style.opacity = '0.5';
         nextBtn.style.cursor = 'not-allowed';
+        nextBtn.style.boxShadow = 'none';
+        nextBtn.style.background = '#f8fafc';
     } else {
         nextBtn.onclick = () => onPageChange(currentPage + 1);
     }
@@ -316,10 +336,12 @@ function renderPagination(container, totalItems, currentPage, itemsPerPage, onPa
     controls.appendChild(prevBtn);
     controls.appendChild(infoSpan);
     controls.appendChild(nextBtn);
+
     if (!isInlineToolbar && !isCompactToolbar) {
         const summaryBlock = document.createElement('div');
         summaryBlock.className = 'pagination-summary';
-        summaryBlock.innerHTML = `<strong>${totalItems}</strong> ${resultLabel} <span>•</span> Sayfa <strong>${currentPage}</strong> / ${totalPages}`;
+        summaryBlock.style.cssText = 'color:#64748b; font-size:13px; font-weight:600;';
+        summaryBlock.innerHTML = `<strong style="color:#0f172a;">${totalItems}</strong> ${resultLabel} bulunduğunu görüyoruz.`;
         container.appendChild(summaryBlock);
     }
     container.appendChild(controls);
