@@ -5,6 +5,7 @@ describe('ReportsService.tasksCsv', () => {
     const prisma = {
       task: {
         findMany: jest.fn(),
+        count: jest.fn(),
       },
       user: {
         count: jest.fn().mockResolvedValue(0),
@@ -213,7 +214,7 @@ describe('ReportsService.tasksCsv', () => {
 
   it('returns paged task report payload with aggregate stats when page and limit are provided', async () => {
     const { service, prisma } = buildService()
-    prisma.task.findMany.mockResolvedValue([
+    const taskRows = [
       {
         id: 'task_1',
         accountId: 'acc_1',
@@ -250,7 +251,16 @@ describe('ReportsService.tasksCsv', () => {
         _count: { logs: 1 },
         creationDate: new Date('2026-04-02T10:00:00.000Z'),
       },
-    ])
+    ]
+    prisma.task.count
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(0)
+    prisma.task.findMany
+      .mockResolvedValueOnce([taskRows[0]])
+      .mockResolvedValueOnce(taskRows)
 
     const result = await service.tasksReport(
       { page: '1', limit: '1' },
@@ -278,6 +288,14 @@ describe('ReportsService.tasksCsv', () => {
       sourceKey: 'OLD',
       sourceLabel: 'Old Account',
     }))
+    expect(prisma.task.count).toHaveBeenCalled()
+    expect(prisma.task.findMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        skip: 0,
+        take: 1,
+      }),
+    )
   })
 })
 

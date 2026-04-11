@@ -422,7 +422,21 @@ export class ReportsService {
     }
   }
 
-  private async buildTaskReportRows(
+  private requiresLegacyTaskReportProcessing(q: {
+    mainCategory?: string
+    subCategory?: string
+    logType?: string
+    dealFee?: string
+  }) {
+    return Boolean(
+      q?.mainCategory
+      || q?.subCategory
+      || q?.logType
+      || q?.dealFee,
+    )
+  }
+
+  private async buildTaskReportWhere(
     q: {
       q?: string
       businessId?: string
@@ -435,12 +449,8 @@ export class ReportsService {
       status?: string
       generalStatus?: string
       source?: string
-      mainCategory?: string
-      subCategory?: string
       city?: string
       district?: string
-      logType?: string
-      dealFee?: string
       from?: string
       to?: string
     },
@@ -474,7 +484,22 @@ export class ReportsService {
     if (q.district) where.account = { ...(where.account || {}), district: { contains: q.district, mode: 'insensitive' } }
     this.applyTaskDateFilter(where, q)
 
-    const rows = await this.prisma.task.findMany({
+    if (!q.projectId && q.type === 'PROJECT') {
+      where.AND = [...(Array.isArray(where.AND) ? where.AND : []), {
+        NOT: [{ projectId: null }, { projectId: '' }],
+      }]
+    }
+    if (!q.projectId && q.type === 'GENERAL') {
+      where.AND = [...(Array.isArray(where.AND) ? where.AND : []), {
+        OR: [{ projectId: null }, { projectId: '' }],
+      }]
+    }
+
+    return where
+  }
+
+  private taskReportFindManyArgs(where: any, options: { skip?: number; take?: number } = {}) {
+    const args: any = {
       where,
       include: {
         account: {
@@ -499,69 +524,123 @@ export class ReportsService {
         _count: { select: { logs: true } },
       },
       orderBy: { creationDate: 'desc' },
+    }
+
+    if (Number.isFinite(options.skip as number)) args.skip = options.skip
+    if (Number.isFinite(options.take as number)) args.take = options.take
+    return args
+  }
+
+  private mapTaskReportRow(task: any) {
+    const latestLog = task.logs?.[0] || null
+    const latestLogText = String(latestLog?.text || '').trim()
+    const latestLogLabel = extractLogTag(latestLogText) || (latestLog?.reason || '')
+    const resolvedCategory = resolveCanonicalCategory(task.mainCategory, task.subCategory, task.account?.accountName || '')
+    const normalizedSource = this.normalizeReportSource(task.source || task.account?.source || '')
+    const publishedFeeText = readDealField(latestLogText, 'Yayın Bedeli') || '-'
+    const jokerText = readDealField(latestLogText, 'Joker') || ''
+    return {
+      id: task.id,
+      businessId: task.accountId,
+      ownerId: task.ownerId || '',
+      businessName: task.account?.accountName || task.account?.businessName || '-',
+      city: task.account?.city || '-',
+      district: task.account?.district || '-',
+      assignee: this.resolveTaskAssignee(task),
+      assigneeTeam: task.owner?.team || '',
+      projectId: task.projectId || '',
+      creationChannel: task.creationChannel || '',
+      createdById: task.createdById || '',
+      createdByName: task.creator?.name || task.creator?.email || '',
+      statusKey: String(task.status || '').toLowerCase(),
+      statusLabel: String(task.status || ''),
+      sourceKey: normalizedSource,
+      sourceLabel: toTaskReportSourceLabel(normalizedSource),
+      mainCategory: resolvedCategory.mainCategory || '-',
+      subCategory: resolvedCategory.subCategory || '-',
+      publishedFeeText,
+      jokerText,
+      latestLogLabel: latestLogLabel || '-',
+      conversationHistoryCount: Number(task?._count?.logs || 0),
+      conversationHistoryLabel: `${Number(task?._count?.logs || 0)} kayıt`,
+      logContent: stripHtml(latestLogText) || '-',
+      createdAt: task.creationDate?.toISOString?.() || task.creationDate,
+      lastActionDate: latestLog?.createdAt?.toISOString?.() || task.creationDate?.toISOString?.() || '',
+      followUpDate: latestLog?.followUpDate?.toISOString?.() || '',
+    }
+  }
+
+  private applyDerivedTaskReportFilters(
+    rows: any[],
+    q: {
+      creationChannel?: string
+      type?: string
+      team?: string
+      mainCategory?: string
+      subCategory?: string
+      logType?: string
+      dealFee?: string
+    },
+  ) {
+    return rows.filter((row) => {
+      if (q.creationChannel && String(row.creationChannel || '').toUpperCase() !== String(q.creationChannel).toUpperCase()) return false
+      if (q.type === 'PROJECT' && !row.projectId) return false
+      if (q.type === 'GENERAL' && row.projectId) return false
+      if (q.team && row.assigneeTeam !== q.team) return false
+      if (q.mainCategory && row.mainCategory !== q.mainCategory) return false
+      if (q.subCategory && row.subCategory !== q.subCategory) return false
+      if (q.logType && row.latestLogLabel !== q.logType && !String(row.logContent || '').includes(q.logType)) return false
+      if (q.dealFee) {
+        if (row.statusKey !== 'deal') return false
+        const feeVal = String(row.publishedFeeText || '').trim().toLocaleLowerCase('tr-TR')
+        const jokerVal = String(row.jokerText || '').trim().toLocaleLowerCase('tr-TR')
+        if (q.dealFee === 'bedelsiz') return ['-', 'yok', '0', '0 tl', 'bedelsiz'].includes(feeVal)
+        if (q.dealFee === 'ucretli') return !['-', 'yok', '0', '0 tl', 'bedelsiz'].includes(feeVal)
+        if (q.dealFee === 'joker') return !['', '0', 'yok', '-'].includes(jokerVal)
+      }
+      return true
+    })
+  }
+
+  private async buildTaskReportRows(
+    q: {
+      q?: string
+      businessId?: string
+      projectId?: string
+      creationChannel?: string
+      type?: string
+      ownerId?: string
+      historicalAssignee?: string
+      team?: string
+      status?: string
+      generalStatus?: string
+      source?: string
+      mainCategory?: string
+      subCategory?: string
+      city?: string
+      district?: string
+      logType?: string
+      dealFee?: string
+      from?: string
+      to?: string
+    },
+    user?: { id: string; role: 'ADMIN'|'MANAGER'|'TEAM_LEADER'|'SALESPERSON' },
+  ) {
+    const where = await this.buildTaskReportWhere(q, user)
+    const rows = await this.prisma.task.findMany({
+      ...this.taskReportFindManyArgs(where),
       take: 50000,
     })
 
-    return rows
-      .map((task: any) => {
-        const latestLog = task.logs?.[0] || null
-        const latestLogText = String(latestLog?.text || '').trim()
-        const latestLogLabel = extractLogTag(latestLogText) || (latestLog?.reason || '')
-        const resolvedCategory = resolveCanonicalCategory(task.mainCategory, task.subCategory, task.account?.accountName || '')
-        const publishedFeeText = readDealField(latestLogText, 'Yayın Bedeli') || '-'
-        const jokerText = readDealField(latestLogText, 'Joker') || ''
-        return {
-          id: task.id,
-          businessId: task.accountId,
-          ownerId: task.ownerId || '',
-          businessName: task.account?.accountName || task.account?.businessName || '-',
-          city: task.account?.city || '-',
-          district: task.account?.district || '-',
-          assignee: this.resolveTaskAssignee(task),
-          assigneeTeam: task.owner?.team || '',
-          projectId: task.projectId || '',
-          creationChannel: task.creationChannel || '',
-          createdById: task.createdById || '',
-          createdByName: task.creator?.name || task.creator?.email || '',
-          statusKey: String(task.status || '').toLowerCase(),
-          statusLabel: String(task.status || ''),
-          sourceKey: this.normalizeReportSource(task.source || task.account?.source || ''),
-          sourceLabel: toTaskReportSourceLabel(this.normalizeReportSource(task.source || task.account?.source || '')),
-          mainCategory: resolvedCategory.mainCategory || '-',
-          subCategory: resolvedCategory.subCategory || '-',
-          publishedFeeText,
-          jokerText,
-          latestLogLabel: latestLogLabel || '-',
-          conversationHistoryCount: Number(task?._count?.logs || 0),
-          conversationHistoryLabel: `${Number(task?._count?.logs || 0)} kayıt`,
-          logContent: stripHtml(latestLogText) || '-',
-          createdAt: task.creationDate?.toISOString?.() || task.creationDate,
-          lastActionDate: latestLog?.createdAt?.toISOString?.() || task.creationDate?.toISOString?.() || '',
-          followUpDate: latestLog?.followUpDate?.toISOString?.() || '',
-        }
-      })
-      .map((row) => ({
-        ...row,
-        isIdle: this.isIdleTaskReportRow(row),
-      }))
-      .filter((row) => {
-        if (q.creationChannel && String(row.creationChannel || '').toUpperCase() !== String(q.creationChannel).toUpperCase()) return false
-        if (q.type === 'PROJECT' && !row.projectId) return false
-        if (q.type === 'GENERAL' && row.projectId) return false
-        if (q.team && row.assigneeTeam !== q.team) return false
-        if (q.mainCategory && row.mainCategory !== q.mainCategory) return false
-        if (q.subCategory && row.subCategory !== q.subCategory) return false
-        if (q.logType && row.latestLogLabel !== q.logType && !String(row.logContent || '').includes(q.logType)) return false
-        if (q.dealFee) {
-          if (row.statusKey !== 'deal') return false
-          const feeVal = String(row.publishedFeeText || '').trim().toLocaleLowerCase('tr-TR')
-          const jokerVal = String(row.jokerText || '').trim().toLocaleLowerCase('tr-TR')
-          if (q.dealFee === 'bedelsiz') return ['-', 'yok', '0', '0 tl', 'bedelsiz'].includes(feeVal)
-          if (q.dealFee === 'ucretli') return !['-', 'yok', '0', '0 tl', 'bedelsiz'].includes(feeVal)
-          if (q.dealFee === 'joker') return !['', '0', 'yok', '-'].includes(jokerVal)
-        }
-        return true
-      })
+    return this.applyDerivedTaskReportFilters(
+      rows
+        .map((task: any) => this.mapTaskReportRow(task))
+        .map((row) => ({
+          ...row,
+          isIdle: this.isIdleTaskReportRow(row),
+        })),
+      q,
+    )
   }
 
   async dashboardSnapshot(user?: { id: string; role: 'ADMIN'|'MANAGER'|'TEAM_LEADER'|'SALESPERSON' }) {
@@ -1486,23 +1565,90 @@ export class ReportsService {
     delete (baseQuery as any).page
     delete (baseQuery as any).limit
 
-    const cacheKey = this.cacheIdentity('tasksReportRows', user, baseQuery)
-    const rows = await this.withResponseCache(cacheKey, 12000, async () => this.buildTaskReportRows(baseQuery, user))
     const wantsPaging = q?.page != null || q?.limit != null
-    if (!wantsPaging) return rows
+    const needsLegacyProcessing = this.requiresLegacyTaskReportProcessing(baseQuery)
+    if (!wantsPaging || needsLegacyProcessing) {
+      const cacheKey = this.cacheIdentity('tasksReportRows', user, baseQuery)
+      const rows = await this.withResponseCache(cacheKey, 12000, async () => this.buildTaskReportRows(baseQuery, user))
+      if (!wantsPaging) return rows
+
+      const page = this.toPositiveInt(q?.page, 1, 10000)
+      const limit = this.toPositiveInt(q?.limit, 25, 200)
+      const total = rows.length
+      const offset = (page - 1) * limit
+      const items = rows.slice(offset, offset + limit)
+      return {
+        items,
+        total,
+        page,
+        limit,
+        stats: this.buildTaskReportStats(rows),
+      }
+    }
 
     const page = this.toPositiveInt(q?.page, 1, 10000)
     const limit = this.toPositiveInt(q?.limit, 25, 200)
-    const total = rows.length
     const offset = (page - 1) * limit
-    const items = rows.slice(offset, offset + limit)
-    return {
-      items,
-      total,
-      page,
-      limit,
-      stats: this.buildTaskReportStats(rows),
-    }
+    const pagedCacheKey = this.cacheIdentity('tasksReportPaged', user, { ...baseQuery, page, limit })
+    return this.withResponseCache(pagedCacheKey, 12000, async () => {
+      const where = await this.buildTaskReportWhere(baseQuery, user)
+      const openStatusWhere = { ...where, status: { in: ['NEW', 'HOT', 'NOT_HOT', 'FOLLOWUP'] } }
+      const [total, open, closed, deal, cold, itemRows, idleCandidates] = await Promise.all([
+        this.prisma.task.count({ where }),
+        this.prisma.task.count({ where: openStatusWhere }),
+        this.prisma.task.count({ where: { ...where, status: { in: ['DEAL', 'COLD'] } } }),
+        this.prisma.task.count({ where: { ...where, status: 'DEAL' } }),
+        this.prisma.task.count({ where: { ...where, status: 'COLD' } }),
+        this.prisma.task.findMany({
+          ...this.taskReportFindManyArgs(where, { skip: offset, take: limit }),
+        }),
+        this.prisma.task.findMany({
+          where: openStatusWhere,
+          select: {
+            status: true,
+            creationDate: true,
+            logs: {
+              select: { createdAt: true, followUpDate: true },
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+            },
+          },
+          orderBy: { creationDate: 'desc' },
+          take: 50000,
+        }),
+      ])
+
+      const items = itemRows.map((task: any) => {
+        const row = this.mapTaskReportRow(task)
+        return {
+          ...row,
+          isIdle: this.isIdleTaskReportRow(row),
+        }
+      })
+      const idle = idleCandidates.reduce((acc: number, task: any) => {
+        const row = {
+          statusKey: String(task.status || '').toLowerCase(),
+          lastActionDate: task.logs?.[0]?.createdAt?.toISOString?.() || task.creationDate?.toISOString?.() || '',
+          followUpDate: task.logs?.[0]?.followUpDate?.toISOString?.() || '',
+        }
+        return acc + (this.isIdleTaskReportRow(row) ? 1 : 0)
+      }, 0)
+
+      return {
+        items,
+        total,
+        page,
+        limit,
+        stats: {
+          total,
+          open,
+          closed,
+          deal,
+          cold,
+          idle,
+        },
+      }
+    })
   }
 
   async accountsCsv(q: { status?: string; source?: string; type?: string; from?: string; to?: string }, user?: { id: string; role: 'ADMIN'|'MANAGER'|'TEAM_LEADER'|'SALESPERSON' }) {
