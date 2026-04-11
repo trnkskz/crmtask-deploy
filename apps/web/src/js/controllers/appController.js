@@ -7,6 +7,7 @@ const AppController = (() => {
     const DISMISSED_NOTIFICATION_STORAGE_KEY = 'crm_dismissed_notifications_v1';
     const BACKEND_ADMIN_ONLY_PERMISSIONS = new Set(['manageSettings', 'viewAuditLogs']);
     const MANAGER_PROTECTED_PERMISSIONS = new Set(['reassignTask', 'manageUsers', 'manageRoles']);
+    const ADMIN_ONLY_ADMIN_TABS = new Set(['data', 'logs', 'settings']);
     const dismissedNotificationIds = new Set();
     let dynamicNotificationsCache = [];
     let dynamicNotificationsRequestId = 0;
@@ -116,6 +117,13 @@ const AppController = (() => {
         return Boolean(permissions?.[permissionKey]);
     }
 
+    function canAccessAdminTab(tab, user = AppState.loggedInUser) {
+        const normalizedTab = String(tab || '').trim().toLowerCase();
+        if (!normalizedTab) return true;
+        if (!ADMIN_ONLY_ADMIN_TABS.has(normalizedTab)) return true;
+        return String(user?._apiRole || '').toUpperCase() === 'ADMIN';
+    }
+
     /**
      * Oturum açıldıktan sonra uygulamayı başlatır.
      */
@@ -194,8 +202,10 @@ const AppController = (() => {
         const isSystemAdmin = String(user?._apiRole || '').toUpperCase() === 'ADMIN';
         const btnLogs = document.getElementById('tabBtnLogs');
         const btnSettings = document.getElementById('tabBtnSettings');
+        const btnData = document.querySelector(`.adm-tab-btn[onclick="switchAdminTab('data')"]`);
         if (btnLogs) btnLogs.style.display = (isSystemAdmin || hasPermission('viewAuditLogs', user)) ? 'inline-block' : 'none';
         if (btnSettings) btnSettings.style.display = (isSystemAdmin || hasPermission('manageSettings', user)) ? 'inline-block' : 'none';
+        if (btnData) btnData.style.display = isSystemAdmin ? 'inline-block' : 'none';
 
         const isSalesRep = user.role === USER_ROLES.SALES_REP;
         setVisible('#nav-task-list', hasPermission('viewAllTasks', user));
@@ -642,6 +652,7 @@ const AppController = (() => {
         bindGlobalListeners,
         getUserPermissions,
         hasPermission,
+        canAccessAdminTab,
     };
 })();
 

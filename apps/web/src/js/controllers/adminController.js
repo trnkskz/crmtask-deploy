@@ -291,6 +291,10 @@ const AdminController = (() => {
     }
 
     function switchTab(tab) {
+        if (typeof AppController !== 'undefined' && typeof AppController.canAccessAdminTab === 'function' && !AppController.canAccessAdminTab(tab)) {
+            showToast('Bu yonetim sekmesine erisim yetkiniz bulunmuyor.', 'warning');
+            tab = 'users';
+        }
         _activeTab = tab;
         document.querySelectorAll('.adm-tab-btn').forEach(btn => btn.classList.remove('active'));
         document.querySelectorAll('.admin-tab-content').forEach(c => c.classList.remove('active'));
@@ -303,6 +307,7 @@ const AdminController = (() => {
 
         if (tab === 'users') renderUsers();
         else if (tab === 'categories') renderCategoryList();
+        else if (tab === 'data') {}
         else if (tab === 'logs') displaySystemLogs();
         else if (tab === 'settings') renderSettings();
         else if (tab === 'pricing') PricingController.renderAdminPricing();

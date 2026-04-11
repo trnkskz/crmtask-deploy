@@ -205,9 +205,6 @@ export class ReportsService {
     if (user?.role === 'SALESPERSON') {
       where.id = user.id
     } else if (user?.role === 'MANAGER') {
-      if (await this.managerHasDirectSales(user.id)) {
-        where.managerId = user.id
-      }
       if (opts?.team?.trim()) where.team = opts.team.trim()
     } else if (user?.role === 'TEAM_LEADER') {
       const actor = await this.prisma.user.findUnique({
@@ -288,12 +285,6 @@ export class ReportsService {
   private async taskScope(user?: { id: string; role: 'ADMIN'|'MANAGER'|'TEAM_LEADER'|'SALESPERSON' }) {
     const taskScope: any = {}
     if (user?.role === 'SALESPERSON') taskScope.ownerId = user.id
-    if (user?.role === 'MANAGER') {
-      const hasDirectSales = await this.managerHasDirectSales(user.id)
-      taskScope.owner = hasDirectSales
-        ? ({ managerId: user.id, role: 'SALESPERSON' } as any)
-        : ({ role: 'SALESPERSON' } as any)
-    }
     if (user?.role === 'TEAM_LEADER') {
       const actor = await this.prisma.user.findUnique({
         where: { id: user.id },
@@ -1450,13 +1441,11 @@ export class ReportsService {
       actorTeam = String(actor?.team || '').trim()
     }
     const rows = await this.prisma.account.findMany({ where, orderBy: { creationDate: 'desc' }, take: 1000, include })
-    const managerHasDirectSales = user?.role === 'MANAGER' ? await this.managerHasDirectSales(user.id) : false
     const scoped = rows.filter((r: any) => {
-      if (!user || user.role === 'ADMIN') return true
+      if (!user || user.role === 'ADMIN' || user.role === 'MANAGER') return true
       const t = (r.tasks||[])[0]
       if (!t) return false
       if (user.role === 'SALESPERSON') return t.ownerId === user.id
-      if (user.role === 'MANAGER') return managerHasDirectSales ? (t.owner?.managerId === user.id && t.owner?.role === 'SALESPERSON') : t.owner?.role === 'SALESPERSON'
       if (user.role === 'TEAM_LEADER') return Boolean(actorTeam) && t.owner?.team === actorTeam && t.owner?.role === 'SALESPERSON'
       return true
     })

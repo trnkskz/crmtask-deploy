@@ -46,14 +46,22 @@ export function getDefaultPermissionsForApiRole(role?: string | null): Record<Ca
     importCsv: normalizedRole === 'MANAGER' || normalizedRole === 'TEAM_LEADER' || normalizedRole === 'ADMIN',
     manageUsers: normalizedRole === 'MANAGER' || normalizedRole === 'ADMIN',
     manageRoles: normalizedRole === 'MANAGER' || normalizedRole === 'ADMIN',
-    manageSettings: normalizedRole === 'MANAGER' || normalizedRole === 'ADMIN',
-    viewAuditLogs: normalizedRole === 'MANAGER' || normalizedRole === 'TEAM_LEADER' || normalizedRole === 'ADMIN',
+    manageSettings: normalizedRole === 'ADMIN',
+    viewAuditLogs: normalizedRole === 'ADMIN',
   }
 
-  if (normalizedRole === 'ADMIN' || normalizedRole === 'MANAGER') {
+  if (normalizedRole === 'ADMIN') {
     CAPABILITY_KEYS.forEach((key) => {
       defaults[key] = true
     })
+  }
+
+  if (normalizedRole === 'MANAGER') {
+    CAPABILITY_KEYS.forEach((key) => {
+      defaults[key] = true
+    })
+    defaults.manageSettings = false
+    defaults.viewAuditLogs = false
   }
 
   return defaults
