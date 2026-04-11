@@ -86,9 +86,6 @@ const PoolController = (() => {
                 if (!preserveState && typeof TaskController.resetTaskReportView === 'function') {
                     TaskController.resetTaskReportView();
                 }
-                if (typeof TaskController.renderTaskReports === 'function') {
-                    TaskController.renderTaskReports();
-                }
             }
         }
         /* requests kaldırıldı */
