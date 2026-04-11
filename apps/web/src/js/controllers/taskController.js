@@ -748,6 +748,11 @@ const TaskController = (() => {
         displayTaskReportRows();
     }
 
+    function prepareTaskReportView() {
+        populateTaskReportFilters();
+        displayTaskReportRows();
+    }
+
     async function renderTaskReports(options = {}) {
         populateTaskReportFilters();
         hasAppliedTaskReportFilters = true;
@@ -2606,6 +2611,7 @@ const TaskController = (() => {
         createMinimalCard,
         renderMyTasks,
         renderAllTasks,
+        prepareTaskReportView,
         renderTaskReports,
         resetTaskReportView,
         clearTaskReportFilters,
