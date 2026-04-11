@@ -767,7 +767,7 @@
             </div>
             
             <div id="archiveGlassPanel" class="unified-glass-panel" style="display:flex; padding:20px; margin-bottom: 20px;">
-                <div class="horizontal-filter-grid">
+                <div class="horizontal-filter-grid" style="display:grid !important; grid-template-columns: minmax(0,0.8fr) minmax(0,1fr) minmax(0,1.4fr) minmax(0,1.4fr) minmax(0,0.8fr) minmax(0,0.5fr) minmax(0,0.5fr) auto !important; gap:10px !important; align-items:end; margin:0; width:100%;">
                     <div class="filter-col"><label>Durum</label><select id="passiveFilterStatus"><option value="">Tümü</option><option value="deal">Deal</option><option value="cold">Cold</option></select></div>
                     <div class="filter-col"><label>Personel / Takım</label><select id="passiveFilterAssignee"><option value="">Tümü</option><optgroup label="Takımlar" id="arcFilterTeamGroup"><option value="Team 1">Team 1</option><option value="Team 2">Team 2</option></optgroup><optgroup label="Personeller" id="arcFilterUserGroup"></optgroup></select></div>
                     <div class="filter-col"><label>Ana Kategori</label><select id="passiveFilterCategory" onchange="updateArcFilterSubCategories()"><option value="">Tümü</option></select></div>
@@ -1699,11 +1699,9 @@
         <div class="modal-content modal-md revenue-calculator-modal">
             <button class="modal-close-btn" onclick="closeModal('revenueCalculatorModal')">X</button>
             <div class="revenue-calculator-shell">
-                <div class="revenue-calculator-head">
+                <div class="revenue-calculator-head" style="padding-bottom:12px;">
                     <div>
-                        <span class="revenue-calculator-kicker">Hesaplama Aracı</span>
-                        <h3>Komisyon Hesaplayıcı</h3>
-                        <p>Satış ve komisyon üzerinden Grupanya ile işletme payını hesaplayın. İsterseniz her iki taraf için KDV düşülmüş net sonucu da görün.</p>
+                        <h3 style="margin:0;">Komisyon Hesaplayıcı</h3>
                     </div>
                 </div>
 
@@ -1711,7 +1709,6 @@
                     <section class="revenue-card revenue-card-inputs">
                         <div class="revenue-section-head">
                             <strong>Girdi</strong>
-                            <span>Temel değerleri girin</span>
                         </div>
                         <div class="form-grid revenue-form-grid">
                             <div class="form-group">
@@ -1738,7 +1735,6 @@
                     <section class="revenue-card revenue-card-summary">
                         <div class="revenue-section-head">
                             <strong>Sonuç Özeti</strong>
-                            <span id="calcScenarioLabel">KDV hariç senaryo</span>
                         </div>
                         <div class="revenue-summary-grid">
                             <div class="revenue-summary-tile revenue-summary-brand">
@@ -1760,7 +1756,6 @@
                 <section class="revenue-card revenue-card-breakdown">
                     <div class="revenue-section-head">
                         <strong>Detay Kırılım</strong>
-                        <span>Hesabın bileşenleri</span>
                     </div>
                     <div class="revenue-breakdown-list">
                         <div class="revenue-breakdown-item">
