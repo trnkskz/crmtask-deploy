@@ -349,7 +349,7 @@ const TaskController = (() => {
                 <div class="team-pulse-modal-header">
                     <div class="team-pulse-modal-head team-pulse-modal-head-inline">
                         <div class="team-pulse-modal-inline-rail">
-                            <div class="team-pulse-modal-kicker">OPERASYON ÖZETİ</div>
+                            <div class="team-pulse-modal-kicker"><i class="fas fa-chart-pie"></i> OPERASYON ÖZETİ</div>
                             <h3 id="teamPulseModalTitle">${escapeHtml(record.user.name || '-')}</h3>
                             <div class="team-pulse-modal-team-badge">${escapeHtml(record.user.team || 'Takım atanmadı')}</div>
                         </div>
@@ -357,29 +357,44 @@ const TaskController = (() => {
                 </div>
                 <div class="team-pulse-hero-summary">
                     <button type="button" class="team-pulse-hero-stat open ${teamPulseUiState.selectedMetric === 'open' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('open')">
-                        <span>Açık</span>
-                        <strong>${openMetric.count}</strong>
-                        <small>Anlık açık görev yükü</small>
+                        <div class="stat-icon"><i class="fas fa-folder-open"></i></div>
+                        <div class="stat-content">
+                            <span>Açık</span>
+                            <strong>${openMetric.count}</strong>
+                            <small>Anlık açık görev yükü</small>
+                        </div>
                     </button>
                     <button type="button" class="team-pulse-hero-stat deal ${teamPulseUiState.selectedMetric === 'deal' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('deal')">
-                        <span>Deal</span>
-                        <strong>${dealMetric.count}</strong>
-                        <small>Bu ay deal kapanışları</small>
+                        <div class="stat-icon"><i class="fas fa-handshake"></i></div>
+                        <div class="stat-content">
+                            <span>Deal</span>
+                            <strong>${dealMetric.count}</strong>
+                            <small>Bu ay deal kapanışları</small>
+                        </div>
                     </button>
                     <button type="button" class="team-pulse-hero-stat cold ${teamPulseUiState.selectedMetric === 'cold' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('cold')">
-                        <span>Cold</span>
-                        <strong>${coldMetric.count}</strong>
-                        <small>Bu ay cold sonuçları</small>
+                        <div class="stat-icon"><i class="fas fa-snowflake"></i></div>
+                        <div class="stat-content">
+                            <span>Cold</span>
+                            <strong>${coldMetric.count}</strong>
+                            <small>Bu ay cold sonuçları</small>
+                        </div>
                     </button>
                     <button type="button" class="team-pulse-hero-stat contacted ${teamPulseUiState.selectedMetric === 'contacted' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('contacted')">
-                        <span>Bugün Görüşülen</span>
-                        <strong>${contactedMetric.count}</strong>
-                        <small>Bugün temas edilen işletmeler</small>
+                        <div class="stat-icon"><i class="fas fa-headset"></i></div>
+                        <div class="stat-content">
+                            <span>Bugün Görüşülen</span>
+                            <strong>${contactedMetric.count}</strong>
+                            <small>Bugün temas edilen işletmeler</small>
+                        </div>
                     </button>
                     <button type="button" class="team-pulse-hero-stat opened ${teamPulseUiState.selectedMetric === 'opened' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('opened')">
-                        <span>Aylık Create Task</span>
-                        <strong>${openedMetric.count}</strong>
-                        <small>Bu ay oluşturduğu görevler</small>
+                        <div class="stat-icon"><i class="fas fa-plus-circle"></i></div>
+                        <div class="stat-content">
+                            <span>Aylık Create Task</span>
+                            <strong>${openedMetric.count}</strong>
+                            <small>Bu ay oluşturduğu görevler</small>
+                        </div>
                     </button>
                 </div>
                 <div class="team-pulse-modal-layout single">
