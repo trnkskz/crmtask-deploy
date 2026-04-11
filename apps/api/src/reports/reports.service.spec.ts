@@ -128,12 +128,12 @@ describe('ReportsService.tasksCsv', () => {
     )
   })
 
-  it('does not let sales reps widen reports task scope with ownerId filters', async () => {
+  it('does not let sales reps widen open reports task scope with ownerId filters', async () => {
     const { service, prisma } = buildService()
     prisma.task.findMany.mockResolvedValue([])
 
     await service.tasksReport(
-      { ownerId: 'sales_2', status: 'deal' },
+      { ownerId: 'sales_2', status: 'hot' },
       { id: 'sales_1', role: 'SALESPERSON' },
     )
 
@@ -141,10 +141,47 @@ describe('ReportsService.tasksCsv', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           ownerId: 'sales_1',
+          status: 'HOT',
+        }),
+      }),
+    )
+  })
+
+  it('lets sales reps view closed archive reports without owner scope', async () => {
+    const { service, prisma } = buildService()
+    prisma.task.findMany.mockResolvedValue([])
+
+    await service.tasksReport(
+      { generalStatus: 'CLOSED' },
+      { id: 'sales_1', role: 'SALESPERSON' },
+    )
+
+    expect(prisma.task.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.not.objectContaining({
+          ownerId: 'sales_1',
+        }),
+      }),
+    )
+  })
+
+  it('lets sales reps view deal archive reports without owner scope', async () => {
+    const { service, prisma } = buildService()
+    prisma.task.findMany.mockResolvedValue([])
+
+    await service.tasksReport(
+      { status: 'deal' },
+      { id: 'sales_1', role: 'SALESPERSON' },
+    )
+
+    expect(prisma.task.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
           status: 'DEAL',
         }),
       }),
     )
+    expect(prisma.task.findMany.mock.calls[0][0].where.ownerId).toBeUndefined()
   })
 
   it('filters closed deal reports by closedAt instead of creationDate', async () => {

@@ -324,6 +324,12 @@ export class ReportsService {
     return raw
   }
 
+  private isClosedTaskQuery(q: { status?: string; generalStatus?: string } | undefined) {
+    const normalizedStatus = this.normalizeTaskStatusFilter(q?.status)
+    const normalizedGeneralStatus = String(q?.generalStatus || '').trim().toUpperCase()
+    return normalizedGeneralStatus === 'CLOSED' || normalizedStatus === 'DEAL' || normalizedStatus === 'COLD'
+  }
+
   private normalizeReportSource(value: unknown) {
     const raw = String(value || '').trim().toUpperCase()
     if (!raw) return ''
@@ -390,6 +396,9 @@ export class ReportsService {
   ) {
     const where: any = await this.taskScope(user)
     const isSalesperson = user?.role === 'SALESPERSON'
+    if (isSalesperson && this.isClosedTaskQuery(q)) {
+      delete where.ownerId
+    }
     if (q.businessId) where.accountId = q.businessId
     if (q.projectId) where.projectId = q.projectId
     if (q.q) {
