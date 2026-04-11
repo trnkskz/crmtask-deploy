@@ -559,6 +559,7 @@ const ReportController = (() => {
         switchReportsTab,
         resolveOwnerIdFromFilter: _resolveOwnerIdFromFilter,
         formatTaskReportRow,
+        toApiTaskStatus: _toApiTaskStatus,
     };
 })();
 
@@ -583,7 +584,7 @@ const ArchiveController = (() => {
         const districtFilter = getValue('passiveFilterDistrict');
 
         if (searchFilter) query.set('q', searchFilter);
-        if (statusFilter) query.set('status', _toApiTaskStatus(statusFilter));
+        if (statusFilter) query.set('status', ReportController.toApiTaskStatus(statusFilter));
         else query.set('generalStatus', 'CLOSED');
         if (districtFilter) query.set('district', districtFilter);
         if (categoryFilter) query.set('mainCategory', categoryFilter);
