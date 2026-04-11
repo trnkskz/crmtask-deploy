@@ -551,7 +551,15 @@ const ReportController = (() => {
         if (el) el.innerText = val;
     }
 
-    return { clearFilters, renderReports, exportTasksCSV, exportAccountsCSV, switchReportsTab, resolveOwnerIdFromFilter: _resolveOwnerIdFromFilter };
+    return {
+        clearFilters,
+        renderReports,
+        exportTasksCSV,
+        exportAccountsCSV,
+        switchReportsTab,
+        resolveOwnerIdFromFilter: _resolveOwnerIdFromFilter,
+        formatTaskReportRow,
+    };
 })();
 
 // ============================================================
@@ -644,7 +652,7 @@ const ArchiveController = (() => {
         try {
             const response = await DataService.apiRequest(`/reports/tasks${query ? `?${query}` : ''}`);
             filtered = (Array.isArray(response) ? response : [])
-                .map(formatTaskReportRow)
+                .map((row) => ReportController.formatTaskReportRow(row))
                 .filter((row) => ['deal', 'cold'].includes(String(row.statusKey || '').toLowerCase()))
                 .map((row) => ({
                     id: row.id,

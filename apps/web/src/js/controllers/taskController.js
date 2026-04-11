@@ -420,12 +420,15 @@ const TaskController = (() => {
         stage.style.setProperty('--team-pulse-stage-height', sampleHeight > 0 ? `${Math.ceil(sampleHeight * scale)}px` : 'auto');
     }
 
-    async function renderTeamPulse() {
+    async function renderTeamPulse(options = {}) {
         const pulseContainer = document.getElementById('teamPulseContainer');
         if (!pulseContainer) return;
+        const silent = Boolean(options?.silent);
 
         const requestId = ++teamPulseRequestId;
-        pulseContainer.innerHTML = `<div class="team-pulse-empty-board">Personel performans kartları yükleniyor...</div>`;
+        if (!silent) {
+            pulseContainer.innerHTML = `<div class="team-pulse-empty-board">Personel performans kartları yükleniyor...</div>`;
+        }
 
         try {
             const payload = await DataService.apiRequest('/reports/team-pulse');
@@ -466,8 +469,10 @@ const TaskController = (() => {
             console.error('Team pulse summary load failed:', err);
             if (requestId !== teamPulseRequestId) return;
             teamPulseUiState.recordsByKey = {};
-            pulseContainer.innerHTML = `<div class="team-pulse-empty-board">Personel performans kartlari su anda yuklenemedi. Lutfen tekrar deneyin.</div>`;
-            if (document.getElementById('teamPulseModal')?.style.display === 'flex') {
+            if (!silent) {
+                pulseContainer.innerHTML = `<div class="team-pulse-empty-board">Personel performans kartlari su anda yuklenemedi. Lutfen tekrar deneyin.</div>`;
+            }
+            if (!silent && document.getElementById('teamPulseModal')?.style.display === 'flex') {
                 closeModal('teamPulseModal');
             }
         }
@@ -1045,12 +1050,16 @@ const TaskController = (() => {
         AppState.setPage('allTasks', 1);
     }
 
-    async function renderMyTasks() {
+    async function renderMyTasks(options = {}) {
         const list = document.getElementById('myActiveTaskList');
         const pagination = document.getElementById('myTasksPagination');
         if (!list) return;
-        list.innerHTML = `<div class="no-tasks-message">Görevler yükleniyor...</div>`;
-        if (pagination) pagination.innerHTML = '';
+        const silent = Boolean(options?.silent);
+        const previousScrollY = silent ? window.scrollY : null;
+        if (!silent) {
+            list.innerHTML = `<div class="no-tasks-message">Görevler yükleniyor...</div>`;
+            if (pagination) pagination.innerHTML = '';
+        }
 
         try {
             const me = AppState.loggedInUser || {};
@@ -1072,7 +1081,7 @@ const TaskController = (() => {
             if (!payload.items.length && payload.total > 0 && payload.page > 1) {
                 const lastPage = Math.max(1, Math.ceil(payload.total / Math.max(payload.limit || ITEMS_PER_PAGE_TASKS, 1)));
                 AppState.setPage('myTasks', lastPage);
-                return renderMyTasks();
+                return renderMyTasks(options);
             }
 
             if (!payload.items.length) {
@@ -1090,20 +1099,29 @@ const TaskController = (() => {
                     renderMyTasks();
                 }, { compact: true, resultLabel: 'kayıt' });
             }
+            if (silent && Number.isFinite(previousScrollY)) {
+                requestAnimationFrame(() => window.scrollTo({ top: previousScrollY, behavior: 'auto' }));
+            }
         } catch (err) {
             console.error('My tasks backend list failed:', err);
             const countEl = document.getElementById('myActiveCount');
             if (countEl) countEl.innerText = '0';
-            list.innerHTML = `<div class="no-tasks-message">Görevler su anda yuklenemedi. Lutfen tekrar deneyin.</div>`;
+            if (!silent) {
+                list.innerHTML = `<div class="no-tasks-message">Görevler su anda yuklenemedi. Lutfen tekrar deneyin.</div>`;
+            }
         }
     }
 
-    async function renderAllTasks() {
+    async function renderAllTasks(options = {}) {
         const list = document.getElementById('allActiveTaskList');
         const pagContainer = document.getElementById('allTasksPagination');
         if (!list) return;
-        list.innerHTML = `<div class="no-tasks-message-empty">Açık görevler yükleniyor...</div>`;
-        if (pagContainer) pagContainer.innerHTML = '';
+        const silent = Boolean(options?.silent);
+        const previousScrollY = silent ? window.scrollY : null;
+        if (!silent) {
+            list.innerHTML = `<div class="no-tasks-message-empty">Açık görevler yükleniyor...</div>`;
+            if (pagContainer) pagContainer.innerHTML = '';
+        }
 
         try {
             const assigneeFilter = document.getElementById('filterAllTasksAssignee')?.value || '';
@@ -1124,7 +1142,7 @@ const TaskController = (() => {
                 refreshTodayOutcomeCountsFromBackend().catch((err) => {
                     console.warn('Today outcome counts could not be refreshed from backend:', err);
                 }),
-                renderTeamPulse().catch((err) => {
+                renderTeamPulse({ silent }).catch((err) => {
                     console.warn('Team pulse backend refresh failed:', err);
                 }),
             ]);
@@ -1135,7 +1153,7 @@ const TaskController = (() => {
             if (!payload.items.length && payload.total > 0 && payload.page > 1) {
                 const lastPage = Math.max(1, Math.ceil(payload.total / Math.max(payload.limit || ITEMS_PER_PAGE_TASKS, 1)));
                 AppState.setPage('allTasks', lastPage);
-                return renderAllTasks();
+                return renderAllTasks(options);
             }
 
             if (!payload.items.length) {
@@ -1153,11 +1171,16 @@ const TaskController = (() => {
                     renderAllTasks();
                 }, { compact: true, resultLabel: 'kayıt' });
             }
+            if (silent && Number.isFinite(previousScrollY)) {
+                requestAnimationFrame(() => window.scrollTo({ top: previousScrollY, behavior: 'auto' }));
+            }
         } catch (err) {
             console.error('All tasks backend list failed:', err);
             const countEl = document.getElementById('allActiveCount');
             if (countEl) countEl.innerText = '0';
-            list.innerHTML = `<div class="no-tasks-message-empty">Acik gorevler su anda yuklenemedi. Lutfen tekrar deneyin.</div>`;
+            if (!silent) {
+                list.innerHTML = `<div class="no-tasks-message-empty">Acik gorevler su anda yuklenemedi. Lutfen tekrar deneyin.</div>`;
+            }
         }
     }
 

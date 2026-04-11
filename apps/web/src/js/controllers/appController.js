@@ -565,8 +565,8 @@ const AppController = (() => {
         const refreshMap = {
             'page-dashboard': () => DashboardController.render(),
             'page-task-list': () => PoolController.switchTab(AppState.currentPoolTab),
-            'page-my-tasks': () => TaskController.renderMyTasks(),
-            'page-all-tasks': () => TaskController.renderAllTasks(),
+            'page-my-tasks': () => TaskController.renderMyTasks({ silent }),
+            'page-all-tasks': () => TaskController.renderAllTasks({ silent }),
             'page-businesses': () => { if (AppState.isBizSearched) BusinessController.search(false); },
             'page-passive-tasks': () => ArchiveController.renderPassiveTasks(false, { silent }),
             'page-reports': () => ReportController.renderReports(false, { silent }),
