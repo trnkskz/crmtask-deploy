@@ -766,19 +766,19 @@
                 </div>
             </div>
             
-            <div id="archiveGlassPanel" class="unified-glass-panel" style="display:flex; padding:20px; margin-bottom: 20px;">
-                <div class="horizontal-filter-grid" style="display:grid !important; grid-template-columns: minmax(0,0.8fr) minmax(0,1fr) minmax(0,1.4fr) minmax(0,1.4fr) minmax(0,0.8fr) minmax(0,0.5fr) minmax(0,0.5fr) auto !important; gap:10px !important; align-items:end; margin:0; width:100%;">
-                    <div class="filter-col"><label>Durum</label><select id="passiveFilterStatus"><option value="">Tümü</option><option value="deal">Deal</option><option value="cold">Cold</option></select></div>
-                    <div class="filter-col"><label>Personel / Takım</label><select id="passiveFilterAssignee"><option value="">Tümü</option><optgroup label="Takımlar" id="arcFilterTeamGroup"><option value="Team 1">Team 1</option><option value="Team 2">Team 2</option></optgroup><optgroup label="Personeller" id="arcFilterUserGroup"></optgroup></select></div>
-                    <div class="filter-col"><label>Ana Kategori</label><select id="passiveFilterCategory" onchange="updateArcFilterSubCategories()"><option value="">Tümü</option></select></div>
-                    <div class="filter-col"><label>Alt Kategori</label><select id="passiveFilterSubCategory"><option value="">Tümü</option></select></div>
-                    <div class="filter-col"><label>İlçe</label><select id="passiveFilterDistrict"><option value="">Tümü</option></select></div>
-                    <div class="filter-col"><label>Yıl</label><select id="passiveFilterYear"><option value="">Tümü</option><option value="2024">2024</option><option value="2025">2025</option><option value="2026">2026</option></select></div>
-                    <div class="filter-col"><label>Ay</label><select id="passiveFilterMonth"><option value="">Tümü</option><option value="Ocak">Ocak</option><option value="Şubat">Şubat</option><option value="Mart">Mart</option><option value="Nisan">Nisan</option><option value="Mayıs">Mayıs</option><option value="Haziran">Haziran</option><option value="Temmuz">Temmuz</option><option value="Ağustos">Ağustos</option><option value="Eylül">Eylül</option><option value="Ekim">Ekim</option><option value="Kasım">Kasım</option><option value="Aralık">Aralık</option></select></div>
+            <div id="archiveGlassPanel" class="unified-glass-panel" style="padding:20px; margin-bottom: 20px; overflow:hidden;">
+                <div class="archive-flex-filter" style="display:flex; flex-wrap:nowrap; overflow-x:auto; gap:12px; align-items:flex-end; margin:0; width:100%; padding-bottom:8px;">
+                    <div style="flex:0 0 auto; min-width:90px;"><label style="font-size: 11px; font-weight: 700; color: #64748b; margin-bottom: 4px; display: block; text-transform: uppercase;">Durum</label><select id="passiveFilterStatus" style="width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #cbd5e1; background: #f8fafc; font-size: 13px; color: #0f172a; outline: none; transition:0.2s;"><option value="">Tümü</option><option value="deal">Deal</option><option value="cold">Cold</option></select></div>
+                    <div style="flex:0 0 auto; min-width:140px;"><label style="font-size: 11px; font-weight: 700; color: #64748b; margin-bottom: 4px; display: block; text-transform: uppercase;">Personel / Takım</label><select id="passiveFilterAssignee" style="width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #cbd5e1; background: #f8fafc; font-size: 13px; color: #0f172a; outline: none; transition:0.2s;"><option value="">Tümü</option><optgroup label="Takımlar" id="arcFilterTeamGroup"><option value="Team 1">Team 1</option><option value="Team 2">Team 2</option></optgroup><optgroup label="Personeller" id="arcFilterUserGroup"></optgroup></select></div>
+                    <div style="flex:0 0 auto; min-width:140px;"><label style="font-size: 11px; font-weight: 700; color: #64748b; margin-bottom: 4px; display: block; text-transform: uppercase;">Ana Kategori</label><select id="passiveFilterCategory" onchange="updateArcFilterSubCategories()" style="width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #cbd5e1; background: #f8fafc; font-size: 13px; color: #0f172a; outline: none; transition:0.2s;"><option value="">Tümü</option></select></div>
+                    <div style="flex:0 0 auto; min-width:140px;"><label style="font-size: 11px; font-weight: 700; color: #64748b; margin-bottom: 4px; display: block; text-transform: uppercase;">Alt Kategori</label><select id="passiveFilterSubCategory" style="width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #cbd5e1; background: #f8fafc; font-size: 13px; color: #0f172a; outline: none; transition:0.2s;"><option value="">Tümü</option></select></div>
+                    <div style="flex:0 0 auto; min-width:120px;"><label style="font-size: 11px; font-weight: 700; color: #64748b; margin-bottom: 4px; display: block; text-transform: uppercase;">İlçe</label><select id="passiveFilterDistrict" style="width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #cbd5e1; background: #f8fafc; font-size: 13px; color: #0f172a; outline: none; transition:0.2s;"><option value="">Tümü</option></select></div>
+                    <div style="flex:0 0 auto; min-width:80px;"><label style="font-size: 11px; font-weight: 700; color: #64748b; margin-bottom: 4px; display: block; text-transform: uppercase;">Yıl</label><select id="passiveFilterYear" style="width: 100%; padding: 10px 8px; border-radius: 8px; border: 1px solid #cbd5e1; background: #f8fafc; font-size: 13px; color: #0f172a; outline: none; transition:0.2s;"><option value="">Tümü</option><option value="2024">2024</option><option value="2025">2025</option><option value="2026">2026</option></select></div>
+                    <div style="flex:0 0 auto; min-width:80px;"><label style="font-size: 11px; font-weight: 700; color: #64748b; margin-bottom: 4px; display: block; text-transform: uppercase;">Ay</label><select id="passiveFilterMonth" style="width: 100%; padding: 10px 8px; border-radius: 8px; border: 1px solid #cbd5e1; background: #f8fafc; font-size: 13px; color: #0f172a; outline: none; transition:0.2s;"><option value="">Tümü</option><option value="Ocak">Ocak</option><option value="Şubat">Şubat</option><option value="Mart">Mart</option><option value="Nisan">Nisan</option><option value="Mayıs">Mayıs</option><option value="Haziran">Haziran</option><option value="Temmuz">Temmuz</option><option value="Ağustos">Ağustos</option><option value="Eylül">Eylül</option><option value="Ekim">Ekim</option><option value="Kasım">Kasım</option><option value="Aralık">Aralık</option></select></div>
                     
-                    <div class="hf-action-group">
-                        <button class="hf-btn-primary" onclick="renderPassiveTasks(true)">Uygula</button>
-                        <button class="hf-btn-outline" id="btnClearArchiveFilters" style="display:none;" onclick="clearArchiveFilters()">Temizle</button>
+                    <div style="flex:0 0 auto; display:flex; gap:8px;">
+                        <button style="background: #0f766e; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; transition: 0.2s; height: 38px; box-sizing: border-box;" onclick="renderPassiveTasks(true)">Uygula</button>
+                        <button style="background: transparent; color: #64748b; border: 1px solid #cbd5e1; padding: 10px 15px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; transition: 0.2s; height: 38px; box-sizing: border-box;" id="btnClearArchiveFilters" style="display:none;" onclick="clearArchiveFilters()">Temizle</button>
                     </div>
                 </div>
             </div>
@@ -1696,90 +1696,91 @@
     </div>
 
     <div id="revenueCalculatorModal" class="modal-overlay" onclick="closeModalOnOutsideClick(event)">
-        <div class="modal-content modal-md revenue-calculator-modal">
-            <button class="modal-close-btn" onclick="closeModal('revenueCalculatorModal')">X</button>
-            <div class="revenue-calculator-shell">
-                <div class="revenue-calculator-head" style="padding-bottom:12px;">
-                    <div>
-                        <h3 style="margin:0;">Komisyon Hesaplayıcı</h3>
+        <div class="modal-content" style="max-width: 850px; padding: 0; border-radius: 24px; overflow: hidden; background: #fff; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);">
+            <div style="display: flex; flex-wrap: wrap;">
+                
+                <!-- LEFT SIDE: INPUTS -->
+                <div style="flex: 1 1 350px; padding: 40px; position: relative;">
+                    <button class="modal-close-btn" style="position:absolute; top:20px; left:20px; color:#94a3b8; background:transparent; border:none; cursor:pointer;" onclick="closeModal('revenueCalculatorModal')">
+                        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                    
+                    <div style="margin-bottom: 30px; margin-top:15px;">
+                        <h3 style="margin:0; font-size: 24px; font-weight: 800; color: #0f172a; letter-spacing: -0.02em;">Komisyon Hesaplayıcı</h3>
+                    </div>
+                
+                    <div style="display: flex; flex-direction: column; gap: 24px;">
+                        <div>
+                            <label style="font-size: 11px; font-weight: 800; color: #64748b; margin-bottom: 8px; display: block; text-transform:uppercase; letter-spacing:0.05em;">Satış Fiyatı</label>
+                            <div style="position: relative;">
+                                <input type="number" id="calcSalePrice" style="width: 100%; box-sizing: border-box; padding: 16px 16px 16px 45px; border-radius: 12px; border: 1px solid #cbd5e1; background: #f8fafc; font-size: 16px; font-weight: 600; color: #0f172a; outline: none; transition: 0.2s;" onfocus="this.style.borderColor='#0f766e'; this.style.background='#fff'" onblur="this.style.borderColor='#cbd5e1'; this.style.background='#f8fafc'" min="0" step="0.01" placeholder="0.00" oninput="updateRevenueCalculator()">
+                                <span style="position:absolute; left:18px; top:16px; font-weight:600; color:#94a3b8; font-size: 16px;">₺</span>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label style="font-size: 11px; font-weight: 800; color: #64748b; margin-bottom: 8px; display: block; text-transform:uppercase; letter-spacing:0.05em;">Komisyon Oranı</label>
+                            <div style="position: relative;">
+                                <input type="number" id="calcCommissionRate" style="width: 100%; box-sizing: border-box; padding: 16px 45px 16px 16px; border-radius: 12px; border: 1px solid #cbd5e1; background: #f8fafc; font-size: 16px; font-weight: 600; color: #0f172a; outline: none; transition: 0.2s;" onfocus="this.style.borderColor='#0f766e'; this.style.background='#fff'" onblur="this.style.borderColor='#cbd5e1'; this.style.background='#f8fafc'" min="0" step="0.01" placeholder="0" oninput="updateRevenueCalculator()">
+                                <span style="position:absolute; right:18px; top:16px; font-weight:600; color:#94a3b8; font-size: 16px;">%</span>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 16px 0; border-top: 1px solid #f1f5f9; border-bottom: 1px solid #f1f5f9; margin-top:8px;">
+                            <span style="font-size: 14px; font-weight: 700; color: #334155;">Paylar üzerinden KDV hesapla</span>
+                            <label style="position: relative; display: inline-block; width: 44px; height: 24px;">
+                                <input type="checkbox" id="calcIncludeVat" style="opacity: 0; width: 0; height: 0;" onchange="toggleRevenueVatFields(); document.getElementById('calcVatSlider').style.transform = this.checked ? 'translateX(20px)' : 'translateX(0)'; document.getElementById('calcVatSliderParent').style.backgroundColor = this.checked ? '#0f766e' : '#cbd5e1';">
+                                <span id="calcVatSliderParent" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .3s; border-radius: 24px;"></span>
+                                <span id="calcVatSlider" style="position: absolute; content: ''; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transform: translateX(0);"></span>
+                            </label>
+                        </div>
+                        
+                        <div id="calcVatRateGroup" style="display:none;">
+                            <label style="font-size: 11px; font-weight: 800; color: #64748b; margin-bottom: 8px; display: block; text-transform:uppercase; letter-spacing:0.05em;">KDV Oranı</label>
+                            <div style="position: relative;">
+                                <input type="number" id="calcVatRate" style="width: 100%; box-sizing: border-box; padding: 16px 45px 16px 16px; border-radius: 12px; border: 1px solid #cbd5e1; background: #f8fafc; font-size: 16px; font-weight: 600; color: #0f172a; outline: none; transition: 0.2s;" onfocus="this.style.borderColor='#0f766e'; this.style.background='#fff'" onblur="this.style.borderColor='#cbd5e1'; this.style.background='#f8fafc'" min="0" step="0.01" placeholder="20" oninput="updateRevenueCalculator();">
+                                <span style="position:absolute; right:18px; top:16px; font-weight:600; color:#94a3b8; font-size: 16px;">%</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <div class="revenue-calculator-grid">
-                    <section class="revenue-card revenue-card-inputs">
-                        <div class="revenue-section-head">
-                            <strong>Girdi</strong>
-                        </div>
-                        <div class="form-grid revenue-form-grid">
-                            <div class="form-group">
-                                <label>Satış Fiyatı</label>
-                                <input type="number" id="calcSalePrice" class="modern-capsule-input" min="0" step="0.01" placeholder="0,00" oninput="updateRevenueCalculator()">
-                            </div>
-                            <div class="form-group">
-                                <label>Komisyon Oranı (%)</label>
-                                <input type="number" id="calcCommissionRate" class="modern-capsule-input" min="0" step="0.01" placeholder="0" oninput="updateRevenueCalculator()">
-                            </div>
-                            <div class="form-group full-width">
-                                <label class="revenue-toggle">
-                                    <input type="checkbox" id="calcIncludeVat" onchange="toggleRevenueVatFields()">
-                                    <span>Paylar üzerinden KDV hesapla</span>
-                                </label>
-                            </div>
-                            <div class="form-group" id="calcVatRateGroup" style="display:none;">
-                                <label>KDV Oranı (%)</label>
-                                <input type="number" id="calcVatRate" class="modern-capsule-input" min="0" step="0.01" placeholder="20" oninput="updateRevenueCalculator()">
-                            </div>
-                        </div>
-                    </section>
-
-                    <section class="revenue-card revenue-card-summary">
-                        <div class="revenue-section-head">
-                            <strong>Sonuç Özeti</strong>
-                        </div>
-                        <div class="revenue-summary-grid">
-                            <div class="revenue-summary-tile revenue-summary-brand">
-                                <span>Grupanya Payı</span>
-                                <strong id="calcBrandShare">0,00 TL</strong>
-                            </div>
-                            <div class="revenue-summary-tile revenue-summary-partner">
-                                <span>İşletme Payı</span>
-                                <strong id="calcPartnerShare">0,00 TL</strong>
-                            </div>
-                        </div>
-                        <div class="revenue-meta-row">
-                            <span>Satış: <strong id="calcMetaSale">0,00 TL</strong></span>
-                            <span>Komisyon: <strong id="calcMetaCommission">0%</strong></span>
-                        </div>
-                    </section>
-                </div>
-
-                <section class="revenue-card revenue-card-breakdown">
-                    <div class="revenue-section-head">
-                        <strong>Detay Kırılım</strong>
+                <!-- RIGHT SIDE: RESULTS -->
+                <div style="flex: 1 1 350px; background: linear-gradient(135deg, #064e3b, #0f766e); padding: 50px 40px; display: flex; flex-direction: column; justify-content: center; color: white;">
+                    <div style="margin-bottom: 40px;">
+                        <h4 style="margin:0 0 10px 0; font-size: 13px; font-weight: 700; color: #a7f3d0; text-transform: uppercase; letter-spacing: 0.05em;">Grupanya Payı</h4>
+                        <div id="calcBrandShare" style="font-size: 38px; font-weight: 800; letter-spacing: -0.02em; line-height: 1;">0,00 TL</div>
                     </div>
-                    <div class="revenue-breakdown-list">
-                        <div class="revenue-breakdown-item">
-                            <span>Toplam Satış Bazı</span>
+
+                    <div style="margin-bottom: 45px;">
+                        <h4 style="margin:0 0 10px 0; font-size: 13px; font-weight: 700; color: #a7f3d0; text-transform: uppercase; letter-spacing: 0.05em;">İşletme Payı</h4>
+                        <div id="calcPartnerShare" style="font-size: 38px; font-weight: 800; letter-spacing: -0.02em; line-height: 1;">0,00 TL</div>
+                    </div>
+                    
+                    <div style="padding-top: 25px; border-top: 1px solid rgba(255,255,255,0.15);">
+                        <h4 style="margin:0 0 16px 0; font-size: 11px; font-weight: 800; color: rgba(255,255,255,0.6); text-transform: uppercase; letter-spacing: 0.05em;">Detay Kırılım</h4>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 14px; font-size: 14px;">
+                            <span style="color: rgba(255,255,255,0.85); font-weight:500;">Satış Bazı</span>
                             <strong id="calcNetBase">0,00 TL</strong>
                         </div>
-                        <div class="revenue-breakdown-item">
-                            <span>Toplam KDV Tutarı</span>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 14px; font-size: 14px;">
+                            <span style="color: rgba(255,255,255,0.85); font-weight:500;">KDV Tutarı</span>
                             <strong id="calcVatAmount">0,00 TL</strong>
                         </div>
-                        <div class="revenue-breakdown-item">
-                            <span>Komisyon Tutarı</span>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 14px; font-size: 14px;">
+                            <span style="color: rgba(255,255,255,0.85); font-weight:500;">Komisyon (Brüt)</span>
                             <strong id="calcCommissionAmount">0,00 TL</strong>
                         </div>
-                        <div class="revenue-breakdown-item">
-                            <span>Grupanya Net Payı</span>
-                            <strong id="calcFinalBrandShare">0,00 TL</strong>
+                        <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom:14px; padding-top:10px; border-top:1px dashed rgba(255,255,255,0.2);">
+                            <span style="color: #6ee7b7; font-weight:600;">Grupanya Net</span>
+                            <strong id="calcFinalBrandShare" style="color: #6ee7b7;">0,00 TL</strong>
                         </div>
-                        <div class="revenue-breakdown-item">
-                            <span>İşletme Net Payı</span>
+                        <div style="display: flex; justify-content: space-between; font-size: 14px;">
+                            <span style="color: white; font-weight:600;">İşletme Net</span>
                             <strong id="calcFinalPartnerShare">0,00 TL</strong>
                         </div>
                     </div>
-                </section>
+                </div>
             </div>
         </div>
     </div>
