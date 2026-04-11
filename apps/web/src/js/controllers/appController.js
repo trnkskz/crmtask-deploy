@@ -8,6 +8,8 @@ const AppController = (() => {
     const BACKEND_ADMIN_ONLY_PERMISSIONS = new Set(['manageSettings', 'viewAuditLogs']);
     const MANAGER_PROTECTED_PERMISSIONS = new Set(['reassignTask', 'manageUsers', 'manageRoles']);
     const dismissedNotificationIds = new Set();
+    let dynamicNotificationsCache = [];
+    let dynamicNotificationsRequestId = 0;
 
     function getNotificationDismissKey(id) {
         const value = String(id || '').trim();
@@ -214,6 +216,9 @@ const AppController = (() => {
      * Sayfalar arası geçiş yapar.
      */
     function switchPage(pageId) {
+        if (typeof TaskController !== 'undefined' && typeof TaskController.cancelPendingSurfaceRefresh === 'function') {
+            TaskController.cancelPendingSurfaceRefresh();
+        }
         const requiredPermissionByPage = {
             'page-task-list': 'viewAllTasks',
             'page-all-tasks': 'viewAllTasks',
@@ -278,7 +283,7 @@ const AppController = (() => {
 
     // --- Bildirim UI ---
 
-    function updateNotificationsUI() {
+    async function updateNotificationsUI() {
         if (!AppState.loggedInUser) return;
         const notifList = document.getElementById('notifList');
         if (!notifList) return;
@@ -304,7 +309,7 @@ const AppController = (() => {
         if (dismissedPruned) persistDismissedNotifications();
 
         // Dinamik bildirimler: 3 günden uzun süredir işlem yapılmayan görevler
-        const dynamicNotifs = _buildDynamicNotifications(user)
+        const dynamicNotifs = (await _buildDynamicNotifications(user))
             .filter((n) => !dismissedNotificationIds.has(getDynamicDismissKey(n)));
 
         const totalCount = unreadStored.length + dynamicNotifs.length;
@@ -343,44 +348,42 @@ const AppController = (() => {
         notifList.innerHTML = items.join('');
     }
 
-    function _buildDynamicNotifications(user) {
+    async function _buildDynamicNotifications(user) {
         const notifs = [];
         const teamLeadRole = (typeof USER_ROLES !== 'undefined' && USER_ROLES?.TEAM_LEAD) ? USER_ROLES.TEAM_LEAD : 'Takım Lideri';
         if (String(user?.role || '') === teamLeadRole) {
+            dynamicNotificationsCache = [];
             return notifs;
         }
-        const nowTime = Date.now();
-        const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
-        const userTaskSummaryMap = typeof AppState.getUserTaskSummaryMap === 'function'
-            ? AppState.getUserTaskSummaryMap()
-            : null;
-        const bizMap = typeof AppState.getBizMap === 'function'
-            ? AppState.getBizMap()
-            : null;
-        const mySummary = userTaskSummaryMap?.get(user.name) || null;
-        const myActiveTasks = mySummary
-            ? mySummary.tasks.filter((task) => task.status !== 'cold' && task.status !== 'deal')
-            : AppState.tasks.filter(t =>
-                t.assignee === user.name &&
-                t.status !== 'cold' &&
-                t.status !== 'deal'
-            );
 
-        myActiveTasks.forEach(t => {
-            const lastTime = (t.logs && t.logs.length > 0)
-                ? parseLogDate(t.logs[0].date)
-                : new Date(t.createdAt).getTime();
-            if (lastTime > 0 && (nowTime - lastTime) > threeDaysMs) {
-                const biz = bizMap?.get ? (bizMap.get(t.businessId) || t) : (AppState.businesses.find(b => b.id === t.businessId) || t);
-                notifs.push({
-                    text: `<b>${biz.companyName || 'İşletme'}</b> görevi için 3 günden uzun süredir işlem yapmadınız!`,
+        const requestId = ++dynamicNotificationsRequestId;
+        const canQueryDynamicNotifications = typeof DataService !== 'undefined' && typeof DataService?.apiRequest === 'function';
+        if (user?.id && canQueryDynamicNotifications) {
+            try {
+                const response = await DataService.apiRequest(`/reports/tasks?ownerId=${encodeURIComponent(user.id)}&generalStatus=OPEN`);
+                if (requestId !== dynamicNotificationsRequestId) {
+                    return dynamicNotificationsCache;
+                }
+                const rows = Array.isArray(response?.rows) ? response.rows : [];
+                const nowTime = Date.now();
+                const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+                dynamicNotificationsCache = rows.filter((task) => {
+                    const lastTime = new Date(task?.lastActionDate || task?.createdAt || 0).getTime();
+                    return lastTime > 0 && (nowTime - lastTime) > threeDaysMs;
+                }).map((task) => ({
+                    text: `<b>${task.businessName || task.companyName || 'İşletme'}</b> görevi için 3 günden uzun süredir işlem yapmadınız!`,
                     date: 'Sistem Uyarısı',
                     color: 'var(--warning-color)',
-                    taskId: t.id
-                });
+                    taskId: task.id,
+                }));
+                return dynamicNotificationsCache;
+            } catch (error) {
+                console.warn('Dynamic notifications could not be loaded from backend:', error);
+                dynamicNotificationsCache = [];
+                return dynamicNotificationsCache;
             }
-        });
-
+        }
+        dynamicNotificationsCache = notifs;
         return notifs;
     }
 
@@ -475,7 +478,10 @@ const AppController = (() => {
             if (n.toUserId && AppState.loggedInUser?.id) return n.toUserId === AppState.loggedInUser.id;
             return true;
         });
-        const dynamicKeys = _buildDynamicNotifications(AppState.loggedInUser).map((n) => getDynamicDismissKey(n));
+        const dynamicNotifs = dynamicNotificationsCache.length
+            ? dynamicNotificationsCache
+            : await _buildDynamicNotifications(AppState.loggedInUser);
+        const dynamicKeys = dynamicNotifs.map((n) => getDynamicDismissKey(n));
         if (toMarkRead.length === 0 && dynamicKeys.length === 0) return;
 
         // Optimistic UI Update: okunmamışları anında listeden çıkar
@@ -536,7 +542,8 @@ const AppController = (() => {
     /**
      * Mevcut aktif sayfayı yeniler (debounce sonrası çağrılır).
      */
-    function refreshCurrentView() {
+    function refreshCurrentView(options = {}) {
+        const silent = Boolean(options?.silent);
         if (!AppState.loggedInUser) return;
         if (typeof DropdownController !== 'undefined') {
             DropdownController.updateAssigneeDropdowns();
@@ -551,8 +558,8 @@ const AppController = (() => {
             'page-my-tasks': () => TaskController.renderMyTasks(),
             'page-all-tasks': () => TaskController.renderAllTasks(),
             'page-businesses': () => { if (AppState.isBizSearched) BusinessController.search(false); },
-            'page-passive-tasks': () => ArchiveController.renderPassiveTasks(),
-            'page-reports': () => ReportController.renderReports(),
+            'page-passive-tasks': () => ArchiveController.renderPassiveTasks(false, { silent }),
+            'page-reports': () => ReportController.renderReports(false, { silent }),
             'page-admin': () => AdminController.refreshActiveTab(),
             'page-pricing': () => renderPricingPage(),
             'page-operations-radar': () => renderOperationsRadarPage(),

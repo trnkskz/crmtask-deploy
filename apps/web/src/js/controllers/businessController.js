@@ -108,6 +108,16 @@ const BusinessController = {
         return biz;
     },
 
+    _mergeVisibleBusinesses(items = []) {
+        const incoming = Array.isArray(items) ? items.filter((item) => item?.id) : [];
+        const nextMap = new Map();
+        (Array.isArray(AppState.businesses) ? AppState.businesses : []).forEach((item) => {
+            if (item?.id) nextMap.set(item.id, item);
+        });
+        incoming.forEach((item) => nextMap.set(item.id, item));
+        AppState.businesses = Array.from(nextMap.values()).slice(-200);
+    },
+
     _normalizeSourceKey(value) {
         const raw = String(value || '').trim().toUpperCase();
         if (!raw) return '';
@@ -280,6 +290,18 @@ const BusinessController = {
     _bizCurrentPage: 1,
     _globalSelectedBizIds: new Set(),
 
+    async _fetchBusinessTaskRows(bizId) {
+        if (!bizId || typeof DataService?.apiRequest !== 'function') return [];
+        const response = await DataService.apiRequest(`/reports/tasks?businessId=${encodeURIComponent(bizId)}`);
+        return Array.isArray(response) ? response : [];
+    },
+
+    async _fetchBusinessTaskHistory(bizId) {
+        if (!bizId || typeof DataService?.apiRequest !== 'function') return [];
+        const response = await DataService.apiRequest(`/accounts/${encodeURIComponent(bizId)}/task-history`);
+        return Array.isArray(response) ? response : [];
+    },
+
     _buildBusinessQuery() {
         const selectedSources = Array.from(document.querySelectorAll('.biz-source-filter:checked'))
             .map(cb => this._normalizeSourceKey(cb.value))
@@ -350,6 +372,7 @@ const BusinessController = {
             }
             this._currentFilteredBiz = payload.items;
             this._currentBizTotal = payload.total;
+            this._mergeVisibleBusinesses(payload.items);
             this._renderList();
         } catch (err) {
             console.error('Business list backend query failed:', err);
@@ -565,18 +588,27 @@ const BusinessController = {
             console.warn('Business detail fetch failed, falling back to cached state.', err);
         }
         if (!biz) return;
+        window._openBusinessDetailId = bizId;
 
         const bStatus = biz.businessStatus || 'Aktif';
-        const bizTasks = (AppState.getTaskMap()[bizId] || []).slice();
-        window._currentBizTasks = bizTasks.filter((task) => {
-            if (!task?.assignee || typeof AppState.isOperationalTaskAssignee !== 'function') return true;
-            return AppState.isOperationalTaskAssignee(task.assignee);
-        });
+        let bizTasks = [];
+        let bizTaskHistory = [];
+        try {
+            [bizTasks, bizTaskHistory] = await Promise.all([
+                this._fetchBusinessTaskRows(bizId),
+                this._fetchBusinessTaskHistory(bizId),
+            ]);
+        } catch (error) {
+            console.warn('Business task history load failed:', error);
+            bizTasks = [];
+            bizTaskHistory = [];
+        }
+        window._currentBizTasks = bizTasks;
 
         let pendingUpdateBanner = ''; // Kaldırıldı
 
         const contactSnapshot = window.ContactParity
-            ? window.ContactParity.buildBusinessContactSnapshot(biz, bizTasks)
+            ? window.ContactParity.buildBusinessContactSnapshot(biz, bizTaskHistory)
             : {
                 primaryContact: {
                     name: biz.contactName || 'İsimsiz / Genel',
@@ -812,7 +844,13 @@ const BusinessController = {
             return;
         }
 
-        tbody.innerHTML = paginated.map(t => `<tr><td>${formatDate(t.createdAt).split(' ')[0]}</td><td><span class="clickable-badge" onclick="openUserProfileModal('${t.assignee}')">${t.assignee}</span></td><td><span style="font-size:11px; color:#64748b;">${t.mainCategory || '-'}<br>${t.subCategory || '-'}</span></td><td><span class="badge badge-source">${t.sourceType || '-'}</span></td><td><strong>${statusLabels[t.status] || '-'}</strong></td><td><button class="btn-action" onclick="openTaskModal('${t.id}')" style="padding: 4px 8px; font-size:11px; cursor:pointer;">Detay</button></td></tr>`).join('');
+        tbody.innerHTML = paginated.map((t) => {
+            const createdAt = t.createdAt || t.creationDate || '';
+            const assignee = t.assignee || t.historicalAssignee || t.owner?.name || t.owner?.email || 'Havuz';
+            const statusKey = String(t.statusKey || t.status || '').toLowerCase();
+            const sourceLabel = t.sourceType || t.sourceKey || '-';
+            return `<tr><td>${createdAt ? formatDate(createdAt).split(' ')[0] : '-'}</td><td><span class="clickable-badge" onclick="openUserProfileModal('${assignee}')">${assignee}</span></td><td><span style="font-size:11px; color:#64748b;">${t.mainCategory || '-'}<br>${t.subCategory || '-'}</span></td><td><span class="badge badge-source">${sourceLabel}</span></td><td><strong>${statusLabels[statusKey] || t.statusLabel || t.status || '-'}</strong></td><td><button class="btn-action" onclick="openTaskModal('${t.id}')" style="padding: 4px 8px; font-size:11px; cursor:pointer;">Detay</button></td></tr>`;
+        }).join('');
 
         renderPagination(pagContainer, window._currentBizTasks.length, page, limit, (i) => {
             window.renderBizTaskHistoryPage(i);
@@ -984,13 +1022,30 @@ const BusinessController = {
 
     // ---- Görev Atama (İşletmeler sayfasından) ----
 
-    checkAndAssignTask(bizId) {
-        const hasActiveTask = AppState.tasks.some(t => t.businessId === bizId && isActiveTask(t.status));
+    async checkAndAssignTask(bizId) {
+        let hasActiveTask = false;
+        try {
+            const rows = await DataService.apiRequest(`/accounts/${bizId}/task-history`);
+            hasActiveTask = Array.isArray(rows)
+                ? rows.some((task) => {
+                    const generalStatus = String(task?.generalStatus || '').toUpperCase();
+                    const status = String(task?.status || '').toLowerCase();
+                    return generalStatus === 'OPEN' || isActiveTask(status);
+                })
+                : false;
+        } catch (error) {
+            console.warn('Business task history could not be loaded, using visible task cache only:', error);
+            hasActiveTask = (Array.isArray(AppState.tasks) ? AppState.tasks : []).some((task) => (
+                task?.businessId === bizId && isActiveTask(task.status)
+            ));
+        }
+
         if (hasActiveTask) {
             askConfirm("⚠️ Bu işletmenin halihazırda aktif bir görevi (Open Task) bulunuyor. Yine de yeni bir görev atamak istiyor musunuz?", (res) => { if (res) this._openAssignTaskModal(bizId); });
-        } else {
-            this._openAssignTaskModal(bizId);
+            return;
         }
+
+        this._openAssignTaskModal(bizId);
     },
 
     _openAssignTaskModal(bizId) {
@@ -1218,10 +1273,12 @@ const BusinessController = {
             
             BusinessController.restoreRightPanel(bizId);
             // State anında güncellendiği için manuel unshift yapmıyoruz.
-            window._currentBizTasks = (AppState.getTaskMap()[bizId] || []).filter((task) => {
-                if (!task?.assignee || typeof AppState.isOperationalTaskAssignee !== 'function') return true;
-                return AppState.isOperationalTaskAssignee(task.assignee);
-            });
+            try {
+                window._currentBizTasks = await BusinessController._fetchBusinessTaskRows(bizId);
+            } catch (error) {
+                console.warn('Business task history refresh failed:', error);
+                window._currentBizTasks = [];
+            }
             window.renderBizTaskHistoryPage(1);
         } catch (err) {
             console.error(err);

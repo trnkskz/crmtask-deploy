@@ -332,7 +332,8 @@ const ReportController = (() => {
         };
     }
 
-    async function renderReports(forceApply = false) {
+    async function renderReports(forceApply = false, options = {}) {
+        const silent = Boolean(options?.silent);
         if (forceApply) {
             reportUiState.hasSubmittedFilters = true;
             AppState.setPage('reports', 1);
@@ -348,7 +349,9 @@ const ReportController = (() => {
             return;
         }
 
-        renderEmptyState('Rapor Hazırlanıyor', '⏳');
+        if (!silent) {
+            renderEmptyState('Rapor Hazırlanıyor', '⏳');
+        }
         try {
             const nextState = await buildFilterResults();
             reportUiState.filteredTasks = nextState.filteredTasks;
@@ -358,7 +361,9 @@ const ReportController = (() => {
             _displayReports();
         } catch (err) {
             console.error(err);
-            renderEmptyState('Rapor yüklenemedi', '⚠️');
+            if (!silent) {
+                renderEmptyState('Rapor yüklenemedi', '⚠️');
+            }
         }
     }
 
@@ -546,7 +551,7 @@ const ReportController = (() => {
         if (el) el.innerText = val;
     }
 
-    return { clearFilters, renderReports, exportTasksCSV, exportAccountsCSV, switchReportsTab };
+    return { clearFilters, renderReports, exportTasksCSV, exportAccountsCSV, switchReportsTab, resolveOwnerIdFromFilter: _resolveOwnerIdFromFilter };
 })();
 
 // ============================================================
@@ -556,6 +561,51 @@ const ReportController = (() => {
 
 const ArchiveController = (() => {
     let _hasSearched = false;
+
+    function buildArchiveQuery() {
+        const getValue = id => document.getElementById(id)?.value || '';
+        const query = new URLSearchParams();
+        const searchFilter = normalizeText(getValue('passiveSearchInput'));
+        const statusFilter = getValue('passiveFilterStatus');
+        const yearFilter = getValue('passiveFilterYear');
+        const monthFilter = getValue('passiveFilterMonth');
+        const assigneeFilter = getValue('passiveFilterAssignee');
+        const categoryFilter = getValue('passiveFilterCategory');
+        const subCategoryFilter = getValue('passiveFilterSubCategory');
+        const districtFilter = getValue('passiveFilterDistrict');
+
+        if (searchFilter) query.set('q', searchFilter);
+        if (statusFilter) query.set('status', _toApiTaskStatus(statusFilter));
+        else query.set('generalStatus', 'CLOSED');
+        if (districtFilter) query.set('district', districtFilter);
+        if (categoryFilter) query.set('mainCategory', categoryFilter);
+        if (subCategoryFilter) query.set('subCategory', subCategoryFilter);
+        if (yearFilter) query.set('from', `${yearFilter}-01-01`);
+        if (yearFilter) {
+            if (monthFilter) {
+                const monthIndex = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'].indexOf(monthFilter);
+                if (monthIndex >= 0) {
+                    const month = String(monthIndex + 1).padStart(2, '0');
+                    query.set('from', `${yearFilter}-${month}-01`);
+                    query.set('to', `${yearFilter}-${month}-31`);
+                } else {
+                    query.set('to', `${yearFilter}-12-31`);
+                }
+            } else {
+                query.set('to', `${yearFilter}-12-31`);
+            }
+        }
+
+        if (assigneeFilter === 'Team 1' || assigneeFilter === 'Team 2') {
+            query.set('team', assigneeFilter);
+        } else {
+            const assigneeScope = ReportController.resolveOwnerIdFromFilter(assigneeFilter);
+            if (assigneeScope?.ownerId) query.set('ownerId', assigneeScope.ownerId);
+            if (assigneeScope?.historicalAssignee) query.set('historicalAssignee', assigneeScope.historicalAssignee);
+        }
+
+        return query.toString();
+    }
 
     function clearFilters() {
         AppState.setPage('archive', 1);
@@ -575,7 +625,8 @@ const ArchiveController = (() => {
         const pag = document.getElementById('archivePagination'); if(pag) pag.innerHTML='';
     }
 
-    function renderPassiveTasks(isExplicit = false) {
+    async function renderPassiveTasks(isExplicit = false, options = {}) {
+        const silent = Boolean(options?.silent);
         if (isExplicit === true) _hasSearched = true;
         
         // Eğer hiçbir zaman arama yapılmadıysa ve sayfa 1 ise mesajı göster
@@ -585,71 +636,47 @@ const ArchiveController = (() => {
             return;
         }
 
-        const getValue = id => document.getElementById(id)?.value || '';
-        const searchFilter = normalizeText(getValue('passiveSearchInput'));
-        const statusFilter = getValue('passiveFilterStatus');
-        const yFilter = getValue('passiveFilterYear');
-        const mFilter = getValue('passiveFilterMonth');
-        const aFilter = getValue('passiveFilterAssignee');
-        const cFilter = getValue('passiveFilterCategory');
-        const sFilter = getValue('passiveFilterSubCategory');
-        const dFilter = getValue('passiveFilterDistrict');
-
         const btnClear = document.getElementById('btnClearArchiveFilters');
         if (btnClear) btnClear.style.display = 'inline-block';
 
-        const bizMap = AppState.getBizMap();
-        const filtered = AppState.tasks
-            .filter(t => {
-                const stat = (t.status || '').toLowerCase();
-                // Eğer status boş ama içinde deal/cold kelimesi geçiyorsa onları da yakala (Grupanya eski data koruması)
-                if(stat === 'deal' || stat === 'cold') return true;
-                
-                // Ekstra Güvenlik: Status boş olsa bile loglardan son durumu kontrol et
-                if (t.logs && t.logs.length > 0) {
-                    const lastLogText = t.logs[0].text.toLowerCase();
-                    if (lastLogText.includes('[deal sonucu]')) return true;
+        const query = buildArchiveQuery();
+        let filtered = [];
+        try {
+            const response = await DataService.apiRequest(`/reports/tasks${query ? `?${query}` : ''}`);
+            filtered = (Array.isArray(response) ? response : [])
+                .map(formatTaskReportRow)
+                .filter((row) => ['deal', 'cold'].includes(String(row.statusKey || '').toLowerCase()))
+                .map((row) => ({
+                    id: row.id,
+                    businessId: row.businessId,
+                    companyName: row.businessName,
+                    city: row.city,
+                    district: row.district,
+                    assignee: row.assignee,
+                    status: row.statusKey,
+                    sourceType: row.sourceLabel,
+                    mainCategory: row.mainCategory,
+                    subCategory: row.subCategory,
+                    createdAt: row.createdAt,
+                    logs: row.lastActionDate && row.lastActionDate !== '-'
+                        ? [{ date: row.lastActionDate, text: row.logContent || row.latestLogLabel || '-' }]
+                        : [],
+                }))
+                .sort((a, b) => {
+                    const bTime = b.logs?.length > 0 ? parseLogDate(b.logs[0].date) : new Date(b.createdAt || 0).getTime();
+                    const aTime = a.logs?.length > 0 ? parseLogDate(a.logs[0].date) : new Date(a.createdAt || 0).getTime();
+                    return bTime - aTime;
+                });
+        } catch (err) {
+            console.error('Archive report load failed:', err);
+            if (!silent) {
+                const container = document.getElementById('passiveTasksContainer');
+                if (container) {
+                    container.innerHTML = `<div style="grid-column:1/-1; padding:40px; text-align:center; color:var(--danger-color); background:#fff; border-radius:var(--radius-md); border:1px solid var(--border-light);">Arşiv verileri yüklenemedi.</div>`;
                 }
-                return false;
-            })
-            .filter(t => {
-                const biz = bizMap.get(t.businessId) || t;
-                if (searchFilter) {
-                    const matchesSearch = typeof businessMatchesSearch === 'function'
-                        ? businessMatchesSearch(biz, searchFilter)
-                        : normalizeText(biz.companyName).includes(searchFilter);
-                    if (!matchesSearch) return false;
-                }
-                const currentStatus = (t.status || '').toLowerCase();
-                if (statusFilter && currentStatus !== statusFilter) return false;
-                
-                if (!matchesAssigneeFilter(t, aFilter, AppState.users)) return false;
-                if (!matchesCategoryFilter(t, cFilter, sFilter, biz.companyName)) return false;
-                if (dFilter && biz.district !== dFilter) return false;
-
-                // Tarih bazlı kayıpları önlemek için güvenli tarih ayrıştırma
-                let logTime = 0;
-                if (t.logs && t.logs.length > 0) {
-                    logTime = parseLogDate(t.logs[0].date);
-                } 
-                if (!logTime && t.createdAt) {
-                    logTime = new Date(t.createdAt).getTime();
-                }
-                
-                const d = new Date(logTime || Date.now());
-                const tYear = d.getFullYear().toString();
-                const tMonth = d.toLocaleDateString('tr-TR', { month: 'long' });
-                const tMonthCap = tMonth.charAt(0).toUpperCase() + tMonth.slice(1);
-                
-                if (yFilter && tYear !== yFilter) return false;
-                if (mFilter && tMonthCap !== mFilter) return false;
-                
-                return true;
-            })
-            .sort((a, b) =>
-                ((b.logs?.length > 0 ? parseLogDate(b.logs[0].date) : 0)) -
-                ((a.logs?.length > 0 ? parseLogDate(a.logs[0].date) : 0))
-            );
+            }
+            return;
+        }
 
         AppState.setFiltered('archive', filtered);
         

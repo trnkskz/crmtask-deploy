@@ -1,7 +1,7 @@
 const { loadController, createDocument, createElement } = require('../testUtils/controllerTestUtils');
 
-describe('PoolController cache-backed rendering', () => {
-    it('renders pool lists from cached pool task groups', () => {
+describe('PoolController pool rendering', () => {
+    it('renders pool lists from paged backend payloads', async () => {
         const elements = {
             poolGeneralList: createElement({ closest: jest.fn(() => null) }),
             poolTeam1List: createElement({ closest: jest.fn(() => null) }),
@@ -28,6 +28,12 @@ describe('PoolController cache-backed rendering', () => {
             status: 'new',
             sourceType: 'Old Account',
         };
+        const fetchTaskPage = jest.fn().mockResolvedValue({
+            items: [generalTask],
+            total: 1,
+            page: 1,
+            limit: 25,
+        });
 
         const { controller } = loadController('controllers/poolController.js', 'PoolController', {
             document,
@@ -37,20 +43,21 @@ describe('PoolController cache-backed rendering', () => {
                 selectedPoolIds: new Set(),
                 setPage: jest.fn(),
                 getBizMap: () => new Map([['biz-1', { companyName: 'Acme', city: 'Istanbul' }]]),
-                getPoolTaskGroups: () => ({
-                    general: [generalTask],
-                    team1: [],
-                    team2: [],
-                }),
             },
+            DataService: { fetchTaskPage },
             ITEMS_PER_PAGE: 25,
             renderPagination: jest.fn(),
         });
 
-        controller.renderPoolTasks();
+        await controller.renderPoolTasks();
 
         expect(elements.poolGeneralList.innerHTML).toContain('Acme');
         expect(elements['dot-general'].classList.add).toHaveBeenCalledWith('active');
         expect(elements.selectAllGen.checked).toBe(false);
+        expect(fetchTaskPage).toHaveBeenCalledWith(expect.objectContaining({
+            pool: 'GENERAL',
+            poolTeam: 'GENERAL',
+            generalStatus: 'OPEN',
+        }));
     });
 });

@@ -83,6 +83,53 @@ const RequestController = (() => {
         updateWorkspaceState({ recentSearches: deduped, lastSearchLabel: value });
     }
 
+    async function searchBusinesses(query, limit = 10) {
+        const payload = await DataService.fetchBusinessPage({
+            q: String(query || '').trim(),
+            view: 'summary',
+            page: 1,
+            limit,
+        });
+        const items = Array.isArray(payload?.items) ? payload.items : [];
+        if (items.length > 0) {
+            const merged = new Map((Array.isArray(AppState.businesses) ? AppState.businesses : []).map((biz) => [biz.id, biz]));
+            items.forEach((biz) => merged.set(biz.id, biz));
+            AppState.businesses = Array.from(merged.values()).slice(-200);
+        }
+        return items;
+    }
+
+    function resolveLatestBusinessTask(match) {
+        const status = String(match?.latestTaskStatus || '').toLowerCase();
+        if (!status) return null;
+        return {
+            status,
+            assignee: match?.latestTaskAssignee || 'Havuz',
+            createdAt: match?.latestTaskCreatedAt || null,
+        };
+    }
+
+    async function fetchBusinessTaskHistory(bizId) {
+        const rows = await DataService.apiRequest(`/accounts/${bizId}/task-history`);
+        return Array.isArray(rows) ? rows : [];
+    }
+
+    function mapHistoryLogs(rows = []) {
+        let allLogs = [];
+        rows.forEach((task) => {
+            const taskLogs = Array.isArray(task?.logs) ? task.logs : [];
+            taskLogs.forEach((log) => {
+                allLogs.push({
+                    date: log?.createdAt ? new Date(log.createdAt).toLocaleString('tr-TR') : '-',
+                    user: log?.author?.name || log?.author?.email || 'Sistem',
+                    text: log?.text || '',
+                });
+            });
+        });
+        allLogs.sort((a, b) => (parseLogDate(b.date) || 0) - (parseLogDate(a.date) || 0));
+        return allLogs;
+    }
+
     function shrinkHero() {
         const page = document.getElementById('page-rep-request');
         const hero = document.getElementById('reqDashboardHero');
@@ -203,7 +250,7 @@ const RequestController = (() => {
         subs.forEach(s => el.add(new Option(s, s)));
     }
 
-    function searchName() {
+    async function searchName() {
         const val = document.getElementById('reqSearchName').value.trim();
         const resEl = document.getElementById('reqNameResults');
         if (val.length < 3) {
@@ -219,19 +266,20 @@ const RequestController = (() => {
         });
         pushRecentSearch(val);
 
-        const matches = AppState.businesses.filter((b) => (
-            typeof businessMatchesSearch === 'function'
-                ? businessMatchesSearch(b, val)
-                : normalizeText(b.companyName).includes(normalizeText(val))
-        ));
+        let matches = [];
+        try {
+            matches = await searchBusinesses(val, 10);
+        } catch (err) {
+            console.error('Existing business search failed:', err);
+            resEl.innerHTML = `<div class="no-records-message">Benzer kayıtlar yüklenemedi.</div>`;
+            return;
+        }
 
         if (matches.length > 0) {
             let html = `<div style="margin-bottom:10px; font-size:13px; color:var(--secondary-color);">Sistemde benzer <b>${matches.length}</b> kayıt bulundu:</div><div style="display:flex; flex-direction:column; gap:10px;">`;
             
             matches.slice(0, 10).forEach(m => {
-                const bizTasks = AppState.getTaskMap()[m.id] || [];
-                bizTasks.sort((a,b) => new Date(b.createdAt||0) - new Date(a.createdAt||0));
-                const latestTask = bizTasks[0];
+                const latestTask = resolveLatestBusinessTask(m);
 
                 let isBlocked = false;
                 let blockReason = "";
@@ -281,7 +329,7 @@ const RequestController = (() => {
         }
     }
 
-    function openExistingBizForm(bizId) {
+    async function openExistingBizForm(bizId) {
         shrinkHero();
         const biz = AppState.businesses.find(b => b.id === bizId);
         if (!biz) return;
@@ -304,16 +352,18 @@ const RequestController = (() => {
         const summaryContainer = document.getElementById('reqExistSummaryContent');
         if (summaryContainer) {
             let lastLogHtml = '<span style="color:#64748b; font-size:12px; font-style:italic;">Geçmiş işlem bulunamadı.</span>';
-            const allBizTasks = AppState.tasks.filter(t => t.businessId === biz.id);
             let allLogs = [];
-            allBizTasks.forEach(t => { if (t.logs) allLogs = allLogs.concat(t.logs); });
-            
-            // Tarihe göre sırala
-            allLogs.sort((a, b) => {
-                const dateA = parseLogDate(a.date) || 0;
-                const dateB = parseLogDate(b.date) || 0;
-                return dateB - dateA;
-            });
+            try {
+                const historyRows = await fetchBusinessTaskHistory(biz.id);
+                allLogs = mapHistoryLogs(historyRows);
+            } catch (err) {
+                console.warn('Existing business task history could not be loaded:', err);
+                const fallbackTasks = (Array.isArray(AppState.tasks) ? AppState.tasks : []).filter((t) => t.businessId === biz.id);
+                fallbackTasks.forEach((task) => {
+                    (task.logs || []).forEach((log) => allLogs.push(log));
+                });
+                allLogs.sort((a, b) => (parseLogDate(b.date) || 0) - (parseLogDate(a.date) || 0));
+            }
 
             if (allLogs.length > 0) {
                 const ll = allLogs[0];
@@ -447,7 +497,7 @@ const RequestController = (() => {
         document.getElementById('reqSearchPhone').focus();
     }
 
-    function searchPhone() {
+    async function searchPhone() {
         const val = document.getElementById('reqSearchPhone').value.replace(/\D/g, '');
         const resEl = document.getElementById('reqPhoneResults');
 
@@ -456,14 +506,14 @@ const RequestController = (() => {
             return;
         }
 
-        const matches = AppState.businesses.filter(b => {
-            const p1 = (b.contactPhone || '').replace(/\D/g, '');
-            if (p1.includes(val)) return true;
-            if (b.extraContacts) {
-                return b.extraContacts.some(ec => (ec.phone || '').replace(/\D/g, '').includes(val));
-            }
-            return false;
-        });
+        let matches = [];
+        try {
+            matches = await searchBusinesses(val, 5);
+        } catch (err) {
+            console.error('Phone duplicate search failed:', err);
+            resEl.innerHTML = `<div class="no-records-message">Telefon taraması yapılamadı.</div>`;
+            return;
+        }
 
         if (matches.length > 0) {
             resEl.innerHTML = `<div style="background:#fef2f2; border:1px solid #fca5a5; padding:15px; border-radius:8px; text-align:center;">

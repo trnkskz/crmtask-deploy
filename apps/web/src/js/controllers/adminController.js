@@ -7,6 +7,7 @@ const AdminController = (() => {
 
     let _activeTab = 'users';
     let _usersHydrationInFlight = false;
+    let _userPulseCache = { byKey: new Map(), loadedAt: 0 };
     const BACKEND_ADMIN_ONLY_PERMISSIONS = new Set(['manageSettings', 'viewAuditLogs']);
     const PERMISSION_MATRIX_DEFS = [
         { key: 'viewAllTasks', label: 'Ekip görevlerini görüntüleyebilir', title: 'Ekip görevleri', group: 'Operasyon', detail: 'Tüm ekip akışını izleyebilir.' },
@@ -215,44 +216,6 @@ const AdminController = (() => {
             && getDisplayedTeam(targetUser) === currentUser.team;
     }
 
-    function getTaskDerivedIndex() {
-        if (typeof AppState.getTaskDerivedIndex === 'function') {
-            return AppState.getTaskDerivedIndex();
-        }
-
-        const tasksByAssignee = new Map();
-        const openCountByAssignee = new Map();
-
-        AppState.tasks.forEach((task) => {
-            const assigneeTasks = tasksByAssignee.get(task.assignee) || [];
-            assigneeTasks.push(task);
-            tasksByAssignee.set(task.assignee, assigneeTasks);
-
-            if (isActiveTask(task.status)) {
-                openCountByAssignee.set(task.assignee, (openCountByAssignee.get(task.assignee) || 0) + 1);
-            }
-        });
-
-        return { tasksByAssignee, openCountByAssignee };
-    }
-
-    function getUserTaskSummaryMap() {
-        if (typeof AppState.getUserTaskSummaryMap === 'function') {
-            return AppState.getUserTaskSummaryMap();
-        }
-
-        const taskIndex = getTaskDerivedIndex();
-        const summaryMap = new Map();
-        taskIndex.tasksByAssignee.forEach((tasks, assignee) => {
-            summaryMap.set(assignee, {
-                tasks,
-                totalCount: tasks.length,
-                openCount: taskIndex.openCountByAssignee.get(assignee) || 0,
-            });
-        });
-        return summaryMap;
-    }
-
     function getUserEmailMap() {
         if (typeof AppState.getUserEmailMap === 'function') {
             return AppState.getUserEmailMap();
@@ -265,6 +228,66 @@ const AdminController = (() => {
             return AppState.getUserNameMap();
         }
         return new Map((AppState.users || []).filter((user) => user?.name).map((user) => [user.name, user]));
+    }
+
+    function getDataService() {
+        return typeof DataService !== 'undefined' ? DataService : null;
+    }
+
+    async function loadUserPulseMap(force = false) {
+        const now = Date.now();
+        if (!force && _userPulseCache.loadedAt && (now - _userPulseCache.loadedAt) < 30000) {
+            return _userPulseCache.byKey;
+        }
+
+        const dataService = getDataService();
+        if (!dataService || typeof dataService.apiRequest !== 'function') {
+            return new Map();
+        }
+
+        try {
+            const response = await dataService.apiRequest('/reports/team-pulse');
+            const records = Array.isArray(response?.records) ? response.records : [];
+            const nextMap = new Map();
+            records.forEach((record) => {
+                const userId = String(record?.user?.id || '').trim();
+                const userName = String(record?.user?.name || '').trim();
+                const normalized = {
+                    openCount: Number(record?.metrics?.monthly?.open?.count || 0),
+                    dealCount: Number(record?.metrics?.monthly?.deal?.count || 0),
+                    coldCount: Number(record?.metrics?.monthly?.cold?.count || 0),
+                    totalCount: Number(record?.metrics?.monthly?.open?.count || 0)
+                        + Number(record?.metrics?.monthly?.deal?.count || 0)
+                        + Number(record?.metrics?.monthly?.cold?.count || 0),
+                    record,
+                };
+                if (userId) nextMap.set(`id:${userId}`, normalized);
+                if (userName) nextMap.set(`name:${userName}`, normalized);
+            });
+            _userPulseCache = { byKey: nextMap, loadedAt: now };
+            return nextMap;
+        } catch (err) {
+            console.warn('User pulse load failed:', err);
+            return new Map();
+        }
+    }
+
+    function getPulseSummaryForUser(user, pulseMap) {
+        if (!user || !(pulseMap instanceof Map)) return null;
+        return pulseMap.get(`id:${user.id}`) || pulseMap.get(`name:${user.name}`) || null;
+    }
+
+    async function fetchScopedUserTaskRows(user) {
+        if (!user?.id) return [];
+        const dataService = getDataService();
+        if (!dataService || typeof dataService.apiRequest !== 'function') return [];
+        try {
+            const response = await dataService.apiRequest(`/reports/tasks?ownerId=${encodeURIComponent(user.id)}`);
+            return Array.isArray(response) ? response : [];
+        } catch (err) {
+            console.warn('Scoped user task rows load failed:', err);
+            return [];
+        }
     }
 
     function switchTab(tab) {
@@ -299,7 +322,7 @@ const AdminController = (() => {
         return cloneCategoryTree(GRUPANYA_CATEGORY_TREE);
     }
 
-    function getCategoryUsage(type, oldMain, oldSub = null) {
+    function getCategoryUsageFallback(type, oldMain, oldSub = null) {
         const matchedTaskIds = new Set();
         const matchedBusinessIds = new Set();
 
@@ -329,6 +352,28 @@ const AdminController = (() => {
         };
     }
 
+    async function getCategoryUsage(type, oldMain, oldSub = null) {
+        if (typeof DataService?.apiRequest !== 'function') {
+            return getCategoryUsageFallback(type, oldMain, oldSub);
+        }
+        try {
+            const response = await DataService.apiRequest('/admin/maintenance/category-usage', {
+                method: 'POST',
+                body: JSON.stringify({ type, oldMain, oldSub }),
+            });
+            return {
+                taskIds: Array.isArray(response?.taskIds) ? response.taskIds : [],
+                businessIds: Array.isArray(response?.businessIds) ? response.businessIds : [],
+                taskCount: Number(response?.taskCount || 0),
+                businessCount: Number(response?.businessCount || 0),
+                hasLinkedRecords: Boolean(response?.hasLinkedRecords),
+            };
+        } catch (error) {
+            console.warn('Category usage could not be loaded from backend, using local fallback:', error);
+            return getCategoryUsageFallback(type, oldMain, oldSub);
+        }
+    }
+
     function shouldTransferCategoryEntity(entity, type, oldMain, oldSub = null) {
         return type === 'main'
             ? entity?.mainCategory === oldMain
@@ -349,7 +394,6 @@ const AdminController = (() => {
     function renderUsers() {
         const listContainer = document.getElementById('usersListContainer');
         if (!listContainer) return;
-        const taskIndex = getTaskDerivedIndex();
         const currentUser = AppState.loggedInUser || {};
         const canManageUsers = typeof hasPermission === 'function' ? hasPermission('manageUsers', currentUser) : isManagerUser(currentUser);
         const visibleUsers = getUsersVisibleToCurrentManager();
@@ -374,67 +418,78 @@ const AdminController = (() => {
             return;
         }
 
-        const search = (document.getElementById('userSearchInput')?.value || '').toLowerCase().trim();
-        const rawTeamFilter = document.getElementById('userTeamFilter')?.value || '';
-        const availableTeams = Array.from(new Set(visibleUsers.map((user) => getDisplayedTeam(user)).filter(Boolean)));
-        const teamFilter = isTeamLeaderUser(currentUser)
-            ? currentUser.team
-            : (rawTeamFilter && availableTeams.includes(rawTeamFilter) ? rawTeamFilter : '');
+        const paintRows = (pulseMap) => {
+            const search = (document.getElementById('userSearchInput')?.value || '').toLowerCase().trim();
+            const rawTeamFilter = document.getElementById('userTeamFilter')?.value || '';
+            const availableTeams = Array.from(new Set(visibleUsers.map((user) => getDisplayedTeam(user)).filter(Boolean)));
+            const teamFilter = isTeamLeaderUser(currentUser)
+                ? currentUser.team
+                : (rawTeamFilter && availableTeams.includes(rawTeamFilter) ? rawTeamFilter : '');
 
-        let filtered = visibleUsers.filter(u => {
-            const haystackName = String(u.name || '').toLowerCase();
-            const haystackEmail = String(u.email || '').toLowerCase();
-            const matchSearch = !search || haystackName.includes(search) || haystackEmail.includes(search);
-            const matchTeam = !teamFilter || getDisplayedTeam(u) === teamFilter;
-            return matchSearch && matchTeam;
-        });
+            let filtered = visibleUsers.filter(u => {
+                const haystackName = String(u.name || '').toLowerCase();
+                const haystackEmail = String(u.email || '').toLowerCase();
+                const matchSearch = !search || haystackName.includes(search) || haystackEmail.includes(search);
+                const matchTeam = !teamFilter || getDisplayedTeam(u) === teamFilter;
+                return matchSearch && matchTeam;
+            });
 
-        if (filtered.length === 0 && visibleUsers.length > 0 && !search && !isTeamLeaderUser(currentUser)) {
-            filtered = [...visibleUsers];
-        }
+            if (filtered.length === 0 && visibleUsers.length > 0 && !search && !isTeamLeaderUser(currentUser)) {
+                filtered = [...visibleUsers];
+            }
 
-        if (filtered.length === 0) {
-            const emptyText = visibleUsers.length === 0
-                ? 'Bu kapsamda görüntüleyebileceğiniz kullanıcı bulunamadı.'
-                : 'Sonuç bulunamadı.';
-            listContainer.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px; color:#888;">${emptyText}</td></tr>`;
+            if (filtered.length === 0) {
+                const emptyText = visibleUsers.length === 0
+                    ? 'Bu kapsamda görüntüleyebileceğiniz kullanıcı bulunamadı.'
+                    : 'Sonuç bulunamadı.';
+                listContainer.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px; color:#888;">${emptyText}</td></tr>`;
+                return;
+            }
+
+            const rows = filtered.map(u => {
+                const pulseSummary = getPulseSummaryForUser(u, pulseMap);
+                const openCount = Number(pulseSummary?.openCount || 0);
+                const statusStyle = u.status === 'Pasif' ? 'color:var(--danger-color); font-weight:bold;' : 'color:var(--success-color);';
+                const isSystemAdmin = String(u?._apiRole || '').toUpperCase() === 'ADMIN';
+                const displayTeam = getDisplayedTeam(u);
+                const canManage = canCurrentUserManageUser(u);
+
+                const actions = isSystemAdmin
+                    ? '<span style="font-size:11px; color:#ccc;">Sistem Yöneticisi</span>'
+                    : !canManageUsers || !canManage
+                    ? '<span style="font-size:11px; color:#64748b;">Sadece Görüntüleme</span>'
+                    : `<div style="display:flex; gap:5px; justify-content:flex-end;">
+                        ${u.status === 'Pasif'
+                            ? `<button class="btn-tiny" style="background:var(--success-color); color:#fff;" onclick="activateUser('${u.email}')">Aktifleştir</button>`
+                            : `<button class="btn-tiny" style="background:var(--warning-color); color:#fff;" onclick="requestUserDeactivation('${u.email}')">Pasife Çek</button>`
+                        }
+                        <button class="btn-tiny" style="background:var(--info-color); color:#fff;" onclick="openEditUserModal('${u.email}')">Düzenle</button>
+                        <button class="btn-tiny" style="background:var(--danger-color); color:#fff;" onclick="requestUserDeletion('${u.email}')">Sil</button>
+                       </div>`;
+
+                return `<tr>
+                    <td><button class="btn-user-badge" onclick="openUserProfileModal('${u.name}')">👤 ${u.name}</button></td>
+                    <td>${u.role}</td>
+                    <td>${displayTeam}</td>
+                    <td style="${statusStyle}">${u.status || 'Aktif'}</td>
+                    <td><span style="background:var(--primary-color); color:#fff; padding:2px 8px; border-radius:10px; font-size:11px;">${openCount} Açık</span></td>
+                    <td style="text-align:right;">${actions}</td>
+                </tr>`;
+            }).join('');
+
+            listContainer.innerHTML = rows;
+        };
+
+        const dataService = getDataService();
+        if (!dataService || typeof dataService.apiRequest !== 'function') {
+            listContainer.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px; color:#64748b;">Kullanıcı özetleri şu anda yüklenemedi.</td></tr>`;
             return;
         }
 
-        const rows = filtered.map(u => {
-            const openCountByAssignee = taskIndex?.openCountByAssignee;
-            const openCount = openCountByAssignee && typeof openCountByAssignee.get === 'function'
-                ? (openCountByAssignee.get(u.name) || 0)
-                : 0;
-            const statusStyle = u.status === 'Pasif' ? 'color:var(--danger-color); font-weight:bold;' : 'color:var(--success-color);';
-            const isSystemAdmin = String(u?._apiRole || '').toUpperCase() === 'ADMIN';
-            const displayTeam = getDisplayedTeam(u);
-            const canManage = canCurrentUserManageUser(u);
-
-            const actions = isSystemAdmin
-                ? '<span style="font-size:11px; color:#ccc;">Sistem Yöneticisi</span>'
-                : !canManageUsers || !canManage
-                ? '<span style="font-size:11px; color:#64748b;">Sadece Görüntüleme</span>'
-                : `<div style="display:flex; gap:5px; justify-content:flex-end;">
-                    ${u.status === 'Pasif'
-                        ? `<button class="btn-tiny" style="background:var(--success-color); color:#fff;" onclick="activateUser('${u.email}')">Aktifleştir</button>`
-                        : `<button class="btn-tiny" style="background:var(--warning-color); color:#fff;" onclick="requestUserDeactivation('${u.email}')">Pasife Çek</button>`
-                    }
-                    <button class="btn-tiny" style="background:var(--info-color); color:#fff;" onclick="openEditUserModal('${u.email}')">Düzenle</button>
-                    <button class="btn-tiny" style="background:var(--danger-color); color:#fff;" onclick="requestUserDeletion('${u.email}')">Sil</button>
-                   </div>`;
-
-            return `<tr>
-                <td><button class="btn-user-badge" onclick="openUserProfileModal('${u.name}')">👤 ${u.name}</button></td>
-                <td>${u.role}</td>
-                <td>${displayTeam}</td>
-                <td style="${statusStyle}">${u.status || 'Aktif'}</td>
-                <td><span style="background:var(--primary-color); color:#fff; padding:2px 8px; border-radius:10px; font-size:11px;">${openCount} Açık</span></td>
-                <td style="text-align:right;">${actions}</td>
-            </tr>`;
-        }).join('');
-
-        listContainer.innerHTML = rows;
+        listContainer.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px; color:#64748b;">Kullanıcı özetleri yükleniyor...</td></tr>`;
+        loadUserPulseMap()
+            .then((pulseMap) => paintRows(pulseMap))
+            .catch(() => paintRows(new Map()));
     }
 
     async function saveNewUser() {
@@ -644,7 +699,7 @@ const AdminController = (() => {
         const postSavePromises = [];
 
         // 1. Kullanıcıyı güncelle
-        DataService.saveUser(uObj).then(() => {
+        DataService.saveUser(uObj).then(async () => {
             if (rawNewPass) {
                 postSavePromises.push(
                     DataService.apiRequest(`/users/${u.id}/password`, {
@@ -655,7 +710,7 @@ const AdminController = (() => {
             }
             // 2. İsim değiştiyse, görevlerdeki atanan kişiyi de güncelle
             if (oldName !== newName) {
-                const tasksToUpdate = getUserTaskSummaryMap().get(oldName)?.tasks || [];
+                const tasksToUpdate = await fetchScopedUserTaskRows(u);
                 const promises = tasksToUpdate.map(t =>
                     DataService.apiRequest(`/tasks/${t.id}`, {
                         method: 'PATCH',
@@ -683,14 +738,17 @@ const AdminController = (() => {
         });
     }
 
-    function requestUserDeactivation(email) {
+    async function requestUserDeactivation(email) {
         const u = getUserEmailMap().get(email);
         if (!u) return;
         if (typeof hasPermission === 'function' && !hasPermission('manageUsers')) {
             showToast('Kullanici durumu guncelleme yetkiniz bulunmuyor.', 'warning');
             return;
         }
-        const openTasksCount = getUserTaskSummaryMap().get(u.name)?.openCount || 0;
+        const dataService = getDataService();
+        const openTasksCount = !dataService || typeof dataService.apiRequest !== 'function'
+            ? 0
+            : Number(getPulseSummaryForUser(u, await loadUserPulseMap())?.openCount || 0);
 
         if (openTasksCount > 0) {
             document.getElementById('transferTaskDesc').innerHTML =
@@ -710,14 +768,17 @@ const AdminController = (() => {
         }
     }
 
-    function requestUserDeletion(email) {
+    async function requestUserDeletion(email) {
         const u = getUserEmailMap().get(email);
         if (!u) return;
         if (typeof hasPermission === 'function' && !hasPermission('manageUsers')) {
             showToast('Kullanici silme yetkiniz bulunmuyor.', 'warning');
             return;
         }
-        const totalTasks = getUserTaskSummaryMap().get(u.name)?.totalCount || 0;
+        const dataService = getDataService();
+        const totalTasks = (!dataService || typeof dataService.apiRequest !== 'function')
+            ? 0
+            : (await fetchScopedUserTaskRows(u)).length;
 
         if (totalTasks > 0) {
             document.getElementById('transferTaskDesc').innerHTML =
@@ -785,7 +846,7 @@ const AdminController = (() => {
         });
     }
 
-    function openUserProfileModal(userRef) {
+    async function openUserProfileModal(userRef) {
         const rawRef = String(userRef || '').trim();
         const normalizedRef = rawRef.toLocaleLowerCase('tr-TR');
         const u = getUserNameMap().get(rawRef)
@@ -795,18 +856,11 @@ const AdminController = (() => {
                 || String(user?.name || '').trim().toLocaleLowerCase('tr-TR') === normalizedRef
             );
         if (!u) return showToast('Bilgi bulunamadı.', 'warning');
-        const summary = getUserTaskSummaryMap().get(u.name) || { tasks: [], openCount: 0, monthlyStats: {} };
-        const monthKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
-        const monthly = summary.monthlyStats?.[monthKey] || { deal: 0, cold: 0 };
-        const followupCount = (summary.tasks || []).filter((task) => task.status === 'followup').length;
-        const lastTask = [...(summary.tasks || [])].sort((a, b) => {
-            const aTime = a?.logs?.length ? (parseLogDate(a.logs[0].date) || 0) : new Date(a.createdAt || 0).getTime();
-            const bTime = b?.logs?.length ? (parseLogDate(b.logs[0].date) || 0) : new Date(b.createdAt || 0).getTime();
-            return bTime - aTime;
-        })[0];
-        const lastActionTime = lastTask
-            ? (lastTask.logs?.length ? lastTask.logs[0].date : formatDate(lastTask.createdAt))
-            : '-';
+        const pulseSummary = getPulseSummaryForUser(u, await loadUserPulseMap());
+        const summaryTasks = await fetchScopedUserTaskRows(u);
+        const followupCount = summaryTasks.filter((task) => String(task?.statusKey || '').toLowerCase() === 'followup').length;
+        const lastTask = [...summaryTasks].sort((a, b) => new Date(b.lastActionDate || b.createdAt || 0).getTime() - new Date(a.lastActionDate || a.createdAt || 0).getTime())[0];
+        const lastActionTime = lastTask?.lastActionDate ? formatDate(lastTask.lastActionDate) : '-';
         const defaultPermissions = getDefaultPermissionsForRole(u.role);
         const effectivePermissions = { ...defaultPermissions, ...(u.settings?.permissions || {}) };
         const enabledPermissionLabels = PERMISSION_MATRIX_DEFS
@@ -814,10 +868,13 @@ const AdminController = (() => {
             .map((permission) => permission.label)
             .slice(0, 6);
         const overrideCount = Object.keys(u.settings?.permissions || {}).filter((key) => defaultPermissions[key] !== effectivePermissions[key]).length;
-        const workloadLabel = summary.openCount > 40 ? 'Yoğun' : summary.openCount > 20 ? 'Dengeli' : 'Müsait';
-        const riskScore = summary.openCount > 40
+        const openCount = Number(pulseSummary?.openCount || 0);
+        const dealCount = Number(pulseSummary?.dealCount || 0);
+        const coldCount = Number(pulseSummary?.coldCount || 0);
+        const workloadLabel = openCount > 40 ? 'Yoğun' : openCount > 20 ? 'Dengeli' : 'Müsait';
+        const riskScore = openCount > 40
             ? 'Yüksek'
-            : monthly.cold > monthly.deal + 5
+            : coldCount > dealCount + 5
             ? 'Orta'
             : 'Düşük';
 
@@ -832,9 +889,9 @@ const AdminController = (() => {
             stEl.style.color = u.status === 'Pasif' ? 'var(--danger-color)' : 'var(--success-color)';
         }
         document.getElementById('profileModalRole').innerHTML = u.role;
-        document.getElementById('profileModalOpenCount').innerText = String(summary.openCount || 0);
-        document.getElementById('profileModalDealCount').innerText = String(monthly.deal || 0);
-        document.getElementById('profileModalColdCount').innerText = String(monthly.cold || 0);
+        document.getElementById('profileModalOpenCount').innerText = String(openCount);
+        document.getElementById('profileModalDealCount').innerText = String(dealCount);
+        document.getElementById('profileModalColdCount').innerText = String(coldCount);
         document.getElementById('profileModalFollowupCount').innerText = String(followupCount);
         document.getElementById('profileModalLastAction').innerText = lastActionTime;
         document.getElementById('profileModalWorkload').innerText = workloadLabel;
@@ -1240,9 +1297,6 @@ const AdminController = (() => {
         askConfirm("DİKKAT: Tüm işletmelerdeki iletişim verileri (isim, telefon, e-posta) taranacak, tekrarlananlar silinecek ve parçalanmış isimler akıllıca birleştirilecektir. Bu işlem geri alınamaz. Onaylıyor musunuz?", (res) => {
             if (!res) return;
 
-            const bizUpdates = [];
-            let updatedBizCount = 0;
-            const taskMap = typeof AppState.getTaskMap === 'function' ? AppState.getTaskMap() : {};
             const buildSnapshot = window.ContactParity?.buildBusinessContactSnapshot;
             const fallbackExtractPhones = window.ContactParity?.extractPhones || ((rawStr) => {
                 if (!rawStr) return [];
@@ -1259,63 +1313,85 @@ const AdminController = (() => {
                     email: String(contact?.email || '').trim().toLowerCase(),
                 }))
                 .filter((contact) => contact.name || contact.phone || contact.email);
+            const businesses = Array.isArray(AppState.businesses) ? [...AppState.businesses] : [];
 
-            AppState.businesses.forEach(biz => {
-                const bizTasks = taskMap[biz.id] || [];
-                const snapshot = typeof buildSnapshot === 'function' ? buildSnapshot(biz, bizTasks) : null;
-                const primaryContact = snapshot?.primaryContact || {};
-                const primaryPhones = Array.isArray(primaryContact.phones) ? primaryContact.phones : fallbackExtractPhones(biz.contactPhone);
-                const primaryEmails = Array.isArray(primaryContact.emails) ? primaryContact.emails : fallbackExtractEmails(biz.contactEmail);
-                const mainName = String(primaryContact.name || biz.contactName || biz.contactPerson || '').trim();
-                const mainPhone = String(primaryPhones[0] || '').trim();
-                const mainEmail = String(primaryEmails[0] || '').trim().toLowerCase();
-                const extraContacts = normalizeExtraContacts((snapshot?.otherContacts || []).map((contact) => ({
-                    name: contact?.name || '',
-                    phone: Array.isArray(contact?.phones) ? (contact.phones[0] || '') : '',
-                    email: Array.isArray(contact?.emails) ? (contact.emails[0] || '') : '',
-                })));
+            showProgressOverlay("İletişim Verileri Analiz Ediliyor", `0 / ${businesses.length} işletme taranıyor`, { percent: 5, meta: 'Görev geçmişleri sunucudan okunuyor.' });
 
-                const currentName = String(biz.contactPerson || biz.contactName || '').trim();
-                const currentPhone = String(fallbackExtractPhones(biz.contactPhone)[0] || biz.contactPhone || '').trim();
-                const currentEmail = String(fallbackExtractEmails(biz.contactEmail)[0] || biz.contactEmail || '').trim().toLowerCase();
-                const currentExtra = JSON.stringify(normalizeExtraContacts(biz.extraContacts || []));
-                const nextExtra = JSON.stringify(extraContacts);
-
-                if (currentName !== mainName || currentPhone !== mainPhone || currentEmail !== mainEmail || currentExtra !== nextExtra) {
-                    bizUpdates.push(() =>
-                        DataService.apiRequest(`/accounts/${biz.id}`, {
-                            method: 'PATCH',
-                            body: JSON.stringify({
-                                contactPerson: mainName,
-                                contactPhone: mainPhone,
-                                contactEmail: mainEmail,
-                                extraContacts: extraContacts,
-                            })
-                        }).catch(err => console.warn(`Biz ${biz.id} cleaning failed:`, err))
-                    );
-                    updatedBizCount++;
-                }
+            const fetchers = businesses.map((biz, index) => async () => {
+                const rows = await DataService.apiRequest(`/accounts/${biz.id}/task-history`).catch((err) => {
+                    console.warn(`Business ${biz.id} task history could not be loaded:`, err);
+                    return [];
+                });
+                const done = index + 1;
+                updateProgressOverlay(`${done} / ${businesses.length} işletme taranıyor`, {
+                    percent: 5 + (done / Math.max(businesses.length, 1)) * 35,
+                    meta: 'Görev geçmişi tabanlı iletişim snapshotı hazırlanıyor.',
+                });
+                return { biz, rows: Array.isArray(rows) ? rows : [] };
             });
 
-            if (updatedBizCount > 0) {
-                showProgressOverlay("İletişim Verileri Temizleniyor", `0 / ${updatedBizCount} işletme işlendi`, { percent: 10, meta: 'Yinelenen iletişim kayıtları tekilleştiriliyor.' });
+            runBatched(fetchers, 5).then((snapshots) => {
+                const bizUpdates = [];
+                snapshots.forEach(({ biz, rows }) => {
+                    const snapshot = typeof buildSnapshot === 'function' ? buildSnapshot(biz, rows) : null;
+                    const primaryContact = snapshot?.primaryContact || {};
+                    const primaryPhones = Array.isArray(primaryContact.phones) ? primaryContact.phones : fallbackExtractPhones(biz.contactPhone);
+                    const primaryEmails = Array.isArray(primaryContact.emails) ? primaryContact.emails : fallbackExtractEmails(biz.contactEmail);
+                    const mainName = String(primaryContact.name || biz.contactName || biz.contactPerson || '').trim();
+                    const mainPhone = String(primaryPhones[0] || '').trim();
+                    const mainEmail = String(primaryEmails[0] || '').trim().toLowerCase();
+                    const extraContacts = normalizeExtraContacts((snapshot?.otherContacts || []).map((contact) => ({
+                        name: contact?.name || '',
+                        phone: Array.isArray(contact?.phones) ? (contact.phones[0] || '') : '',
+                        email: Array.isArray(contact?.emails) ? (contact.emails[0] || '') : '',
+                    })));
+
+                    const currentName = String(biz.contactPerson || biz.contactName || '').trim();
+                    const currentPhone = String(fallbackExtractPhones(biz.contactPhone)[0] || biz.contactPhone || '').trim();
+                    const currentEmail = String(fallbackExtractEmails(biz.contactEmail)[0] || biz.contactEmail || '').trim().toLowerCase();
+                    const currentExtra = JSON.stringify(normalizeExtraContacts(biz.extraContacts || []));
+                    const nextExtra = JSON.stringify(extraContacts);
+
+                    if (currentName !== mainName || currentPhone !== mainPhone || currentEmail !== mainEmail || currentExtra !== nextExtra) {
+                        bizUpdates.push(() =>
+                            DataService.apiRequest(`/accounts/${biz.id}`, {
+                                method: 'PATCH',
+                                body: JSON.stringify({
+                                    contactPerson: mainName,
+                                    contactPhone: mainPhone,
+                                    contactEmail: mainEmail,
+                                    extraContacts: extraContacts,
+                                })
+                            }).catch(err => console.warn(`Biz ${biz.id} cleaning failed:`, err))
+                        );
+                    }
+                });
+
+                const updatedBizCount = bizUpdates.length;
+                if (updatedBizCount === 0) {
+                    showToast("Temizlenecek veri bulunamadı.", "info");
+                    return;
+                }
+
+                updateProgressOverlay("İletişim Verileri Temizleniyor", `0 / ${updatedBizCount} işletme işlendi`, { percent: 45, meta: 'Yinelenen iletişim kayıtları tekilleştiriliyor.' });
                 const wrappedUpdates = bizUpdates.map((fn, index) => async () => {
                     await fn();
                     const done = index + 1;
                     updateProgressOverlay(`${done} / ${updatedBizCount} işletme işlendi`, {
-                        percent: 10 + (done / updatedBizCount) * 80,
+                        percent: 45 + (done / updatedBizCount) * 50,
                         meta: 'Telefon, e-posta ve yetkili kayıtları birleştiriliyor.',
                     });
                 });
-                runBatched(wrappedUpdates, 4).then(() => {
+                return runBatched(wrappedUpdates, 4).then(() => {
                     showToast(`${updatedBizCount} işletmenin iletişim verileri temizlendi!`, "success");
                     addSystemLog(`VERİ TEMİZLİĞİ: ${updatedBizCount} işletme tekilleştirildi.`);
-                }).finally(() => {
-                    hideProgressOverlay();
                 });
-            } else {
-                showToast("Temizlenecek veri bulunamadı.", "info");
-            }
+            }).catch((error) => {
+                console.error(error);
+                showToast("İletişim temizliği sırasında hata oluştu.", "error");
+            }).finally(() => {
+                hideProgressOverlay();
+            });
         });
     }
 
@@ -1500,8 +1576,8 @@ async function runBatched(requests, batchSize = 10) {
 // --- KATEGORİ TRANSFER VE GÜVENLİ SİLME MOTORU ---
 let catTransferCtx = null;
 
-window.openCategoryTransferModal = function(type, oldMain, oldSub, index, count) {
-    const usage = getCategoryUsage(type, oldMain, oldSub);
+window.openCategoryTransferModal = async function(type, oldMain, oldSub, index, count) {
+    const usage = await getCategoryUsage(type, oldMain, oldSub);
     catTransferCtx = {
         type,
         oldMain,
@@ -1556,35 +1632,8 @@ window.executeCategoryTransfer = function() {
     if (!newMain) return showToast('Lütfen hedef bir ana kategori seçin.', 'warning');
 
     const nextSub = newSub || '';
-    const taskUpdates = [];
-    const businessUpdates = [];
-    const matchedTaskIds = new Set();
-    const matchedBusinessIds = new Set();
-
-    AppState.tasks.forEach((task) => {
-        if (!shouldTransferCategoryEntity(task, catTransferCtx.type, catTransferCtx.oldMain, catTransferCtx.oldSub)) return;
-        matchedTaskIds.add(task.id);
-        if (task.businessId) matchedBusinessIds.add(task.businessId);
-        taskUpdates.push(() =>
-            DataService.apiRequest(`/tasks/${task.id}`, {
-                method: 'PATCH',
-                body: JSON.stringify({ mainCategory: newMain, subCategory: nextSub }),
-            }),
-        );
-    });
-
-    AppState.businesses.forEach((biz) => {
-        if (!shouldTransferCategoryEntity(biz, catTransferCtx.type, catTransferCtx.oldMain, catTransferCtx.oldSub)) return;
-        matchedBusinessIds.add(biz.id);
-        businessUpdates.push(() =>
-            DataService.apiRequest(`/accounts/${biz.id}`, {
-                method: 'PATCH',
-                body: JSON.stringify({ mainCategory: newMain, subCategory: nextSub }),
-            }),
-        );
-    });
-
-    const transferredCount = matchedBusinessIds.size;
+    const fallbackUsage = catTransferCtx.usage || getCategoryUsageFallback(catTransferCtx.type, catTransferCtx.oldMain, catTransferCtx.oldSub);
+    const transferredCount = Number(fallbackUsage?.businessCount || 0);
     showProgressOverlay("Kategori Transferi Başladı", "Kategori ağacı kaydediliyor", {
         percent: 10,
         meta: `${transferredCount} işletme için görev ve işletme kayıtları taşınacak.`,
@@ -1598,20 +1647,52 @@ window.executeCategoryTransfer = function() {
     }
 
     // 3. Kategorileri kaydet, sonra ilgili görev ve işletmeleri birlikte taşı
-    DataService.saveCategories(AppState.dynamicCategories).then(() => {
-        updateProgressOverlay("Görev kayıtları taşınıyor", {
-            percent: 35,
-            meta: `${taskUpdates.length} görev güncelleniyor.`,
+    DataService.saveCategories(AppState.dynamicCategories).then(async () => {
+        updateProgressOverlay("Kategori kayıtları sunucuda taşınıyor", {
+            percent: 55,
+            meta: `${Number(fallbackUsage?.taskCount || 0)} görev ve ${Number(fallbackUsage?.businessCount || 0)} işletme güncelleniyor.`,
         });
-        return runBatched(taskUpdates, 10);
-    }).then(() => {
-        updateProgressOverlay("İşletme kartları taşınıyor", {
-            percent: 72,
-            meta: `${businessUpdates.length} işletme güncelleniyor.`,
+        if (typeof DataService?.apiRequest === 'function') {
+            return DataService.apiRequest('/admin/maintenance/transfer-category', {
+                method: 'POST',
+                body: JSON.stringify({
+                    type: catTransferCtx.type,
+                    oldMain: catTransferCtx.oldMain,
+                    oldSub: catTransferCtx.oldSub,
+                    newMain,
+                    newSub: nextSub,
+                    index: catTransferCtx.index,
+                    categories: AppState.dynamicCategories,
+                }),
+            });
+        }
+        const taskUpdates = [];
+        const businessUpdates = [];
+        AppState.tasks.forEach((task) => {
+            if (!shouldTransferCategoryEntity(task, catTransferCtx.type, catTransferCtx.oldMain, catTransferCtx.oldSub)) return;
+            taskUpdates.push(() =>
+                DataService.apiRequest(`/tasks/${task.id}`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ mainCategory: newMain, subCategory: nextSub }),
+                }),
+            );
         });
-        return runBatched(businessUpdates, 10);
-    }).then(() => {
+        AppState.businesses.forEach((biz) => {
+            if (!shouldTransferCategoryEntity(biz, catTransferCtx.type, catTransferCtx.oldMain, catTransferCtx.oldSub)) return;
+            businessUpdates.push(() =>
+                DataService.apiRequest(`/accounts/${biz.id}`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ mainCategory: newMain, subCategory: nextSub }),
+                }),
+            );
+        });
+        await runBatched(taskUpdates, 10);
+        await runBatched(businessUpdates, 10);
+        return fallbackUsage;
+    }).then((result) => {
         updateProgressOverlay("Ekran yenileniyor", { percent: 96 });
+        const matchedTaskIds = new Set(Array.isArray(result?.taskIds) ? result.taskIds : fallbackUsage.taskIds || []);
+        const matchedBusinessIds = new Set(Array.isArray(result?.businessIds) ? result.businessIds : fallbackUsage.businessIds || []);
         AppState.tasks = AppState.tasks.map((task) => (
             matchedTaskIds.has(task.id)
                 ? { ...task, mainCategory: newMain, subCategory: nextSub }
@@ -1637,40 +1718,40 @@ window.executeCategoryTransfer = function() {
 };
 
 // 3. Eski Silme Fonksiyonlarını Güvenli Versiyonlarla Ez (Override)
-window.removeSystemMainCategory = function(cat) {
-    const usage = getCategoryUsage('main', cat);
-    
+window.removeSystemMainCategory = async function(cat) {
+    const usage = await getCategoryUsage('main', cat);
+
     if (usage.hasLinkedRecords) {
-        openCategoryTransferModal('main', cat, null, null, usage.businessCount || usage.taskCount);
-    } else {
-        askConfirm(`'${cat}' kategorisini silmek istediğinize emin misiniz?`, res => {
-            if (!res) return;
-            delete AppState.dynamicCategories[cat];
-            DataService.saveCategories(AppState.dynamicCategories).then(() => {
-                addSystemLog(`ANA KATEGORİ SİLİNDİ: ${cat}`);
-                showToast('Kategori silindi', 'success');
-                if (typeof AdminController !== 'undefined') AdminController.renderCategoryList();
-                if (typeof DropdownController !== 'undefined') DropdownController.populateMainCategoryDropdowns();
-            });
-        });
+        return openCategoryTransferModal('main', cat, null, null, usage.businessCount || usage.taskCount);
     }
+
+    askConfirm(`'${cat}' kategorisini silmek istediğinize emin misiniz?`, res => {
+        if (!res) return;
+        delete AppState.dynamicCategories[cat];
+        DataService.saveCategories(AppState.dynamicCategories).then(() => {
+            addSystemLog(`ANA KATEGORİ SİLİNDİ: ${cat}`);
+            showToast('Kategori silindi', 'success');
+            if (typeof AdminController !== 'undefined') AdminController.renderCategoryList();
+            if (typeof DropdownController !== 'undefined') DropdownController.populateMainCategoryDropdowns();
+        });
+    });
 };
 
-window.removeSystemSubCategory = function(main, index) {
+window.removeSystemSubCategory = async function(main, index) {
     if (!AppState.dynamicCategories[main]) return;
     const subName = AppState.dynamicCategories[main][index];
-    const usage = getCategoryUsage('sub', main, subName);
-    
+    const usage = await getCategoryUsage('sub', main, subName);
+
     if (usage.hasLinkedRecords) {
-        openCategoryTransferModal('sub', main, subName, index, usage.businessCount || usage.taskCount);
-    } else {
-        AppState.dynamicCategories[main].splice(index, 1);
-        DataService.saveCategories(AppState.dynamicCategories).then(() => {
-            addSystemLog(`ALT KATEGORİ SİLİNDİ: ${subName}`);
-            showToast('Alt kategori silindi', 'success');
-            if (typeof AdminController !== 'undefined') AdminController.renderCategoryList();
-        });
+        return openCategoryTransferModal('sub', main, subName, index, usage.businessCount || usage.taskCount);
     }
+
+    AppState.dynamicCategories[main].splice(index, 1);
+    DataService.saveCategories(AppState.dynamicCategories).then(() => {
+        addSystemLog(`ALT KATEGORİ SİLİNDİ: ${subName}`);
+        showToast('Alt kategori silindi', 'success');
+        if (typeof AdminController !== 'undefined') AdminController.renderCategoryList();
+    });
 };
 
 window.executeGrupanyaMigration = function() {

@@ -30,8 +30,6 @@ const DropdownController = (() => {
         const teamPoolLabel = isTeamLeader && currentUser.team && currentUser.team !== '-'
             ? `-- ${currentUser.team} Havuzuna Ata --`
             : '-- Havuza At (Atanmasın) --';
-        const projectTaskMap = typeof AppState.getProjectTaskMap === 'function' ? AppState.getProjectTaskMap() : {};
-        
         // Atanabilir kullanıcılar SADECE Satış Temsilcileri olmalıdır (Takım Liderleri ve Yöneticiler hariç)
         let assignableUsers = AppState.users.filter(u =>
             u.role === 'Satış Temsilcisi' && u.status !== 'Pasif'
@@ -42,11 +40,7 @@ const DropdownController = (() => {
             assignableUsers = assignableUsers.filter(u => u.team === currentUser.team);
         }
 
-        const activeProjects = AppState.projects.filter(p => {
-            const pTasks = projectTaskMap?.[p.id] || [];
-            if (pTasks.length === 0) return true;
-            return pTasks.some(t => t.assignee === 'TARGET_POOL' || (typeof isVisibleTaskListProjectTask === 'function' ? isVisibleTaskListProjectTask(t) : ['new', 'hot', 'nothot', 'followup'].includes(t.status)));
-        });
+        const activeProjects = Array.isArray(AppState.projects) ? [...AppState.projects] : [];
 
         // Standart dropdown'lar — sadece personel listesi
         const standardIds = ['assigneeDropdown', 'newBizAssignee', 'existAssigneeSelect'];
@@ -118,34 +112,6 @@ const DropdownController = (() => {
         users.forEach(u => grpU.appendChild(new Option(u.name, u.name)));
         el.appendChild(grpU);
 
-        if (opts.includeArchived) {
-            const activeUserNamesNorm = new Set(users.map(u => normalizeForComparison(u.name)));
-            const excludeSetNorm = new Set(['unassigned', 'team1', 'team2', 'targetpool']);
-            
-            const archivedUsersMap = new Map();
-            AppState.tasks.forEach(t => {
-                let name = t.assignee ? t.assignee.trim() : '';
-                if (!name || name.startsWith('TARGET_POOL_')) return;
-                
-                const normName = normalizeForComparison(name);
-                
-                if (normName && !activeUserNamesNorm.has(normName) && !excludeSetNorm.has(normName)) {
-                    if (!archivedUsersMap.has(normName)) {
-                        const displayName = name.toLocaleLowerCase('tr-TR').replace(/(?:^|\s)\S/g, a => a.toLocaleUpperCase('tr-TR'));
-                        archivedUsersMap.set(normName, displayName);
-                    }
-                }
-            });
-
-            if (archivedUsersMap.size > 0) {
-                const grpArchived = document.createElement('optgroup');
-                grpArchived.label = 'Arşiv / Eski Personeller';
-                const uniqueDisplayNames = Array.from(new Set(archivedUsersMap.values())).sort();
-                uniqueDisplayNames.forEach(name => grpArchived.appendChild(new Option(name, name)));
-                el.appendChild(grpArchived);
-            }
-        }
-
         if (opts.includeProjects && projects.length > 0) {
             const optGroup = document.createElement('optgroup');
             optGroup.label = '🎯 Hedef Proje Listesine Ekle';
@@ -163,17 +129,9 @@ const DropdownController = (() => {
      */
     function populateProjectDropdowns() {
         const elAll = document.getElementById('filterAllTasksProject');
-        const projectTaskMap = typeof AppState.getProjectTaskMap === 'function' ? AppState.getProjectTaskMap() : {};
         if (elAll) {
             elAll.innerHTML = '<option value="">Tüm Projeler</option>';
-            const visibleProjectsForFilter = AppState.projects.filter((p) =>
-                (projectTaskMap?.[p.id] || []).some((t) =>
-                    (typeof isVisibleTaskListProjectTask === 'function'
-                        ? isVisibleTaskListProjectTask(t)
-                        : ['new', 'hot', 'nothot', 'followup'].includes(t.status))
-                )
-            );
-            visibleProjectsForFilter.forEach(p => elAll.add(new Option(p.name, p.id)));
+            (Array.isArray(AppState.projects) ? AppState.projects : []).forEach(p => elAll.add(new Option(p.name, p.id)));
         }
 
         ['repFilterProject', 'passiveFilterProject'].forEach(id => {
@@ -280,32 +238,26 @@ const DropdownController = (() => {
         subs.forEach(s => el.add(new Option(s, s)));
     }
 
-    function populateTargetDateFilters() {
-        const taskMap = AppState.getTaskMap();
-        const years = new Set();
-        const months = new Set();
-        
-        Object.values(taskMap).forEach(tasks => {
-            tasks.forEach(t => {
-                const createdAt = t.createdAt;
-                if(createdAt) {
-                    const dateObj = new Date(createdAt);
-                    if(!isNaN(dateObj.getTime())) {
-                        years.add(dateObj.getFullYear().toString());
-                        const trMonths = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
-                        months.add(trMonths[dateObj.getMonth()]);
-                    }
-                }
-            });
-        });
-
-        if(years.size === 0) years.add(new Date().getFullYear().toString());
+    async function populateTargetDateFilters() {
+        let years = [new Date().getFullYear().toString()];
+        let months = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+        if (typeof DataService?.apiRequest === 'function') {
+            try {
+                const response = await DataService.apiRequest('/accounts/target-filter-options');
+                const apiYears = Array.isArray(response?.years) ? response.years.map((value) => String(value || '').trim()).filter(Boolean) : [];
+                const apiMonths = Array.isArray(response?.months) ? response.months.map((value) => String(value || '').trim()).filter(Boolean) : [];
+                if (apiYears.length > 0) years = apiYears;
+                if (apiMonths.length > 0) months = apiMonths;
+            } catch (error) {
+                console.warn('Target date filters could not be loaded from backend:', error);
+            }
+        }
 
         const targetYear = document.getElementById('targetYear');
         if (targetYear) {
             const currentVals = Array.from(targetYear.selectedOptions).map(o => o.value);
             targetYear.innerHTML = '';
-            Array.from(years).sort().reverse().forEach(y => targetYear.add(new Option(y, y)));
+            years.forEach((y) => targetYear.add(new Option(y, y)));
             currentVals.forEach(v => {
                 const opt = Array.from(targetYear.options).find(o => o.value === v);
                 if(opt) opt.selected = true;
@@ -317,13 +269,7 @@ const DropdownController = (() => {
         if (targetMonth) {
             const currentVals = Array.from(targetMonth.selectedOptions).map(o => o.value);
             targetMonth.innerHTML = '';
-            const allMonths = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
-            allMonths.forEach(m => {
-                if(months.has(m)) targetMonth.add(new Option(m, m));
-            });
-            if(targetMonth.options.length === 0) {
-                allMonths.forEach(m => targetMonth.add(new Option(m, m)));
-            }
+            months.forEach((m) => targetMonth.add(new Option(m, m)));
             currentVals.forEach(v => {
                 const opt = Array.from(targetMonth.options).find(o => o.value === v);
                 if(opt) opt.selected = true;

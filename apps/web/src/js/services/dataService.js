@@ -745,7 +745,7 @@ const DataService = (() => {
         return payload;
     }
 
-    async function fetchAll(path, limit = 100) {
+    async function collectPaged(path, limit = 100) {
         const all = [];
         let page = 1;
         let safety = 0;
@@ -800,6 +800,25 @@ const DataService = (() => {
             total: Number(data?.total || items.length || 0),
             page: Number(data?.page || query.page || 1),
             limit: Number(data?.limit || query.limit || items.length || 0),
+        };
+    }
+
+    async function fetchAccountTargetPreview(filters = {}) {
+        const data = await apiRequest('/accounts/target-preview', {
+            method: 'POST',
+            body: JSON.stringify(filters || {}),
+        });
+        const items = Array.isArray(data?.items)
+            ? data.items.map((item) => ({
+                ...mapBusiness(item),
+                latestTask: item?.latestTask ? mapTask(item.latestTask) : null,
+            }))
+            : [];
+
+        return {
+            count: Number(data?.count || items.length || 0),
+            ids: Array.isArray(data?.ids) ? data.ids : items.map((item) => item.id),
+            items,
         };
     }
 
@@ -1054,7 +1073,7 @@ const DataService = (() => {
         if (runtimeCache.forbiddenRoots.has('users')) return [];
         if (!runtimeCache.users) {
             try {
-                runtimeCache.users = await fetchAll('/users?includeInactive=true');
+                runtimeCache.users = await collectPaged('/users?includeInactive=true');
             } catch (err) {
                 if (err?.status === 403) {
                     runtimeCache.forbiddenRoots.add('users');
@@ -1202,14 +1221,14 @@ const DataService = (() => {
             return clone(out);
         }
         if (root === 'businesses') {
-            const items = (await fetchAll('/accounts?view=summary', 250)).map(mapBusiness);
-            const out = Object.fromEntries(items.map((x) => [x.id, x]));
+            const visibleBusinesses = Array.isArray(AppState?.businesses) ? AppState.businesses : [];
+            const out = Object.fromEntries(visibleBusinesses.map((x) => [x.id, x]));
             setCollectionCache(root, out);
             return clone(out);
         }
         if (root === 'tasks') {
-            const items = (await fetchAll('/tasks?view=summary', 250)).map(mapTask);
-            const out = Object.fromEntries(items.map((x) => [x.id, x]));
+            const visibleTasks = Array.isArray(AppState?.tasks) ? AppState.tasks : [];
+            const out = Object.fromEntries(visibleTasks.map((x) => [x.id, x]));
             setCollectionCache(root, out);
             return clone(out);
         }
@@ -1228,7 +1247,7 @@ const DataService = (() => {
                 return clone(out);
             }
             try {
-                const items = (await fetchAll('/projects')).map(mapProject);
+                const items = (await collectPaged('/projects')).map(mapProject);
                 const out = Object.fromEntries(items.map((x) => [x.id, x]));
                 setCollectionCache(root, out);
                 return clone(out);
@@ -1258,7 +1277,7 @@ const DataService = (() => {
             if (runtimeCache.forbiddenRoots.has('pricingData')) return emptyPricingData();
             try {
                 const [items, rules] = await Promise.all([
-                    fetchAll('/pricing'),
+                    collectPaged('/pricing'),
                     fetchPricingRules(),
                 ]);
                 const out = buildPricingData(items, rules);
@@ -1794,7 +1813,7 @@ const DataService = (() => {
 
     function savePricing(data) {
         return (async () => {
-            const existing = await fetchAll('/pricing');
+            const existing = await collectPaged('/pricing');
             for (const item of existing) {
                 await apiRequest(`/pricing/${item.id}`, { method: 'DELETE' });
             }
@@ -1857,7 +1876,7 @@ const DataService = (() => {
             });
 
             const [refreshedItems, refreshedRules] = await Promise.all([
-                fetchAll('/pricing'),
+                collectPaged('/pricing'),
                 fetchPricingRules(),
             ]);
             const refreshed = buildPricingData(refreshedItems, refreshedRules);
@@ -1904,6 +1923,7 @@ const DataService = (() => {
         fetchOnce,
         fetchTaskPage,
         fetchBusinessPage,
+        fetchAccountTargetPreview,
         readPath,
         deleteTask,
         deleteBusiness,

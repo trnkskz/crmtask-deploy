@@ -21,6 +21,16 @@ const TaskController = (() => {
         return 'Bugün';
     }
 
+    function mergeVisibleTasks(taskItems = []) {
+        const incoming = Array.isArray(taskItems) ? taskItems.filter((item) => item?.id) : [];
+        const nextMap = new Map();
+        (Array.isArray(AppState.tasks) ? AppState.tasks : []).forEach((item) => {
+            if (item?.id) nextMap.set(item.id, item);
+        });
+        incoming.forEach((item) => nextMap.set(item.id, item));
+        AppState.tasks = Array.from(nextMap.values()).slice(-200);
+    }
+
     function escapeHtml(value) {
         return String(value ?? '')
             .replace(/&/g, '&amp;')
@@ -410,61 +420,7 @@ const TaskController = (() => {
         stage.style.setProperty('--team-pulse-stage-height', sampleHeight > 0 ? `${Math.ceil(sampleHeight * scale)}px` : 'auto');
     }
 
-    function renderTeamPulseLocal(taskIndex) {
-        const pulseContainer = document.getElementById('teamPulseContainer');
-        if (!pulseContainer) return;
-
-        const currentUser = AppState.loggedInUser;
-        const isTeamLeader = currentUser && currentUser.role === 'Takım Lideri';
-        const teamFilter = isTeamLeader ? currentUser.team : null;
-        const salesUsers = AppState.users.filter((u) =>
-            u.role === 'Satış Temsilcisi' &&
-            u.status !== 'Pasif' &&
-            (!teamFilter || u.team === teamFilter)
-        );
-
-        const records = salesUsers
-            .map((user) => buildTeamPulseMetricsForUser(user, taskIndex.tasksByAssignee.get(user.name) || []))
-            .filter((record) => record.totalOpen > 0 || record.totalContacted > 0 || record.totalIdle > 0)
-            .sort((a, b) => {
-                if (b.totalIdle !== a.totalIdle) return b.totalIdle - a.totalIdle;
-                if (b.totalOpen !== a.totalOpen) return b.totalOpen - a.totalOpen;
-                return a.user.name.localeCompare(b.user.name, 'tr');
-            });
-
-        teamPulseUiState.recordsByKey = records.reduce((acc, record) => {
-            acc[record.key] = record;
-            return acc;
-        }, {});
-
-        if (!records.length) {
-            pulseContainer.innerHTML = `<div class="team-pulse-empty-board">Bu filtrede gösterilecek personel performans kartı yok.</div>`;
-            if (document.getElementById('teamPulseModal')?.style.display === 'flex') {
-                closeModal('teamPulseModal');
-            }
-            return;
-        }
-
-        pulseContainer.innerHTML = records.map(buildTeamPulseCardHtml).join('');
-        requestAnimationFrame(() => {
-            applyTeamPulseStageScale();
-        });
-
-        if (!teamPulseResizeBound) {
-            window.addEventListener('resize', applyTeamPulseStageScale, { passive: true });
-            teamPulseResizeBound = true;
-        }
-
-        if (teamPulseUiState.selectedUserKey && document.getElementById('teamPulseModal')?.style.display === 'flex') {
-            if (teamPulseUiState.recordsByKey[teamPulseUiState.selectedUserKey]) {
-                renderTeamPulseModal();
-            } else {
-                closeModal('teamPulseModal');
-            }
-        }
-    }
-
-    async function renderTeamPulse(taskIndex) {
+    async function renderTeamPulse() {
         const pulseContainer = document.getElementById('teamPulseContainer');
         if (!pulseContainer) return;
 
@@ -507,9 +463,13 @@ const TaskController = (() => {
                 }
             }
         } catch (err) {
-            console.error('Team pulse summary load failed, falling back to local metrics:', err);
+            console.error('Team pulse summary load failed:', err);
             if (requestId !== teamPulseRequestId) return;
-            renderTeamPulseLocal(taskIndex);
+            teamPulseUiState.recordsByKey = {};
+            pulseContainer.innerHTML = `<div class="team-pulse-empty-board">Personel performans kartlari su anda yuklenemedi. Lutfen tekrar deneyin.</div>`;
+            if (document.getElementById('teamPulseModal')?.style.display === 'flex') {
+                closeModal('teamPulseModal');
+            }
         }
     }
 
@@ -577,13 +537,16 @@ const TaskController = (() => {
 
         const citySelect = document.getElementById('taskRepCity');
         if (citySelect && citySelect.options.length <= 1) {
-            const uniqueCities = Array.from(new Set(AppState.businesses.map((biz) => biz.city).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'tr'));
+            const uniqueCities = Array.from(new Set(Object.keys(DISTRICT_DATA || {}))).sort((a, b) => a.localeCompare(b, 'tr'));
             uniqueCities.forEach((city) => citySelect.add(new Option(city, city)));
         }
 
         const districtSelect = document.getElementById('taskRepDistrict');
         if (districtSelect && districtSelect.options.length <= 1) {
-            const uniqueDistricts = Array.from(new Set(AppState.businesses.map((biz) => biz.district).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'tr'));
+            const selectedCity = citySelect?.value || '';
+            const uniqueDistricts = selectedCity
+                ? (DISTRICT_DATA[selectedCity] || []).slice().sort((a, b) => a.localeCompare(b, 'tr'))
+                : Array.from(new Set(Object.values(DISTRICT_DATA || {}).flat())).sort((a, b) => String(a || '').localeCompare(String(b || ''), 'tr'));
             uniqueDistricts.forEach((district) => districtSelect.add(new Option(district, district)));
         }
 
@@ -609,7 +572,7 @@ const TaskController = (() => {
         if (currentValue) subCategorySelect.value = currentValue;
     }
 
-    function getFilteredTaskReportRows() {
+    function buildTaskReportQuery() {
         const getValue = (id) => document.getElementById(id)?.value || '';
         const creationChannel = getValue('taskRepCreationChannel');
         const type = getValue('taskRepType');
@@ -624,54 +587,24 @@ const TaskController = (() => {
         const startDate = getValue('taskRepStartDate');
         const endDate = getValue('taskRepEndDate');
 
-        const projectMap = new Map((AppState.projects || []).map((project) => [project.id, project]));
-        const userMap = new Map((AppState.users || []).map((user) => [user.id, user]));
-        const bizMap = AppState.getBizMap();
+        const query = new URLSearchParams();
+        if (creationChannel) query.set('creationChannel', creationChannel);
+        if (type) query.set('type', type);
+        if (status) query.set('status', status.toUpperCase());
+        if (projectId) query.set('projectId', projectId);
+        if (source) query.set('source', typeof normalizeTaskSourceKey === 'function' ? normalizeTaskSourceKey(source) : source);
+        if (mainCategory) query.set('mainCategory', mainCategory);
+        if (subCategory) query.set('subCategory', subCategory);
+        if (city) query.set('city', city);
+        if (district) query.set('district', district);
+        if (startDate) query.set('from', startDate);
+        if (endDate) query.set('to', endDate);
 
-        return AppState.tasks
-            .filter((task) => ['REQUEST_FLOW', 'MANUAL_TASK_CREATE', 'PROJECT_GENERATED'].includes(String(task.creationChannel || '').toUpperCase()))
-            .map((task) => {
-                const biz = bizMap.get(task.businessId) || {};
-                const project = task.projectId ? projectMap.get(task.projectId) : null;
-                const creator = task.createdById ? userMap.get(task.createdById) : null;
-                const lastActionDate = task.logs?.[0]?.date || formatDate(task.createdAt);
-                const ageDays = getTaskAgeDays(task);
-                const idleFlag = isIdleTask(task);
-                return {
-                    task,
-                    biz,
-                    project,
-                    creatorName: creator?.name || creator?.email || 'Sistem',
-                    creationChannelLabel: getTaskReportCreationChannelLabel(task.creationChannel),
-                    lastActionDate,
-                    ageDays,
-                    idleFlag,
-                };
-            })
-            .filter((row) => {
-                if (creationChannel && String(row.task.creationChannel || '').toUpperCase() !== creationChannel) return false;
-                if (type && String(row.task.projectId ? 'PROJECT' : 'GENERAL') !== type) return false;
-                if (status && row.task.status !== status) return false;
-                if (!matchesAssigneeFilter(row.task, assignee, AppState.users)) return false;
-                if (projectId && row.task.projectId !== projectId) return false;
-                if (source) {
-                    const normalizedSource = typeof normalizeTaskSourceKey === 'function'
-                        ? normalizeTaskSourceKey(row.task.sourceType)
-                        : String(row.task.sourceType || '').trim();
-                    const filterSource = typeof normalizeTaskSourceKey === 'function'
-                        ? normalizeTaskSourceKey(source)
-                        : String(source || '').trim();
-                    if (normalizedSource !== filterSource) return false;
-                }
-                if (!matchesCategoryFilter(row.task, mainCategory, subCategory, row.biz.companyName || '')) return false;
-                if (city && row.biz.city !== city) return false;
-                if (district && row.biz.district !== district) return false;
-                const createdDate = String(row.task.createdAt || '').split('T')[0];
-                if (startDate && createdDate && createdDate < startDate) return false;
-                if (endDate && createdDate && createdDate > endDate) return false;
-                return true;
-            })
-            .sort((a, b) => new Date(b.task.createdAt || 0) - new Date(a.task.createdAt || 0));
+        const assigneeScope = resolveTaskAssigneeQuery(assignee);
+        if (assigneeScope.ownerId) query.set('ownerId', assigneeScope.ownerId);
+        if (assigneeScope.team) query.set('team', assigneeScope.team);
+        if (assigneeScope.historicalAssignee) query.set('historicalAssignee', assigneeScope.historicalAssignee);
+        return query.toString();
     }
 
     function setTaskReportStat(id, value) {
@@ -694,28 +627,40 @@ const TaskController = (() => {
         displayTaskReportRows();
     }
 
-    function renderTaskReports() {
+    async function renderTaskReports() {
         populateTaskReportFilters();
         hasAppliedTaskReportFilters = true;
+        const tbody = document.getElementById('taskReportTbody');
+        if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state"><div style="font-size:42px; opacity:0.28; margin-bottom:10px;">⏳</div><h3>Rapor yükleniyor</h3><p>Görev verileri hazırlanıyor.</p></div></td></tr>`;
+        }
 
-        const rows = getFilteredTaskReportRows();
-        const total = rows.length;
-        const openCount = rows.filter((row) => isActiveTask(row.task.status)).length;
-        const closedCount = rows.filter((row) => PASSIVE_STATUSES.includes(row.task.status)).length;
-        const dealCount = rows.filter((row) => row.task.status === 'deal').length;
-        const coldCount = rows.filter((row) => row.task.status === 'cold').length;
-        const idleCount = rows.filter((row) => row.idleFlag).length;
+        try {
+            const query = buildTaskReportQuery();
+            const response = await DataService.apiRequest(`/reports/tasks${query ? `?${query}` : ''}`);
+            const rows = Array.isArray(response) ? response : [];
+            const total = rows.length;
+            const openCount = rows.filter((row) => isActiveTask(String(row?.statusKey || '').toLowerCase())).length;
+            const closedCount = rows.filter((row) => PASSIVE_STATUSES.includes(String(row?.statusKey || '').toLowerCase())).length;
+            const dealCount = rows.filter((row) => String(row?.statusKey || '').toLowerCase() === 'deal').length;
+            const coldCount = rows.filter((row) => String(row?.statusKey || '').toLowerCase() === 'cold').length;
+            const idleCount = 0;
 
-        setTaskReportStat('taskRepTotalCount', total);
-        setTaskReportStat('taskRepOpenCount', openCount);
-        setTaskReportStat('taskRepClosedCount', closedCount);
-        setTaskReportStat('taskRepDealCount', dealCount);
-        setTaskReportStat('taskRepColdCount', coldCount);
-        setTaskReportStat('taskRepIdleCount', idleCount);
+            setTaskReportStat('taskRepTotalCount', total);
+            setTaskReportStat('taskRepOpenCount', openCount);
+            setTaskReportStat('taskRepClosedCount', closedCount);
+            setTaskReportStat('taskRepDealCount', dealCount);
+            setTaskReportStat('taskRepColdCount', coldCount);
+            setTaskReportStat('taskRepIdleCount', idleCount);
 
-        AppState.setFiltered('taskReports', rows);
-        AppState.setPage('taskReports', 1);
-        displayTaskReportRows();
+            AppState.setFiltered('taskReports', rows);
+            AppState.setPage('taskReports', 1);
+            displayTaskReportRows();
+        } catch (err) {
+            console.error('Task reports load failed:', err);
+            AppState.setFiltered('taskReports', []);
+            displayTaskReportRows();
+        }
     }
 
     function displayTaskReportRows() {
@@ -744,18 +689,18 @@ const TaskController = (() => {
         const paginated = rows.slice(start, start + ITEMS_PER_PAGE_TASKS);
 
         tbody.innerHTML = paginated.map((row) => `
-            <tr style="cursor:pointer;" onclick="openTaskModal('${escapeHtml(row.task.id)}')">
-                <td>${escapeHtml(formatDate(row.task.createdAt).split(' ')[0])}</td>
-                <td><strong>${escapeHtml(row.biz.companyName || '-')}</strong><br><span style="font-size:11px; color:#64748b;">📍 ${escapeHtml(row.biz.city || '-')} ${row.biz.district ? `/ ${escapeHtml(row.biz.district)}` : ''}</span></td>
-                <td><span class="modern-badge" style="background:#ecfeff; color:#155e75; border:1px solid #a5f3fc;">${escapeHtml(row.creationChannelLabel)}</span></td>
-                <td><strong>${escapeHtml(row.task.projectId ? 'Proje' : 'Genel')}</strong><br><span style="font-size:11px; color:#64748b;">${escapeHtml(row.project?.name || '-')}</span></td>
-                <td><strong>${escapeHtml(row.task.sourceType || '-')}</strong><br><span style="font-size:11px; color:#64748b;">${escapeHtml(row.task.mainCategory || '-')} / ${escapeHtml(row.task.subCategory || '-')}</span></td>
-                <td>${escapeHtml(row.task.mainCategory || '-')}</td>
-                <td>${escapeHtml(row.task.subCategory || '-')}</td>
-                <td><strong>${escapeHtml(row.task.assignee || '-')}</strong><br><span style="font-size:11px; color:#64748b;">Oluşturan: ${escapeHtml(row.creatorName)}</span></td>
-                <td><span class="modern-badge" style="background:#f8fafc; color:#0f172a; border:1px solid #cbd5e1;">${escapeHtml(TASK_STATUS_LABELS[row.task.status] || row.task.status || '-')}</span></td>
-                <td>${escapeHtml(row.biz.city || '-')}<br><span style="font-size:11px; color:#64748b;">${escapeHtml(row.biz.district || '-')}</span></td>
-                <td><span style="font-size:11px; color:#64748b;">${escapeHtml(row.lastActionDate)}</span></td>
+            <tr style="cursor:pointer;" onclick="openTaskModal('${escapeHtml(row.id)}')">
+                <td>${escapeHtml(String(row.createdAt || '-').split('T')[0])}</td>
+                <td><strong>${escapeHtml(row.businessName || '-')}</strong><br><span style="font-size:11px; color:#64748b;">📍 ${escapeHtml(row.city || '-')} ${row.district ? `/ ${escapeHtml(row.district)}` : ''}</span></td>
+                <td><span class="modern-badge" style="background:#ecfeff; color:#155e75; border:1px solid #a5f3fc;">${escapeHtml(getTaskReportCreationChannelLabel(row.creationChannel))}</span></td>
+                <td><strong>${escapeHtml(row.projectId ? 'Proje' : 'Genel')}</strong><br><span style="font-size:11px; color:#64748b;">${escapeHtml((AppState.projects || []).find((project) => project.id === row.projectId)?.name || '-')}</span></td>
+                <td><strong>${escapeHtml(row.sourceKey || '-')}</strong><br><span style="font-size:11px; color:#64748b;">${escapeHtml(row.mainCategory || '-')} / ${escapeHtml(row.subCategory || '-')}</span></td>
+                <td>${escapeHtml(row.mainCategory || '-')}</td>
+                <td>${escapeHtml(row.subCategory || '-')}</td>
+                <td><strong>${escapeHtml(row.assignee || '-')}</strong><br><span style="font-size:11px; color:#64748b;">Oluşturan: ${escapeHtml(row.createdByName || 'Sistem')}</span></td>
+                <td><span class="modern-badge" style="background:#f8fafc; color:#0f172a; border:1px solid #cbd5e1;">${escapeHtml(TASK_STATUS_LABELS[String(row.statusKey || '').toLowerCase()] || row.statusKey || '-')}</span></td>
+                <td>${escapeHtml(row.city || '-')}<br><span style="font-size:11px; color:#64748b;">${escapeHtml(row.district || '-')}</span></td>
+                <td><span style="font-size:11px; color:#64748b;">${escapeHtml(row.lastActionDate || '-')}</span></td>
             </tr>
         `).join('');
 
@@ -779,28 +724,28 @@ const TaskController = (() => {
     }
 
     function exportTaskReportExcel() {
-        const rows = getFilteredTaskReportRows();
+        const rows = AppState.filtered.taskReports || [];
         if (!rows.length) {
             showToast('Export için rapor satırı bulunamadı.', 'warning');
             return;
         }
         const csvRows = rows.map((row) => ({
-            olusturma_tarihi: formatDate(row.task.createdAt).split(' ')[0],
-            isletme: row.biz.companyName || '',
-            il: row.biz.city || '',
-            ilce: row.biz.district || '',
-            kanal: row.creationChannelLabel,
-            gorev_tipi: row.task.projectId ? 'Proje' : 'Genel',
-            proje: row.project?.name || '',
-            kaynak: row.task.sourceType || '',
-            ana_kategori: row.task.mainCategory || '',
-            alt_kategori: row.task.subCategory || '',
-            sorumlu: row.task.assignee || '',
-            olusturan: row.creatorName,
-            durum: TASK_STATUS_LABELS[row.task.status] || row.task.status || '',
-            son_islem_tarihi: row.lastActionDate,
-            atil_mi: row.idleFlag ? 'Evet' : 'Hayır',
-            gorev_notu: row.task.details || '',
+            olusturma_tarihi: String(row.createdAt || '').split('T')[0],
+            isletme: row.businessName || '',
+            il: row.city || '',
+            ilce: row.district || '',
+            kanal: getTaskReportCreationChannelLabel(row.creationChannel),
+            gorev_tipi: row.projectId ? 'Proje' : 'Genel',
+            proje: (AppState.projects || []).find((project) => project.id === row.projectId)?.name || '',
+            kaynak: row.sourceKey || '',
+            ana_kategori: row.mainCategory || '',
+            alt_kategori: row.subCategory || '',
+            sorumlu: row.assignee || '',
+            olusturan: row.createdByName || 'Sistem',
+            durum: TASK_STATUS_LABELS[String(row.statusKey || '').toLowerCase()] || row.statusKey || '',
+            son_islem_tarihi: row.lastActionDate || '',
+            atil_mi: 'Hayır',
+            gorev_notu: row.logContent || '',
         }));
 
         const headers = Object.keys(csvRows[0]);
@@ -862,38 +807,6 @@ const TaskController = (() => {
             if (record?.key) acc[record.key] = record;
             return acc;
         }, {});
-    }
-
-    function getTaskDerivedIndex() {
-        if (typeof AppState.getTaskDerivedIndex === 'function') {
-            return AppState.getTaskDerivedIndex();
-        }
-
-        const nonPoolTasks = AppState.tasks.filter((task) => !POOL_ASSIGNEES.includes(task.assignee));
-        const openNonPoolTasks = nonPoolTasks.filter((task) => !PASSIVE_STATUSES.includes(task.status) && task.status !== 'pending_approval');
-        const tasksByAssignee = new Map();
-        const activeAssigneeNames = new Set();
-        let todayDealCount = 0;
-        let todayColdCount = 0;
-
-        nonPoolTasks.forEach((task) => {
-            const assigneeTasks = tasksByAssignee.get(task.assignee) || [];
-            assigneeTasks.push(task);
-            tasksByAssignee.set(task.assignee, assigneeTasks);
-
-            if (task.status === 'deal' && task.logs?.length > 0 && isToday(task.logs[0].date)) todayDealCount += 1;
-            if (task.status === 'cold' && task.logs?.length > 0 && isToday(task.logs[0].date)) todayColdCount += 1;
-            if (isActiveTask(task.status) && task.assignee) activeAssigneeNames.add(task.assignee);
-        });
-
-        return {
-            nonPoolTasks,
-            openNonPoolTasks,
-            tasksByAssignee,
-            activeAssigneeNames,
-            todayDealCount,
-            todayColdCount,
-        };
     }
 
     function formatDealDurationDisplay(value) {
@@ -1062,120 +975,6 @@ const TaskController = (() => {
     window.createMinimalTaskCard = createMinimalCard;
 
     // --- Görev Listesi Render ---
-    function renderMyTasksLocal() {
-        const list = document.getElementById('myActiveTaskList');
-        if (!list) return;
-        list.innerHTML = '';
-
-        const nameFilter = normalizeText(document.getElementById('myFilterBizName')?.value || '');
-        const checkedStatuses = Array.from(document.querySelectorAll('.my-status-filter:checked')).map(cb => cb.value);
-        const bizMap = AppState.getBizMap();
-        const taskIndex = getTaskDerivedIndex();
-
-        const me = AppState.loggedInUser || {};
-        const filtered = taskIndex.openNonPoolTasks.filter(t => {
-            const mineById = Boolean(me.id && t.ownerId && t.ownerId === me.id);
-            const mineByName = Boolean(me.name && t.assignee && t.assignee === me.name);
-            const mineByEmail = Boolean(me.email && t.assignee && t.assignee === me.email);
-            if (!(mineById || mineByName || mineByEmail)) return false;
-            if (checkedStatuses.length > 0 && !checkedStatuses.includes(t.status)) return false;
-            if (nameFilter) {
-                const biz = bizMap.get(t.businessId) || t;
-                const matchesSearch = typeof businessMatchesSearch === 'function'
-                    ? businessMatchesSearch(biz, nameFilter)
-                    : normalizeText(biz.companyName).includes(nameFilter);
-                if (!matchesSearch) return false;
-            }
-            return true;
-        });
-
-        const sortVal = document.getElementById('myTaskSort')?.value || 'newest';
-        if (sortVal === 'oldest') {
-            filtered.sort(sortTasksByUrgencyOldest);
-        } else {
-            filtered.sort(sortTasksByUrgency);
-        }
-
-        const countEl = document.getElementById('myActiveCount');
-        if (countEl) countEl.innerText = filtered.length;
-
-        if (filtered.length === 0) {
-            list.innerHTML = `<div class="no-tasks-message">Gösterilecek açık görev yok.</div>`;
-        } else {
-            filtered.forEach(t => list.appendChild(createMinimalCard(t)));
-        }
-    }
-
-    function renderAllTasksLocal() {
-        const list = document.getElementById('allActiveTaskList');
-        if (!list) return;
-        list.innerHTML = '';
-
-        const assigneeFilter = document.getElementById('filterAllTasksAssignee')?.value || '';
-        const projectFilter = document.getElementById('filterAllTasksProject')?.value || '';
-        const nameFilter = normalizeText(document.getElementById('allFilterBizName')?.value || '');
-        const checkedStatuses = Array.from(document.querySelectorAll('.all-status-filter:checked')).map(cb => cb.value);
-
-        const bizMap = AppState.getBizMap();
-        const taskIndex = getTaskDerivedIndex();
-        const relevantTasks = taskIndex.nonPoolTasks;
-
-        const todayDealEl = document.getElementById('btnTodayDealCount');
-        const todayColdEl = document.getElementById('btnTodayColdCount');
-        if (todayDealEl) todayDealEl.innerText = taskIndex.todayDealCount;
-        if (todayColdEl) todayColdEl.innerText = taskIndex.todayColdCount;
-
-        renderTeamPulse(taskIndex);
-
-        const filtered = taskIndex.openNonPoolTasks.filter(t => {
-            if (checkedStatuses.length > 0 && !checkedStatuses.includes(t.status)) return false;
-            if (projectFilter && t.projectId !== projectFilter) return false;
-            if (!matchesAssigneeFilter(t, assigneeFilter, AppState.users)) return false;
-            if (nameFilter) {
-                const biz = bizMap.get(t.businessId) || t;
-                const matchesSearch = typeof businessMatchesSearch === 'function'
-                    ? businessMatchesSearch(biz, nameFilter)
-                    : normalizeText(biz.companyName).includes(nameFilter);
-                if (!matchesSearch) return false;
-            }
-            return true;
-        });
-
-        const sortVal = document.getElementById('allTaskSort')?.value || 'newest';
-        if (sortVal === 'oldest') {
-            filtered.sort(sortTasksByUrgencyOldest);
-        } else {
-            filtered.sort(sortTasksByUrgency);
-        }
-
-        const countEl = document.getElementById('allActiveCount');
-        if (countEl) countEl.innerText = filtered.length;
-
-        if (filtered.length === 0) {
-            list.innerHTML = `<div class="no-tasks-message-empty">Açık görev bulunamadı.</div>`;
-            const pagEl = document.getElementById('allTasksPagination');
-            if (pagEl) pagEl.innerHTML = '';
-            return;
-        }
-
-        const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE_TASKS);
-        let page = AppState.pagination.allTasks;
-        if (page > totalPages) {
-            page = totalPages || 1;
-            AppState.setPage('allTasks', page);
-        }
-        const paginated = _paginate(filtered, page, ITEMS_PER_PAGE_TASKS);
-        paginated.forEach(t => list.appendChild(createMinimalCard(t)));
-
-        const pagContainer = document.getElementById('allTasksPagination');
-        if (pagContainer) {
-            renderPagination(pagContainer, filtered.length, page, ITEMS_PER_PAGE_TASKS, (i) => {
-                AppState.setPage('allTasks', i);
-                renderAllTasksLocal();
-            }, { compact: true, resultLabel: 'kayıt' });
-        }
-    }
-
     function getSelectedTaskStatuses(selector) {
         const values = Array.from(document.querySelectorAll(selector))
             .filter((el) => el.checked)
@@ -1281,6 +1080,7 @@ const TaskController = (() => {
                 return;
             }
 
+            mergeVisibleTasks(payload.items);
             list.innerHTML = '';
             payload.items.forEach((task) => list.appendChild(createMinimalCard(task)));
 
@@ -1291,8 +1091,10 @@ const TaskController = (() => {
                 }, { compact: true, resultLabel: 'kayıt' });
             }
         } catch (err) {
-            console.error('My tasks backend list failed, falling back to local state:', err);
-            renderMyTasksLocal();
+            console.error('My tasks backend list failed:', err);
+            const countEl = document.getElementById('myActiveCount');
+            if (countEl) countEl.innerText = '0';
+            list.innerHTML = `<div class="no-tasks-message">Görevler su anda yuklenemedi. Lutfen tekrar deneyin.</div>`;
         }
     }
 
@@ -1322,7 +1124,7 @@ const TaskController = (() => {
                 refreshTodayOutcomeCountsFromBackend().catch((err) => {
                     console.warn('Today outcome counts could not be refreshed from backend:', err);
                 }),
-                renderTeamPulse(getTaskDerivedIndex()).catch((err) => {
+                renderTeamPulse().catch((err) => {
                     console.warn('Team pulse backend refresh failed:', err);
                 }),
             ]);
@@ -1341,6 +1143,7 @@ const TaskController = (() => {
                 return;
             }
 
+            mergeVisibleTasks(payload.items);
             list.innerHTML = '';
             payload.items.forEach((task) => list.appendChild(createMinimalCard(task)));
 
@@ -1351,8 +1154,10 @@ const TaskController = (() => {
                 }, { compact: true, resultLabel: 'kayıt' });
             }
         } catch (err) {
-            console.error('All tasks backend list failed, falling back to local state:', err);
-            renderAllTasksLocal();
+            console.error('All tasks backend list failed:', err);
+            const countEl = document.getElementById('allActiveCount');
+            if (countEl) countEl.innerText = '0';
+            list.innerHTML = `<div class="no-tasks-message-empty">Acik gorevler su anda yuklenemedi. Lutfen tekrar deneyin.</div>`;
         }
     }
 
@@ -1379,6 +1184,7 @@ const TaskController = (() => {
             console.warn('Task detail fetch failed, using cached task state.', err);
         }
         if (!task) return;
+        window._openTaskModalId = taskId;
         const biz = AppState.getBizMap().get(task.businessId) || task;
         task.logs = task.logs || [];
         task.offers = task.offers || [];
@@ -2359,6 +2165,7 @@ const TaskController = (() => {
         const logText = esc(rawLogText);
         
         const nextCallDateVal = document.getElementById('flatpickrInput')?.value || '';
+        const previousTask = JSON.parse(JSON.stringify(task));
 
         try {
             const payloadBuilder = window.TaskSavePayload?.buildTaskSavePayload || buildTaskSavePayloadFallback;
@@ -2376,6 +2183,26 @@ const TaskController = (() => {
             }
 
             const { patchPayload } = payloadResult;
+
+            if (patchPayload.status || patchPayload.nextCallDate || patchPayload.activity) {
+                const optimisticTask = {
+                    ...task,
+                    ...(patchPayload.status ? { status: patchPayload.status } : {}),
+                    ...(patchPayload.nextCallDate !== undefined ? { nextCallDate: patchPayload.nextCallDate || '' } : {}),
+                };
+
+                if (patchPayload.activity) {
+                    const nowLabel = new Date().toLocaleString('tr-TR');
+                    optimisticTask.logs = [{
+                        id: `optimistic-${taskId}-${Date.now()}`,
+                        date: nowLabel,
+                        user: AppState.loggedInUser?.name || 'Sistem',
+                        text: patchPayload.activity.text || '',
+                    }, ...(Array.isArray(task.logs) ? task.logs : [])];
+                }
+
+                _updateTaskInState(optimisticTask);
+            }
 
             if (Object.keys(patchPayload).length > 0) {
                 await DataService.apiRequest(`/tasks/${taskId}`, {
@@ -2409,6 +2236,21 @@ const TaskController = (() => {
                 refreshTaskModalInPlace(taskId);
             }
         } catch (err) {
+            if (typeof previousTask !== 'undefined' && previousTask?.id) {
+                _updateTaskInState(previousTask);
+            }
+            const taskModal = document.getElementById('taskModal');
+            if (taskModal?.style?.display === 'flex') {
+                try {
+                    if (typeof window.refreshTaskModalInPlace === 'function') {
+                        window.refreshTaskModalInPlace(taskId);
+                    } else {
+                        refreshTaskModalInPlace(taskId);
+                    }
+                } catch (refreshErr) {
+                    console.warn('Task modal revert refresh failed:', refreshErr);
+                }
+            }
             console.error('Kaydetme başarısız:', err);
             showToast(`Hata: ${err.message}`, 'error');
             if (btn) { btn.disabled = false; btn.innerText = "Kaydet 🚀"; }
@@ -2455,12 +2297,11 @@ const TaskController = (() => {
         }
         taskSurfaceRefreshTimer = setTimeout(() => {
             taskSurfaceRefreshTimer = null;
+            if (typeof document === 'undefined' || typeof document.getElementById !== 'function') return;
             if (document.getElementById('myActiveTaskList')) {
-                renderMyTasksLocal();
                 renderMyTasks();
             }
             if (document.getElementById('allActiveTaskList')) {
-                renderAllTasksLocal();
                 renderAllTasks();
             }
             if (typeof DashboardController !== 'undefined' && typeof DashboardController.render === 'function') {
@@ -2468,6 +2309,12 @@ const TaskController = (() => {
             }
         }, 0);
         return refreshedTask;
+    }
+
+    function cancelPendingSurfaceRefresh() {
+        if (!taskSurfaceRefreshTimer) return;
+        clearTimeout(taskSurfaceRefreshTimer);
+        taskSurfaceRefreshTimer = null;
     }
 
     function _removeTaskFromState(taskId, fallbackTask = null) {
@@ -2480,13 +2327,15 @@ const TaskController = (() => {
         return removedTask;
     }
 
-    function _refreshBusinessTaskHistory(businessId) {
+    async function _refreshBusinessTaskHistory(businessId) {
         if (!businessId || !document.getElementById('bizTaskHistoryBody')) return;
-        const nextBizTasks = (AppState.getTaskMap()[businessId] || []).filter((task) => {
-            if (!task?.assignee || typeof AppState.isOperationalTaskAssignee !== 'function') return true;
-            return AppState.isOperationalTaskAssignee(task.assignee);
-        });
-        window._currentBizTasks = nextBizTasks;
+        try {
+            const response = await DataService.apiRequest(`/reports/tasks?businessId=${encodeURIComponent(businessId)}`);
+            window._currentBizTasks = Array.isArray(response) ? response : [];
+        } catch (error) {
+            console.warn('Business task history refresh failed:', error);
+            window._currentBizTasks = [];
+        }
         if (typeof window.renderBizTaskHistoryPage === 'function') {
             window.renderBizTaskHistoryPage(1);
         }
@@ -2511,11 +2360,9 @@ const TaskController = (() => {
     function _refreshTaskViews(taskId) {
         const activePage = document.querySelector('.page-content.active')?.id || '';
         if (document.getElementById('myActiveTaskList')) {
-            renderMyTasksLocal();
             renderMyTasks();
         }
         if (document.getElementById('allActiveTaskList')) {
-            renderAllTasksLocal();
             renderAllTasks();
         }
         if (activePage === 'page-businesses' && typeof BusinessController !== 'undefined' && AppState.isBizSearched) {
@@ -2638,6 +2485,7 @@ const TaskController = (() => {
         deleteTask,
         updateTaskInState: _updateTaskInState,
         refreshTaskViews: _refreshTaskViews,
+        cancelPendingSurfaceRefresh,
         selectModalStatus,
         toggleCustomLogTypeMenu,
         selectModalLogType,
@@ -2677,6 +2525,7 @@ window.renderTaskInline = TaskController.renderTaskInline.bind(TaskController);
 window.triggerSaveAction = TaskController.triggerSaveAction.bind(TaskController);
 window.closeMiniModal = TaskController.closeMiniModal.bind(TaskController);
 window.executeSaveAction = TaskController.executeSaveAction.bind(TaskController);
+window.refreshTaskModalInPlace = TaskController.refreshTaskModalInPlace.bind(TaskController);
 window.executeDealSaveAction = TaskController.executeDealSaveAction?.bind(TaskController) || (typeof executeDealSaveAction !== 'undefined' ? executeDealSaveAction : null);
 window.createCard = TaskController.createCard.bind(TaskController);
 window.deleteTask = TaskController.deleteTask.bind(TaskController);

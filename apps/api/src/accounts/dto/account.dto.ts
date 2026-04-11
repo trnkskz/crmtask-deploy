@@ -1,4 +1,4 @@
-import { IsArray, IsEnum, IsIn, IsInt, IsOptional, IsPositive, IsString, Min, ValidateNested } from 'class-validator'
+import { IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsOptional, IsPositive, IsString, Min, ValidateNested } from 'class-validator'
 import { Type } from 'class-transformer'
 
 export enum SortOption {
@@ -93,6 +93,48 @@ export class AccountListQueryDto {
   @IsOptional()
   @IsString()
   createdTo?: string
+}
+
+export class AccountTargetPreviewDto {
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  mainCategories?: string[]
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  subCategories?: string[]
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  cities?: string[]
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  districts?: string[]
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  sources?: string[]
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  years?: string[]
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  months?: string[]
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  includeActive?: boolean
 }
 
 export class CreateAccountDto {

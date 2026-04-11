@@ -7,11 +7,6 @@ const SyncService = (() => {
     const POLL_MS = 8000;
     const EVENT_STREAM_PATH = '/events/stream';
     const INVALIDATION_DEBOUNCE_MS = 1200;
-    const SNAPSHOT_DB_NAME = 'crm-shell-cache-v2';
-    const SNAPSHOT_STORE_NAME = 'snapshots';
-    const SNAPSHOT_KEY_PREFIX = 'core-shell';
-    const SNAPSHOT_SCHEMA_VERSION = 3;
-    const SNAPSHOT_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
     let _refreshTimeout = null;
     let _pollTimer = null;
@@ -27,236 +22,10 @@ const SyncService = (() => {
 
     const _markedKeys = new Set();
     const _pendingCollections = new Set();
-    const CORE_BOOTSTRAP_COLLECTIONS = ['users', 'businesses', 'tasks', 'notifications', 'categories'];
+    const CORE_BOOTSTRAP_COLLECTIONS = ['users', 'notifications', 'categories', 'pricing'];
 
-    function _serializeBusinessSummary(business) {
-        const item = business && typeof business === 'object' ? business : {};
-        return {
-            id: item.id || '',
-            companyName: item.companyName || item.businessName || '',
-            businessName: item.businessName || item.companyName || '',
-            businessStatus: item.businessStatus || 'Aktif',
-            sourceType: item.sourceType || 'Fresh Account',
-            accountType: item.accountType || 'KEY',
-            mainCategory: item.mainCategory || '',
-            subCategory: item.subCategory || '',
-            city: item.city || '',
-            district: item.district || '',
-            address: item.address || '',
-            contactPhone: item.contactPhone || '',
-            contactName: item.contactName || '',
-            contactEmail: item.contactEmail || '',
-            website: item.website || '',
-            instagram: item.instagram || '',
-            campaignUrl: item.campaignUrl || '',
-            notes: item.notes || '',
-            createdAt: item.createdAt || new Date().toISOString(),
-        };
-    }
-
-    function _serializeTaskSummary(task) {
-        const item = task && typeof task === 'object' ? task : {};
-        const latestLog = Array.isArray(item.logs) && item.logs[0]
-            ? {
-                id: item.logs[0].id || '',
-                date: item.logs[0].date || '',
-                user: item.logs[0].user || 'Sistem',
-                text: item.logs[0].text || '',
-            }
-            : null;
-        return {
-            id: item.id || '',
-            businessId: item.businessId || '',
-            projectId: item.projectId || '',
-            assignee: item.assignee || 'UNASSIGNED',
-            ownerId: item.ownerId || null,
-            createdById: item.createdById || null,
-            creationChannel: item.creationChannel || 'UNKNOWN',
-            creationChannelLabel: item.creationChannelLabel || 'Bilinmiyor',
-            status: item.status || 'new',
-            mainCategory: item.mainCategory || '',
-            subCategory: item.subCategory || '',
-            sourceType: item.sourceType || 'Fresh Account',
-            details: item.details || '',
-            specificContactName: item.specificContactName || '',
-            specificContactPhone: item.specificContactPhone || '',
-            specificContactEmail: item.specificContactEmail || '',
-            specificCampaignUrl: item.specificCampaignUrl || '',
-            nextCallDate: item.nextCallDate || '',
-            logs: latestLog ? [latestLog] : [],
-            offers: [],
-            dealDetails: item.dealDetails || null,
-            createdAt: item.createdAt || new Date().toISOString(),
-        };
-    }
-
-    function _getSnapshotIdentity(user = AppState?.loggedInUser) {
-        const userId = String(user?.id || '').trim();
-        if (!userId) return '';
-        return `${SNAPSHOT_KEY_PREFIX}:${userId}`;
-    }
-
-    function _openSnapshotDb() {
-        return new Promise((resolve) => {
-            try {
-                const indexedDb = window?.indexedDB;
-                if (!indexedDb) {
-                    resolve(null);
-                    return;
-                }
-
-                const request = indexedDb.open(SNAPSHOT_DB_NAME, 1);
-                request.onupgradeneeded = () => {
-                    const db = request.result;
-                    if (!db.objectStoreNames.contains(SNAPSHOT_STORE_NAME)) {
-                        db.createObjectStore(SNAPSHOT_STORE_NAME, { keyPath: 'key' });
-                    }
-                };
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => resolve(null);
-            } catch (_) {
-                resolve(null);
-            }
-        });
-    }
-
-    async function _readSnapshot(key) {
-        if (!key) return null;
-        const db = await _openSnapshotDb();
-        if (!db) return null;
-        return new Promise((resolve) => {
-            try {
-                const tx = db.transaction(SNAPSHOT_STORE_NAME, 'readonly');
-                const store = tx.objectStore(SNAPSHOT_STORE_NAME);
-                const request = store.get(key);
-                request.onsuccess = () => resolve(request.result || null);
-                request.onerror = () => resolve(null);
-                tx.oncomplete = () => db.close();
-                tx.onerror = () => db.close();
-            } catch (_) {
-                try { db.close(); } catch {}
-                resolve(null);
-            }
-        });
-    }
-
-    async function _writeSnapshot(record) {
-        if (!record?.key) return false;
-        const db = await _openSnapshotDb();
-        if (!db) return false;
-        return new Promise((resolve) => {
-            try {
-                const tx = db.transaction(SNAPSHOT_STORE_NAME, 'readwrite');
-                const store = tx.objectStore(SNAPSHOT_STORE_NAME);
-                store.put(record);
-                tx.oncomplete = () => {
-                    db.close();
-                    resolve(true);
-                };
-                tx.onerror = () => {
-                    db.close();
-                    resolve(false);
-                };
-            } catch (_) {
-                try { db.close(); } catch {}
-                resolve(false);
-            }
-        });
-    }
-
-    async function _deleteSnapshot(key) {
-        if (!key) return false;
-        const db = await _openSnapshotDb();
-        if (!db) return false;
-        return new Promise((resolve) => {
-            try {
-                const tx = db.transaction(SNAPSHOT_STORE_NAME, 'readwrite');
-                const store = tx.objectStore(SNAPSHOT_STORE_NAME);
-                store.delete(key);
-                tx.oncomplete = () => {
-                    db.close();
-                    resolve(true);
-                };
-                tx.onerror = () => {
-                    db.close();
-                    resolve(false);
-                };
-            } catch (_) {
-                try { db.close(); } catch {}
-                resolve(false);
-            }
-        });
-    }
-
-    function _isPrivilegedRole(user = AppState?.loggedInUser) {
-        const role = String(user?._apiRole || '').toUpperCase();
-        return role === 'ADMIN' || role === 'MANAGER' || role === 'TEAM_LEADER';
-    }
-
-    async function _persistCoreSnapshot() {
-        const key = _getSnapshotIdentity();
-        if (!key) return false;
-        return _writeSnapshot({
-            key,
-            schemaVersion: SNAPSHOT_SCHEMA_VERSION,
-            updatedAt: new Date().toISOString(),
-            role: String(AppState?.loggedInUser?._apiRole || ''),
-            data: {
-                users: Array.isArray(AppState.users) ? AppState.users : [],
-                businesses: Array.isArray(AppState.businesses) ? AppState.businesses.map(_serializeBusinessSummary) : [],
-                tasks: Array.isArray(AppState.tasks) ? AppState.tasks.map(_serializeTaskSummary) : [],
-                notifications: Array.isArray(AppState.notifications) ? AppState.notifications : [],
-                categories: AppState.dynamicCategories && typeof AppState.dynamicCategories === 'object'
-                    ? AppState.dynamicCategories
-                    : getCategoryDataFallback(),
-            },
-        });
-    }
-
-    async function restoreCachedShell(user = AppState?.loggedInUser) {
-        const key = _getSnapshotIdentity(user);
-        const snapshot = await _readSnapshot(key);
-        const data = snapshot?.data;
-        const snapshotAgeMs = snapshot?.updatedAt ? (Date.now() - new Date(snapshot.updatedAt).getTime()) : Number.POSITIVE_INFINITY;
-        if (
-            !snapshot
-            || Number(snapshot.schemaVersion || 0) !== SNAPSHOT_SCHEMA_VERSION
-            || !Number.isFinite(snapshotAgeMs)
-            || snapshotAgeMs > SNAPSHOT_MAX_AGE_MS
-            || String(snapshot.role || '') !== String(user?._apiRole || '')
-        ) {
-            await _deleteSnapshot(key);
-            return false;
-        }
-        if (!data || !Array.isArray(data.tasks) || !Array.isArray(data.businesses)) {
-            return false;
-        }
-        const users = Array.isArray(data.users) ? data.users : [];
-        const businesses = Array.isArray(data.businesses) ? data.businesses : [];
-        const tasks = Array.isArray(data.tasks) ? data.tasks : [];
-        const notifications = Array.isArray(data.notifications) ? data.notifications : [];
-        const categories = (data.categories && typeof data.categories === 'object')
-            ? data.categories
-            : getCategoryDataFallback();
-
-        if (_isPrivilegedRole(user) && (users.length === 0 || businesses.length === 0 || tasks.length === 0)) {
-            await _deleteSnapshot(key);
-            return false;
-        }
-
-        AppState.users = users;
-        AppState.businesses = businesses;
-        AppState.tasks = tasks;
-        AppState.notifications = notifications;
-        AppState.dynamicCategories = categories;
-
-        AppState.resetLoadedState();
-        CORE_BOOTSTRAP_COLLECTIONS.forEach((key) => AppState.markLoaded(key));
-        if (typeof AppState.warmDerivedCaches === 'function') {
-            AppState.warmDerivedCaches(CORE_BOOTSTRAP_COLLECTIONS);
-        }
-        AppState.isSystemReady = true;
-        return true;
+    async function restoreCachedShell() {
+        return false;
     }
 
     function _canSyncProjects() {
@@ -268,13 +37,53 @@ const SyncService = (() => {
     }
 
     function _defaultCollections() {
-        const base = ['users', 'businesses', 'tasks', 'notifications', 'systemLogs', 'categories', 'pricing'];
+        const base = ['users', 'notifications', 'systemLogs', 'categories', 'pricing'];
         if (_canSyncProjects()) base.push('projects');
         return base;
     }
 
+    function _applySyncResults(resultMap, options = {}) {
+        if (resultMap.has('users')) {
+            AppState.users = _normalizeCollectionObject(resultMap.get('users'));
+            _checkAndMarkLoaded('users');
+        }
+        if (resultMap.has('notifications')) {
+            AppState.notifications = _normalizeCollectionObject(resultMap.get('notifications'));
+            _checkAndMarkLoaded('notifications');
+        }
+        if (resultMap.has('projects')) {
+            AppState.projects = _normalizeCollectionObject(resultMap.get('projects'));
+            _checkAndMarkLoaded('projects');
+        }
+        if (resultMap.has('systemLogs')) {
+            AppState.systemLogs = _normalizeCollectionObject(resultMap.get('systemLogs')).sort((a, b) => {
+                return new Date(b?.createdAt || b?.date || 0) - new Date(a?.createdAt || a?.date || 0);
+            });
+            _checkAndMarkLoaded('systemLogs');
+        }
+        if (resultMap.has('categories')) {
+            const categoriesRaw = resultMap.get('categories');
+            AppState.dynamicCategories = (categoriesRaw && typeof categoriesRaw === 'object') ? categoriesRaw : getCategoryDataFallback();
+            _checkAndMarkLoaded('categories');
+        }
+        if (resultMap.has('pricing')) {
+            AppState.pricingData = resultMap.get('pricing') || DEFAULT_PRICING_DATA;
+            _checkAndMarkLoaded('pricing');
+        }
+
+        if (!_suppressRefreshUntilSettled && AppState.isSystemReady && resultMap.has('categories') && typeof DropdownController !== 'undefined') {
+            DropdownController.populateMainCategoryDropdowns();
+        }
+
+        if (options.markShellReady) {
+            AppState.isSystemReady = true;
+        }
+
+        _debouncedRefresh();
+    }
+
     function _deferredBootstrapCollections() {
-        const deferred = ['systemLogs', 'pricing'];
+        const deferred = ['systemLogs'];
         if (_canSyncProjects()) deferred.push('projects');
         return deferred;
     }
@@ -309,17 +118,13 @@ const SyncService = (() => {
             _beginBootstrapSettlement();
             AppState.resetLoadedState();
             _markedKeys.clear();
-            const coreSyncSucceeded = await _runSingleSync(CORE_BOOTSTRAP_COLLECTIONS, { markShellReady: true });
-            if (coreSyncSucceeded) {
-                await _persistCoreSnapshot();
-            }
-            if (typeof AppState.warmDerivedCaches === 'function') {
-                AppState.warmDerivedCaches(CORE_BOOTSTRAP_COLLECTIONS);
-            }
-            await _startDeferredBootstrap();
+            await _runSingleSync(CORE_BOOTSTRAP_COLLECTIONS, { markShellReady: true });
+            _startDeferredBootstrap();
             if (!_started) startSync();
             _completeBootstrapSettlement();
-            if (!hadVisibleShell) {
+            // Cold boot already renders the first page via AppController.init(),
+            // so avoid scheduling a second immediate refresh that would re-fetch dashboard data.
+            if (hadVisibleShell) {
                 _debouncedRefresh();
             }
         })().finally(() => {
@@ -337,9 +142,6 @@ const SyncService = (() => {
             setTimeout(async () => {
                 try {
                     await _runSingleSync(deferredKeys);
-                    if (typeof AppState.warmDerivedCaches === 'function') {
-                        AppState.warmDerivedCaches(deferredKeys);
-                    }
                 } finally {
                     resolve();
                     _deferredBootstrapPromise = null;
@@ -357,7 +159,7 @@ const SyncService = (() => {
         clearTimeout(_refreshTimeout);
         _refreshTimeout = setTimeout(() => {
             if (AppState.isSystemReady) {
-                refreshCurrentView();
+                refreshCurrentView({ silent: true });
                 updateNotificationsUI();
             }
         }, 250);
@@ -409,8 +211,6 @@ const SyncService = (() => {
             };
 
             pull('users', 'users');
-            pull('businesses', 'businesses');
-            pull('tasks', 'tasks');
             pull('notifications', 'notifications');
             pull('projects', 'projects');
             pull('systemLogs', 'systemLogs');
@@ -419,56 +219,7 @@ const SyncService = (() => {
 
             const results = await Promise.all(pulls);
             const resultMap = new Map(results);
-
-            if (resultMap.has('users')) {
-                AppState.users = _normalizeCollectionObject(resultMap.get('users'));
-                _checkAndMarkLoaded('users');
-            }
-            if (resultMap.has('businesses')) {
-                AppState.businesses = _normalizeCollectionObject(resultMap.get('businesses'));
-                _checkAndMarkLoaded('businesses');
-            }
-            if (resultMap.has('tasks')) {
-                AppState.tasks = _normalizeCollectionObject(resultMap.get('tasks'));
-                _checkAndMarkLoaded('tasks');
-            }
-            if (resultMap.has('notifications')) {
-                AppState.notifications = _normalizeCollectionObject(resultMap.get('notifications'));
-                _checkAndMarkLoaded('notifications');
-            }
-            if (resultMap.has('projects')) {
-                AppState.projects = _normalizeCollectionObject(resultMap.get('projects'));
-                _checkAndMarkLoaded('projects');
-            }
-            if (resultMap.has('systemLogs')) {
-                AppState.systemLogs = _normalizeCollectionObject(resultMap.get('systemLogs')).sort((a, b) => {
-                    return new Date(b?.createdAt || b?.date || 0) - new Date(a?.createdAt || a?.date || 0);
-                });
-                _checkAndMarkLoaded('systemLogs');
-            }
-            if (resultMap.has('categories')) {
-                const categoriesRaw = resultMap.get('categories');
-                AppState.dynamicCategories = (categoriesRaw && typeof categoriesRaw === 'object') ? categoriesRaw : getCategoryDataFallback();
-                _checkAndMarkLoaded('categories');
-            }
-            if (resultMap.has('pricing')) {
-                AppState.pricingData = resultMap.get('pricing') || DEFAULT_PRICING_DATA;
-                _checkAndMarkLoaded('pricing');
-            }
-
-            if (!_suppressRefreshUntilSettled && AppState.isSystemReady && resultMap.has('categories') && typeof DropdownController !== 'undefined') {
-                DropdownController.populateMainCategoryDropdowns();
-            }
-
-            if (typeof AppState.warmDerivedCaches === 'function') {
-                AppState.warmDerivedCaches(Array.from(resultMap.keys()));
-            }
-
-            if (options.markShellReady) {
-                AppState.isSystemReady = true;
-            }
-
-            _debouncedRefresh();
+            _applySyncResults(resultMap, options);
             return true;
         } catch (err) {
             console.warn('Sync failed:', err?.message || err);
@@ -488,16 +239,157 @@ const SyncService = (() => {
 
     function _collectionsFromPath(path) {
         const p = String(path || '').toLowerCase();
-        if (p.includes('/accounts')) return ['businesses', 'tasks'];
-        if (p.includes('/tasks')) return ['tasks', 'notifications', 'businesses'];
-        if (p.includes('/projects')) return ['projects', 'tasks'];
+        if (p.includes('/accounts')) return [];
+        if (p.includes('/tasks')) return ['notifications'];
+        if (p.includes('/projects')) return ['projects'];
         if (p.includes('/users')) return ['users'];
         if (p.includes('/notifications')) return ['notifications'];
         if (p.includes('/pricing')) return ['pricing'];
         if (p.includes('/lov/categories')) return ['categories'];
-        const base = ['businesses', 'tasks', 'notifications'];
+        const base = ['notifications'];
         if (_canSyncProjects()) base.push('projects');
         return base;
+    }
+
+    function _mergeEntityIntoState(collectionKey, entity, cap = 200) {
+        if (!entity?.id) return;
+        const next = Array.isArray(AppState?.[collectionKey]) ? [...AppState[collectionKey]] : [];
+        const index = next.findIndex((item) => item?.id === entity.id);
+        if (index >= 0) next[index] = entity;
+        else next.unshift(entity);
+        AppState[collectionKey] = next.slice(0, cap);
+    }
+
+    function _removeEntityFromState(collectionKey, entityId) {
+        if (!entityId) return;
+        AppState[collectionKey] = (Array.isArray(AppState?.[collectionKey]) ? AppState[collectionKey] : [])
+            .filter((item) => item?.id !== entityId);
+    }
+
+    function _isTaskVisible(taskId) {
+        if (!taskId) return false;
+        if ((Array.isArray(AppState?.tasks) ? AppState.tasks : []).some((task) => task?.id === taskId)) return true;
+        return document.getElementById('taskModal')?.style?.display === 'flex';
+    }
+
+    function _isBusinessVisible(businessId) {
+        if (!businessId) return false;
+        if ((Array.isArray(AppState?.businesses) ? AppState.businesses : []).some((biz) => biz?.id === businessId)) return true;
+        return document.getElementById('businessDetailModal')?.style?.display === 'flex';
+    }
+
+    async function _refreshTaskEntity(taskId, options = {}) {
+        if (!taskId || (!options.force && !_isTaskVisible(taskId))) return;
+        let refreshedTask = null;
+        try {
+            const task = await DataService.readPath(`tasks/${taskId}`, { force: true });
+            refreshedTask = task;
+            _mergeEntityIntoState('tasks', task);
+        } catch (err) {
+            if (err?.status === 404 || String(err?.message || '') === 'Task not found') {
+                _removeEntityFromState('tasks', taskId);
+            } else {
+                console.warn('Realtime task refresh failed:', err?.message || err);
+                return;
+            }
+        }
+        const taskModalOpen = document.getElementById('taskModal')?.style?.display === 'flex';
+        if (taskModalOpen && String(window?._openTaskModalId || '') === String(taskId)) {
+            try {
+                if (typeof window?.refreshTaskModalInPlace === 'function') {
+                    window.refreshTaskModalInPlace(taskId);
+                }
+            } catch (err) {
+                console.warn('Realtime task modal refresh failed:', err?.message || err);
+            }
+        }
+        const businessId = String(refreshedTask?.businessId || '');
+        const businessModalOpen = document.getElementById('businessDetailModal')?.style?.display === 'flex';
+        if (businessId && businessModalOpen && String(window?._openBusinessDetailId || '') === businessId) {
+            try {
+                if (typeof window?.openBusinessDetailModal === 'function') {
+                    await window.openBusinessDetailModal(businessId);
+                }
+            } catch (err) {
+                console.warn('Realtime business detail refresh failed:', err?.message || err);
+            }
+        }
+        _debouncedRefresh();
+    }
+
+    async function _refreshBusinessEntity(businessId, options = {}) {
+        if (!businessId || (!options.force && !_isBusinessVisible(businessId))) return;
+        try {
+            const business = await DataService.readPath(`accounts/${businessId}`, { force: true });
+            _mergeEntityIntoState('businesses', business);
+        } catch (err) {
+            if (err?.status === 404 || String(err?.message || '').toLowerCase().includes('business not found')) {
+                _removeEntityFromState('businesses', businessId);
+                AppState.tasks = (Array.isArray(AppState.tasks) ? AppState.tasks : [])
+                    .filter((task) => task?.businessId !== businessId);
+            } else {
+                console.warn('Realtime business refresh failed:', err?.message || err);
+                return;
+            }
+        }
+        const businessModalOpen = document.getElementById('businessDetailModal')?.style?.display === 'flex';
+        if (businessModalOpen && String(window?._openBusinessDetailId || '') === String(businessId)) {
+            try {
+                if (typeof window?.openBusinessDetailModal === 'function') {
+                    await window.openBusinessDetailModal(businessId);
+                }
+            } catch (err) {
+                console.warn('Realtime business modal refresh failed:', err?.message || err);
+            }
+        }
+        _debouncedRefresh();
+    }
+
+    async function _applyRealtimeDelta(payload = null) {
+        const type = String(payload?.type || '').trim().toUpperCase();
+        if (!type) return false;
+        if (type === 'TASK_UPDATED') {
+            await _refreshTaskEntity(String(payload?.taskId || ''));
+            return true;
+        }
+        if (type === 'TASK_DELETED') {
+            _removeEntityFromState('tasks', String(payload?.taskId || ''));
+            _debouncedRefresh();
+            return true;
+        }
+        if (type === 'ACCOUNT_UPDATED') {
+            await _refreshBusinessEntity(String(payload?.accountId || ''));
+            return true;
+        }
+        if (type === 'ACCOUNT_DELETED') {
+            const accountId = String(payload?.accountId || '');
+            _removeEntityFromState('businesses', accountId);
+            AppState.tasks = (Array.isArray(AppState.tasks) ? AppState.tasks : [])
+                .filter((task) => task?.businessId !== accountId);
+            _debouncedRefresh();
+            return true;
+        }
+        if (type === 'NOTIFICATIONS_CHANGED') {
+            _queueSync(['notifications']);
+            return true;
+        }
+        if (type === 'USERS_CHANGED') {
+            _queueSync(['users']);
+            return true;
+        }
+        if (type === 'PROJECTS_CHANGED') {
+            _queueSync(['projects']);
+            return true;
+        }
+        if (type === 'CATEGORIES_CHANGED') {
+            _queueSync(['categories']);
+            return true;
+        }
+        if (type === 'PRICING_CHANGED') {
+            _queueSync(['pricing']);
+            return true;
+        }
+        return false;
     }
 
     function _getRealtimeIdentity() {
@@ -511,7 +403,7 @@ const SyncService = (() => {
     function _startPollingFallback() {
         if (_pollTimer) return;
         _pollTimer = setInterval(() => {
-            const keys = ['businesses', 'tasks', 'notifications'];
+            const keys = ['notifications'];
             if (_canSyncProjects()) keys.push('projects');
             _queueSync(keys);
         }, POLL_MS);
@@ -546,8 +438,13 @@ const SyncService = (() => {
                 if (!raw || raw.startsWith(':')) return;
                 let payload = null;
                 try { payload = JSON.parse(raw); } catch { payload = null; }
-                const keys = _collectionsFromPath(payload?.path || '');
-                _queueSync(keys);
+                _applyRealtimeDelta(payload).then((handled) => {
+                    if (handled) return;
+                    const keys = _collectionsFromPath(payload?.path || '');
+                    if (keys.length > 0) _queueSync(keys);
+                }).catch((err) => {
+                    console.warn('Realtime delta apply failed:', err?.message || err);
+                });
             };
             _eventSource.onerror = () => {
                 _startPollingFallback();

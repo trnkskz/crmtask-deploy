@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../infrastructure/prisma/prisma.service'
-import { AccountListQueryDto, CreateAccountDto, SortOption, UpdateAccountDto } from './dto/account.dto'
+import { AccountListQueryDto, AccountTargetPreviewDto, CreateAccountDto, SortOption, UpdateAccountDto } from './dto/account.dto'
 import { Prisma } from '@prisma/client'
 
 @Injectable()
@@ -330,6 +330,116 @@ export class AccountsService {
 
   private importedFallbackDate() {
     return new Date('2000-01-01T12:00:00.000Z')
+  }
+
+  private normalizeTargetPreviewSource(value: unknown) {
+    const raw = String(value || '').trim().toUpperCase()
+    if (!raw) return ''
+    if (raw.includes('OLD ACCOUNT RAKIP') || raw.includes('OLD_RAKIP')) return 'OLD_RAKIP'
+    if (raw.includes('RAKIP')) return 'RAKIP'
+    if (raw.includes('REFERANS')) return 'REFERANS'
+    if (raw.includes('OLD ACCOUNT QUERY') || raw === 'QUERY' || raw.includes('LEAD')) return 'QUERY'
+    if (raw.includes('OLD')) return 'OLD'
+    if (raw.includes('FRESH')) return 'FRESH'
+    return raw
+  }
+
+  private normalizeTargetPreviewMonth(value: unknown) {
+    const raw = String(value || '').trim()
+    if (!raw) return null
+    const numeric = Number(raw)
+    if (Number.isFinite(numeric) && numeric >= 1 && numeric <= 12) return numeric
+
+    const monthMap = new Map<string, number>([
+      ['ocak', 1],
+      ['subat', 2],
+      ['şubat', 2],
+      ['mart', 3],
+      ['nisan', 4],
+      ['mayis', 5],
+      ['mayıs', 5],
+      ['haziran', 6],
+      ['temmuz', 7],
+      ['agustos', 8],
+      ['ağustos', 8],
+      ['eylul', 9],
+      ['eylül', 9],
+      ['ekim', 10],
+      ['kasim', 11],
+      ['kasım', 11],
+      ['aralik', 12],
+      ['aralık', 12],
+    ])
+
+    return monthMap.get(raw.toLocaleLowerCase('tr-TR')) || null
+  }
+
+  private matchesTargetPreviewDate(
+    account: { createdAt?: Date | string | null },
+    tasks: Array<{ creationDate?: Date | string | null; createdAt?: Date | string | null }>,
+    years: number[],
+    months: number[],
+  ) {
+    if (years.length === 0 && months.length === 0) return true
+
+    const dateCandidates: Date[] = []
+    for (const task of tasks) {
+      const parsed = new Date((task?.creationDate || task?.createdAt || '') as any)
+      if (!Number.isNaN(parsed.getTime())) dateCandidates.push(parsed)
+    }
+
+    const accountDate = new Date((account?.createdAt || '') as any)
+    if (!Number.isNaN(accountDate.getTime())) dateCandidates.push(accountDate)
+    if (dateCandidates.length === 0) return false
+
+    return dateCandidates.some((dateObj) => {
+      if (years.length > 0 && !years.includes(dateObj.getUTCFullYear())) return false
+      if (months.length > 0 && !months.includes(dateObj.getUTCMonth() + 1)) return false
+      return true
+    })
+  }
+
+  private matchesTargetPreviewSource(
+    account: { source?: string | null },
+    tasks: Array<{ source?: string | null }>,
+    selectedSources: string[],
+  ) {
+    if (selectedSources.length === 0) return true
+
+    const sourceCandidates = new Set<string>()
+    const accountSource = this.normalizeTargetPreviewSource(account?.source)
+    if (accountSource) sourceCandidates.add(accountSource)
+    tasks.forEach((task) => {
+      const normalized = this.normalizeTargetPreviewSource(task?.source)
+      if (normalized) sourceCandidates.add(normalized)
+    })
+
+    return selectedSources.some((value) => sourceCandidates.has(value))
+  }
+
+  private matchesTargetPreviewCategory(
+    account: { mainCategory?: string | null; subCategory?: string | null },
+    tasks: Array<{ mainCategory?: string | null; subCategory?: string | null }>,
+    selectedMainCategories: string[],
+    selectedSubCategories: string[],
+  ) {
+    const hasCategoryFilter = selectedMainCategories.length > 0 || selectedSubCategories.length > 0
+    if (!hasCategoryFilter) return true
+
+    const historyMatch = tasks.some((task) => {
+      const mainMatches = selectedMainCategories.length === 0 || selectedMainCategories.includes(String(task?.mainCategory || '').trim())
+      const subMatches = selectedSubCategories.length === 0 || selectedSubCategories.includes(String(task?.subCategory || '').trim())
+      return mainMatches && subMatches
+    })
+    if (historyMatch) return true
+
+    const mainCategory = String(account?.mainCategory || '').trim()
+    const subCategory = String(account?.subCategory || '').trim()
+    if (!mainCategory && !subCategory) return false
+
+    const mainMatches = selectedMainCategories.length === 0 || selectedMainCategories.includes(mainCategory)
+    const subMatches = selectedSubCategories.length === 0 || selectedSubCategories.includes(subCategory)
+    return mainMatches && subMatches
   }
 
   private looksLikeMalformedImportCell(value: unknown) {
@@ -962,6 +1072,134 @@ export class AccountsService {
     return items.map((b: any) => ({ id: b.id, label: `${b.accountName}${b.city ? ` • ${b.city}` : ''} • ${b.id}` }))
   }
 
+  async targetPreview(filters: AccountTargetPreviewDto) {
+    const mainCategories = (filters?.mainCategories || []).map((value) => String(value || '').trim()).filter(Boolean)
+    const subCategories = (filters?.subCategories || []).map((value) => String(value || '').trim()).filter(Boolean)
+    const cities = (filters?.cities || []).map((value) => String(value || '').trim()).filter(Boolean)
+    const districts = (filters?.districts || []).map((value) => String(value || '').trim()).filter(Boolean)
+    const sources = (filters?.sources || []).map((value) => this.normalizeTargetPreviewSource(value)).filter(Boolean)
+    const years = (filters?.years || []).map((value) => Number(value)).filter((value) => Number.isFinite(value) && value >= 2000 && value <= 2100)
+    const months = (filters?.months || []).map((value) => this.normalizeTargetPreviewMonth(value)).filter((value): value is number => Number.isFinite(value as number))
+
+    const rawItems = await this.prisma.account.findMany({
+      where: {
+        status: 'ACTIVE' as any,
+        ...(cities.length > 0 ? { city: { in: cities } } : {}),
+        ...(districts.length > 0 ? { district: { in: districts } } : {}),
+      },
+      orderBy: { accountName: 'asc' },
+      select: {
+        id: true,
+        accountName: true,
+        mainCategory: true,
+        subCategory: true,
+        source: true,
+        city: true,
+        district: true,
+        status: true,
+        createdAt: true,
+        tasks: {
+          select: {
+            id: true,
+            source: true,
+            mainCategory: true,
+            subCategory: true,
+            status: true,
+            generalStatus: true,
+            creationDate: true,
+            createdAt: true,
+          },
+          orderBy: { creationDate: 'desc' },
+        },
+      },
+      take: 10000,
+    })
+
+    const matchedItems = rawItems.filter((account: any) => {
+      const accountTasks = Array.isArray(account?.tasks) ? account.tasks : []
+      if (!filters?.includeActive && accountTasks.some((task: any) => String(task?.generalStatus || '').toUpperCase() === 'OPEN')) {
+        return false
+      }
+      if (!this.matchesTargetPreviewSource(account, accountTasks, sources)) return false
+      if (!this.matchesTargetPreviewCategory(account, accountTasks, mainCategories, subCategories)) return false
+      if (!this.matchesTargetPreviewDate(account, accountTasks, years, months)) return false
+      return true
+    })
+
+    const items = matchedItems.map((account: any) => {
+      const latestTask = Array.isArray(account.tasks) && account.tasks.length > 0 ? account.tasks[0] : null
+      return {
+        id: account.id,
+        accountName: account.accountName,
+        companyName: account.accountName,
+        businessName: account.accountName,
+        mainCategory: account.mainCategory,
+        subCategory: account.subCategory,
+        sourceType: account.source,
+        source: account.source,
+        city: account.city,
+        district: account.district,
+        businessStatus: 'Aktif',
+        latestTask: latestTask
+          ? {
+              id: latestTask.id,
+              sourceType: latestTask.source,
+              source: latestTask.source,
+              mainCategory: latestTask.mainCategory,
+              subCategory: latestTask.subCategory,
+              status: latestTask.status,
+              creationDate: latestTask.creationDate,
+              createdAt: latestTask.createdAt,
+            }
+          : null,
+      }
+    })
+
+    return {
+      count: items.length,
+      ids: items.map((item) => item.id),
+      items,
+    }
+  }
+
+  async targetFilterOptions() {
+    const rawItems = await this.prisma.account.findMany({
+      where: { status: 'ACTIVE' as any },
+      select: {
+        createdAt: true,
+        tasks: {
+          select: {
+            creationDate: true,
+            createdAt: true,
+          },
+        },
+      },
+      take: 10000,
+    })
+
+    const years = new Set<string>()
+    const months = new Set<number>()
+    const addDate = (value?: Date | string | null) => {
+      if (!value) return
+      const date = new Date(value)
+      if (Number.isNaN(date.getTime())) return
+      years.add(String(date.getFullYear()))
+      months.add(date.getMonth() + 1)
+    }
+
+    rawItems.forEach((account: any) => {
+      addDate(account?.createdAt)
+      const tasks = Array.isArray(account?.tasks) ? account.tasks : []
+      tasks.forEach((task: any) => addDate(task?.creationDate || task?.createdAt))
+    })
+
+    const monthNames = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık']
+    return {
+      years: Array.from(years).sort((a, b) => Number(b) - Number(a)),
+      months: Array.from(months).sort((a, b) => a - b).map((monthNumber) => monthNames[monthNumber - 1]).filter(Boolean),
+    }
+  }
+
   async listContacts(accountId: string) {
     const business = await this.prisma.account.findUnique({ where: { id: accountId }, select: { id: true } })
     if (!business) throw new NotFoundException('Business not found')
@@ -1051,7 +1289,31 @@ export class AccountsService {
 
   accountActivityHistory(id: string) { return this.prisma.activityHistory.findMany({ where: { accountId: id }, orderBy: { createdAt: 'desc' }, take: 100 }) }
   accountDealHistory(id: string) { return this.prisma.dealHistory.findMany({ where: { deal: { accountId: id } }, orderBy: { createdAt: 'desc' }, take: 100 }) }
-  accountTaskHistory(id: string) { return this.prisma.task.findMany({ where: { accountId: id }, orderBy: { creationDate: 'desc' }, take: 100, select: { id: true, status: true, generalStatus: true, creationDate: true, closedAt: true, closedReason: true } }) }
+  accountTaskHistory(id: string) {
+    return this.prisma.task.findMany({
+      where: { accountId: id },
+      orderBy: { creationDate: 'desc' },
+      take: 100,
+      select: {
+        id: true,
+        type: true,
+        status: true,
+        generalStatus: true,
+        creationDate: true,
+        closedAt: true,
+        closedReason: true,
+        historicalAssignee: true,
+        owner: { select: { id: true, name: true, email: true } },
+        logs: {
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          include: {
+            author: { select: { id: true, name: true, email: true } },
+          },
+        },
+      },
+    })
+  }
 
   private async generateAccountPublicId(tx: PrismaService) {
     const now = new Date()

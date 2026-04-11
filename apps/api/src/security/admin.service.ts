@@ -29,6 +29,12 @@ const GROUPANYA_CATEGORY_TREE: Record<string, string[]> = {
 export class AdminService {
   constructor(private prisma: PrismaService) {}
 
+  private buildCategoryMatchWhere(type: 'main'|'sub', oldMain: string, oldSub?: string | null) {
+    return type === 'main'
+      ? { mainCategory: oldMain }
+      : { mainCategory: oldMain, subCategory: oldSub || '' }
+  }
+
   private resolveCanonicalCategory(mainCategory: string, subCategory: string, companyName = '') {
     const rawMain = String(mainCategory || '').trim()
     const rawSub = String(subCategory || '').trim()
@@ -584,6 +590,86 @@ export class AdminService {
       updatedTaskCount: taskUpdates.length,
       updatedBusinessCount: businessUpdates.length,
       quarantineCount,
+    }
+  }
+
+  async categoryUsage(body: { type: 'main'|'sub'; oldMain: string; oldSub?: string | null }) {
+    const type = body?.type === 'sub' ? 'sub' : 'main'
+    const oldMain = String(body?.oldMain || '').trim()
+    const oldSub = String(body?.oldSub || '').trim()
+    if (!oldMain) throw new BadRequestException('oldMain required')
+
+    const taskWhere = this.buildCategoryMatchWhere(type, oldMain, oldSub)
+    const bizWhere = this.buildCategoryMatchWhere(type, oldMain, oldSub)
+
+    const [tasks, businesses] = await this.prisma.$transaction([
+      this.prisma.task.findMany({
+        where: taskWhere as any,
+        select: { id: true, accountId: true },
+      }),
+      this.prisma.account.findMany({
+        where: bizWhere as any,
+        select: { id: true },
+      }),
+    ])
+
+    const matchedBusinessIds = new Set<string>()
+    tasks.forEach((task) => {
+      const accountId = String(task?.accountId || '').trim()
+      if (accountId) matchedBusinessIds.add(accountId)
+    })
+    businesses.forEach((biz) => {
+      const id = String(biz?.id || '').trim()
+      if (id) matchedBusinessIds.add(id)
+    })
+
+    return {
+      taskIds: tasks.map((task) => task.id),
+      businessIds: Array.from(matchedBusinessIds),
+      taskCount: tasks.length,
+      businessCount: matchedBusinessIds.size,
+      hasLinkedRecords: tasks.length > 0 || matchedBusinessIds.size > 0,
+    }
+  }
+
+  async transferCategory(body: { type: 'main'|'sub'; oldMain: string; oldSub?: string | null; newMain: string; newSub?: string | null; index?: number | null; categories?: Record<string, string[]> }) {
+    const type = body?.type === 'sub' ? 'sub' : 'main'
+    const oldMain = String(body?.oldMain || '').trim()
+    const oldSub = String(body?.oldSub || '').trim()
+    const newMain = String(body?.newMain || '').trim()
+    const newSub = String(body?.newSub || '').trim()
+    if (!oldMain || !newMain) throw new BadRequestException('oldMain and newMain required')
+
+    const usage = await this.categoryUsage({ type, oldMain, oldSub })
+    const taskIds = Array.isArray(usage.taskIds) ? usage.taskIds : []
+    const businessIds = Array.isArray(usage.businessIds) ? usage.businessIds : []
+
+    if (taskIds.length) {
+      await this.prisma.task.updateMany({
+        where: { id: { in: taskIds } },
+        data: { mainCategory: newMain, subCategory: newSub },
+      })
+    }
+
+    if (businessIds.length) {
+      await this.prisma.account.updateMany({
+        where: { id: { in: businessIds } },
+        data: {
+          mainCategory: newMain,
+          subCategory: newSub,
+          category: [newMain, newSub].filter(Boolean).join(' / ') || 'Uncategorized',
+        },
+      })
+    }
+
+    return {
+      success: true,
+      taskIds,
+      businessIds,
+      taskCount: taskIds.length,
+      businessCount: businessIds.length,
+      newMain,
+      newSub,
     }
   }
 

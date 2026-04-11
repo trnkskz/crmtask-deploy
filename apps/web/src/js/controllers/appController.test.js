@@ -16,7 +16,7 @@ describe('AppController notifications', () => {
         };
     }
 
-    it('builds dynamic notifications from cached user task summaries', () => {
+    it('builds dynamic notifications from backend task reports', async () => {
         const elements = {
             notifList: createElement(),
             notifBadge: createElement({ style: {} }),
@@ -51,25 +51,32 @@ describe('AppController notifications', () => {
             document,
             Date: FixedDate,
             AppState: {
-                loggedInUser: { name: 'Ayse' },
+                loggedInUser: { id: 'user-1', name: 'Ayse' },
                 notifications: [],
                 tasks: [],
                 businesses: [],
-                getUserTaskSummaryMap: () => new Map([['Ayse', { tasks: [staleTask] }]]),
-                getBizMap: () => new Map([['biz-1', { companyName: 'Acme' }]]),
+            },
+            DataService: {
+                apiRequest: jest.fn(async () => ({
+                    rows: [{
+                        ...staleTask,
+                        businessName: 'Acme',
+                        lastActionDate: '2026-04-01T10:00:00.000Z',
+                    }],
+                })),
             },
             parseLogDate: () => new RealDate('2026-04-01T10:00:00.000Z').getTime(),
             window: { sessionStorage: createStorage() },
         });
 
-        controller.updateNotificationsUI();
+        await controller.updateNotificationsUI();
 
         expect(elements.notifBadge.style.display).toBe('inline-block');
         expect(elements.notifList.innerHTML).toContain('Acme');
         expect(elements.notifList.innerHTML).toContain('3 günden uzun süredir');
     });
 
-    it('renders unread API notifications for the logged-in user without matching by display name', () => {
+    it('renders unread API notifications for the logged-in user without matching by display name', async () => {
         const elements = {
             notifList: createElement(),
             notifBadge: createElement({ style: {} }),
@@ -85,20 +92,18 @@ describe('AppController notifications', () => {
                 ],
                 tasks: [],
                 businesses: [],
-                getUserTaskSummaryMap: () => new Map(),
-                getBizMap: () => new Map(),
             },
             parseLogDate: () => 0,
             window: { sessionStorage: createStorage() },
         });
 
-        controller.updateNotificationsUI();
+        await controller.updateNotificationsUI();
 
         expect(elements.notifBadge.style.display).toBe('inline-block');
         expect(elements.notifList.innerHTML).toContain('Size görev atandı');
     });
 
-    it('keeps a read notification hidden after rerender within the same session', () => {
+    it('keeps a read notification hidden after rerender within the same session', async () => {
         const elements = {
             notifList: createElement(),
             notifBadge: createElement({ style: {} }),
@@ -117,10 +122,9 @@ describe('AppController notifications', () => {
                 notifications,
                 tasks: [],
                 businesses: [],
-                getUserTaskSummaryMap: () => new Map(),
-                getBizMap: () => new Map(),
             },
             DataService: {
+                apiRequest: jest.fn(async () => []),
                 markNotificationRead: jest.fn(() => Promise.resolve({ ok: true })),
             },
             SyncService: {
@@ -130,16 +134,16 @@ describe('AppController notifications', () => {
             window: { sessionStorage },
         });
 
-        controller.updateNotificationsUI();
+        await controller.updateNotificationsUI();
         controller.markNotifRead('notif-1');
 
         notifications.push({ id: 'notif-1', toUserId: 'user-1', user: 'Sistem', text: 'Size görev atandı', read: false });
-        controller.updateNotificationsUI();
+        await controller.updateNotificationsUI();
 
         expect(elements.notifList.innerHTML).not.toContain('Size görev atandı');
     });
 
-    it('hides dynamic inactivity notifications after they are dismissed in the same session', () => {
+    it('hides dynamic inactivity notifications after they are dismissed in the same session', async () => {
         const elements = {
             notifList: createElement(),
             notifBadge: createElement({ style: {} }),
@@ -178,16 +182,23 @@ describe('AppController notifications', () => {
                 notifications: [],
                 tasks: [],
                 businesses: [],
-                getUserTaskSummaryMap: () => new Map([['Ayse', { tasks: [staleTask] }]]),
-                getBizMap: () => new Map([['biz-1', { companyName: 'Acme' }]]),
+            },
+            DataService: {
+                apiRequest: jest.fn(async () => ({
+                    rows: [{
+                        ...staleTask,
+                        businessName: 'Acme',
+                        lastActionDate: '2026-04-01T10:00:00.000Z',
+                    }],
+                })),
             },
             parseLogDate: () => new RealDate('2026-04-01T10:00:00.000Z').getTime(),
             window: { sessionStorage },
         });
 
-        controller.updateNotificationsUI();
+        await controller.updateNotificationsUI();
         controller.markDynamicNotifRead('dynamic:task-1');
-        controller.updateNotificationsUI();
+        await controller.updateNotificationsUI();
 
         expect(elements.notifList.innerHTML).not.toContain('3 günden uzun süredir');
     });

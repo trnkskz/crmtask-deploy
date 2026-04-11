@@ -40,6 +40,20 @@ export class AdminController {
   @RequirePermission('manageSettings')
   migrateGrupanyaCategories() { return this.svc.migrateGrupanyaCategories() }
 
+  @Post('maintenance/category-usage')
+  @MinRole(Roles.ADMIN)
+  @RequirePermission('manageSettings')
+  categoryUsagePost(@Body() body: { type: 'main'|'sub'; oldMain: string; oldSub?: string | null }) {
+    return this.svc.categoryUsage(body)
+  }
+
+  @Post('maintenance/transfer-category')
+  @MinRole(Roles.ADMIN)
+  @RequirePermission('manageSettings')
+  transferCategory(@Body() body: { type: 'main'|'sub'; oldMain: string; oldSub?: string | null; newMain: string; newSub?: string | null; index?: number | null; categories?: Record<string, string[]> }) {
+    return this.svc.transferCategory(body)
+  }
+
   @Get('roles')
   @MinRole(Roles.ADMIN)
   @RequirePermission('manageRoles')

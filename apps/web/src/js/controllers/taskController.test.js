@@ -23,6 +23,7 @@ describe('TaskController.executeSaveAction', () => {
 
         global.document = {
             getElementById: jest.fn((id) => elements[id] || null),
+            querySelectorAll: jest.fn(() => []),
         };
 
         return elements;
@@ -38,6 +39,11 @@ describe('TaskController.executeSaveAction', () => {
         global.showToast = jest.fn();
         global.refreshTaskModalInPlace = jest.fn();
         global.renderTaskInline = jest.fn();
+        global.setTimeout = jest.fn((fn) => {
+            if (typeof fn === 'function') fn();
+            return 0;
+        });
+        global.clearTimeout = jest.fn();
 
         global.AppState = {
             tasks: [
@@ -77,6 +83,8 @@ describe('TaskController.executeSaveAction', () => {
         delete global.showToast;
         delete global.refreshTaskModalInPlace;
         delete global.renderTaskInline;
+        delete global.setTimeout;
+        delete global.clearTimeout;
         delete global.AppState;
         delete global.DataService;
     });
@@ -103,10 +111,31 @@ describe('TaskController.executeSaveAction', () => {
                 reason: 'GORUSME',
             },
         });
-        expect(DataService.readPath).toHaveBeenCalledWith('tasks/task_1');
+        expect(DataService.readPath).toHaveBeenCalledWith('tasks/task_1', { force: true });
         expect(AppState.tasks[0].status).toBe('deal');
         expect(window._dealDetails).toBeNull();
         expect(showToast).toHaveBeenCalledWith('İşlem başarıyla kaydedildi!', 'success');
+        expect(document.getElementById('btnSaveModalLog').disabled).toBe(false);
+    });
+
+    it('refreshes the open modal back to previous task state when save fails', async () => {
+        const elements = setupDom();
+        elements.taskModal = createElement({ style: { display: 'flex' } });
+        global.document.getElementById = jest.fn((id) => elements[id] || null);
+
+        global.DataService = {
+            apiRequest: jest.fn().mockRejectedValue(new Error('Patch failed')),
+            readPath: jest.fn(),
+        };
+
+        require('./taskController');
+        window.refreshTaskModalInPlace = jest.fn();
+
+        await window.executeSaveAction('task_1');
+
+        expect(window.refreshTaskModalInPlace).toHaveBeenCalledWith('task_1');
+        expect(AppState.tasks[0].status).toBe('hot');
+        expect(showToast).toHaveBeenCalledWith('Hata: Patch failed', 'error');
         expect(document.getElementById('btnSaveModalLog').disabled).toBe(false);
     });
 });

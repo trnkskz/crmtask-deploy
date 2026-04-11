@@ -4,6 +4,45 @@
 // ==========================================
 const ProjectController = {
     _deletingProjectIds: new Set(),
+    _targetPreviewRequestSeq: 0,
+    _lastTargetPreview: null,
+
+    async _searchBusinesses(query, limit = 10) {
+        const payload = await DataService.fetchBusinessPage({
+            q: String(query || '').trim(),
+            view: 'summary',
+            page: 1,
+            limit,
+        });
+        const items = Array.isArray(payload?.items) ? payload.items : [];
+        if (items.length > 0) {
+            const nextMap = new Map((Array.isArray(AppState.businesses) ? AppState.businesses : []).map((biz) => [biz.id, biz]));
+            items.forEach((biz) => nextMap.set(biz.id, biz));
+            AppState.businesses = Array.from(nextMap.values()).slice(-200);
+        }
+        return items;
+    },
+
+    async _fetchBusinessTaskHistory(bizId) {
+        const rows = await DataService.apiRequest(`/accounts/${bizId}/task-history`);
+        return Array.isArray(rows) ? rows : [];
+    },
+
+    _mapHistoryLogs(rows = []) {
+        const allLogs = [];
+        rows.forEach((task) => {
+            const taskLogs = Array.isArray(task?.logs) ? task.logs : [];
+            taskLogs.forEach((log) => {
+                allLogs.push({
+                    date: log?.createdAt ? new Date(log.createdAt).toLocaleString('tr-TR') : '-',
+                    user: log?.author?.name || log?.author?.email || 'Sistem',
+                    text: log?.text || '',
+                });
+            });
+        });
+        allLogs.sort((a, b) => (parseLogDate(b.date) || 0) - (parseLogDate(a.date) || 0));
+        return allLogs;
+    },
 
     _findAssignableUser(ref) {
         const raw = String(ref || '').trim();
@@ -194,6 +233,62 @@ const ProjectController = {
         return true;
     },
 
+    _getTargetAudienceFilters() {
+        const getSelectedValues = (id) => {
+            const el = document.getElementById(id);
+            if (!el) return [];
+            return Array.from(el.selectedOptions).map((opt) => opt.value).filter(Boolean);
+        };
+
+        return {
+            mainCategories: getSelectedValues('targetMainCat'),
+            subCategories: getSelectedValues('targetSubCat'),
+            cities: getSelectedValues('targetCity'),
+            districts: getSelectedValues('targetDistrict'),
+            sources: getSelectedValues('targetSource'),
+            years: getSelectedValues('targetYear'),
+            months: getSelectedValues('targetMonth'),
+            includeActive: Boolean(document.getElementById('targetIncludeActive')?.checked),
+        };
+    },
+
+    _renderTargetFilterTags(filters = {}) {
+        const tagsContainer = document.getElementById('targetFilterTags');
+        if (!tagsContainer) return;
+
+        const mainCategories = Array.isArray(filters.mainCategories) ? filters.mainCategories : [];
+        const subCategories = Array.isArray(filters.subCategories) ? filters.subCategories : [];
+        const cities = Array.isArray(filters.cities) ? filters.cities : [];
+        const districts = Array.isArray(filters.districts) ? filters.districts : [];
+        const sources = Array.isArray(filters.sources) ? filters.sources : [];
+        const years = Array.isArray(filters.years) ? filters.years : [];
+        const months = Array.isArray(filters.months) ? filters.months : [];
+        const includeActive = Boolean(filters.includeActive);
+
+        let tagsHtml = '';
+        if (mainCategories.length > 0) tagsHtml += `<span class="tcb-tag">Ana Kat: ${mainCategories.join(', ')}</span>`;
+        if (subCategories.length > 0) tagsHtml += `<span class="tcb-tag">Alt Kat: ${subCategories.join(', ')}</span>`;
+        if (cities.length > 0) tagsHtml += `<span class="tcb-tag">İl: ${cities.join(', ')}</span>`;
+        if (districts.length > 0) tagsHtml += `<span class="tcb-tag">İlçe: ${districts.join(', ')}</span>`;
+        if (sources.length > 0) tagsHtml += `<span class="tcb-tag">Kaynak: ${sources.join(', ')}</span>`;
+        if (years.length > 0) tagsHtml += `<span class="tcb-tag">Yıl: ${years.join(', ')}</span>`;
+        if (months.length > 0) tagsHtml += `<span class="tcb-tag">Ay: ${months.join(', ')}</span>`;
+        if (includeActive) tagsHtml += `<span class="tcb-tag warning">Aktif Görevler Dahil</span>`;
+
+        if (!tagsHtml) tagsHtml = `<span class="tcb-tag empty">Sadece Sistemdeki Tüm Boş Kayıtlar</span>`;
+        tagsContainer.innerHTML = tagsHtml;
+    },
+
+    async _fetchTargetAudiencePreview(filters) {
+        const normalizedFilters = filters || this._getTargetAudienceFilters();
+        const preview = await DataService.fetchAccountTargetPreview(normalizedFilters);
+        this._lastTargetPreview = {
+            filters: JSON.stringify(normalizedFilters),
+            result: preview,
+        };
+        return preview;
+    },
+
 
     // ---- Görev Oluşturma Sekmeleri ----
 
@@ -239,28 +334,34 @@ const ProjectController = {
         }
     },
 
-    checkDuplicateBiz(val) {
+    async checkDuplicateBiz(val) {
         const warnEl = document.getElementById('newBizDuplicateWarning'); if (!warnEl) return;
         if (!val || val.length < 3) { warnEl.style.display = 'none'; return; }
-        const rawVal = val.toLowerCase().replace(/\s+/g, '');
-        const exists = AppState.businesses.some(b => (b.companyName || '').toLowerCase().replace(/\s+/g, '').includes(rawVal));
-        if (exists) {
-            warnEl.style.display = 'block';
-            warnEl.innerHTML = `⚠️ Sistemde benzer bir kayıt bulundu. Lütfen 'Var Olan Account' sekmesini kontrol edin!`;
-        } else {
-            warnEl.style.display = 'none';
+        try {
+            const matches = await this._searchBusinesses(val, 5);
+            if (matches.length > 0) {
+                warnEl.style.display = 'block';
+                warnEl.innerHTML = `⚠️ Sistemde benzer bir kayıt bulundu. Lütfen 'Var Olan Account' sekmesini kontrol edin!`;
+                return;
+            }
+        } catch (err) {
+            console.error('Duplicate business check failed:', err);
         }
+        warnEl.style.display = 'none';
     },
 
-    searchExistingBizForTask(val) {
+    async searchExistingBizForTask(val) {
         const dropdown = document.getElementById('existingBizDropdown'); if (!dropdown) return;
         dropdown.innerHTML = '';
         if (!val || val.length < 2) { dropdown.style.display = 'none'; return; }
-        const matches = AppState.businesses.filter((b) => (
-            typeof businessMatchesSearch === 'function'
-                ? businessMatchesSearch(b, val)
-                : normalizeText(b.companyName).includes(normalizeText(val))
-        )).slice(0, 10);
+        let matches = [];
+        try {
+            matches = await this._searchBusinesses(val, 10);
+        } catch (err) {
+            console.error('Existing business search failed:', err);
+            dropdown.style.display = 'none';
+            return;
+        }
 
         if (matches.length > 0) {
             matches.forEach(b => {
@@ -275,7 +376,7 @@ const ProjectController = {
         }
     },
 
-    selectExistingBizForTask(bizId) {
+    async selectExistingBizForTask(bizId) {
         const dropdown = document.getElementById('existingBizDropdown'); if (dropdown) dropdown.style.display = 'none';
         const srch = document.getElementById('taskSearchExistingBiz'); if (srch) srch.value = '';
         const biz = AppState.businesses.find(b => b.id === bizId); if (!biz) return;
@@ -284,20 +385,25 @@ const ProjectController = {
         const secExist = document.getElementById('taskCreateExistingSection');
         if (secExist) secExist.classList.add('split-active');
 
+        let historyRows = [];
+        try {
+            historyRows = await this._fetchBusinessTaskHistory(biz.id);
+        } catch (err) {
+            console.warn('Business task history could not be loaded:', err);
+        }
+
         const summaryContainer = document.getElementById('existingBizSummaryContent');
         if (summaryContainer) {
-            const activeTask = AppState.tasks.find(t => t.businessId === biz.id && isActiveTask(t.status));
+            const activeTask = historyRows.find((task) => isActiveTask(String(task?.status || '').toLowerCase()));
             let warningHtml = '';
             if (activeTask) {
                 const statusLabels = { 'new': 'Yeni', 'hot': 'Hot', 'nothot': 'Not Hot', 'followup': 'Takip' };
-                warningHtml = `<div style="background:#fffbeb; border:1px solid #fde68a; color:#b45309; padding:12px; border-radius:8px; margin-bottom:15px; font-size:13px; font-weight:600; line-height:1.5; display:block; white-space:normal;">⚠️ Dikkat: Bu işletme şu an <b>${activeTask.assignee}</b> üzerinde <b>${statusLabels[activeTask.status] || activeTask.status}</b> durumunda!</div>`;
+                const assignee = activeTask?.owner?.name || activeTask?.owner?.email || activeTask?.historicalAssignee || 'Atanmamış';
+                warningHtml = `<div style="background:#fffbeb; border:1px solid #fde68a; color:#b45309; padding:12px; border-radius:8px; margin-bottom:15px; font-size:13px; font-weight:600; line-height:1.5; display:block; white-space:normal;">⚠️ Dikkat: Bu işletme şu an <b>${assignee}</b> üzerinde <b>${statusLabels[String(activeTask.status || '').toLowerCase()] || activeTask.status}</b> durumunda!</div>`;
             }
 
             let lastLogHtml = '<span style="color:#888; font-size:12px; font-style:italic;">Geçmiş işlem bulunamadı.</span>';
-            const allBizTasks = AppState.tasks.filter(t => t.businessId === biz.id);
-            let allLogs = [];
-            allBizTasks.forEach(t => { if (t.logs) allLogs = allLogs.concat(t.logs); });
-            allLogs.sort((a, b) => parseLogDate(b.date) - parseLogDate(a.date));
+            const allLogs = historyRows.length > 0 ? this._mapHistoryLogs(historyRows) : [];
             if (allLogs.length > 0) {
                 const ll = allLogs[0];
                 lastLogHtml = `<div style="background:#f8f9fa; border:1px solid #e2e8f0; padding:12px; border-radius:8px; font-size:12px;"><strong style="color:var(--primary-color);">👤 ${ll.user}</strong> <span style="color:#888;">(${ll.date.split(' ')[0]})</span><br><div style="margin-top:6px; color:var(--secondary-color); line-height:1.5;">${ll.text}</div></div>`;
@@ -357,11 +463,21 @@ const ProjectController = {
                 throw new Error('Seçilen personel bulunamadı. Kullanıcı listesini yenileyip tekrar deneyin.');
             }
 
-            const existingOpenTask = AppState.tasks.find((t) =>
-                t.businessId === bizId &&
-                isActiveTask(t.status) &&
-                (!targetProjectId || t.type !== 'PROJECT')
-            );
+            let existingOpenTask = null;
+            try {
+                const historyRows = await this._fetchBusinessTaskHistory(bizId);
+                existingOpenTask = historyRows.find((task) =>
+                    isActiveTask(String(task?.status || '').toLowerCase()) &&
+                    (!targetProjectId || String(task?.type || '') !== 'PROJECT')
+                ) || null;
+            } catch (err) {
+                console.warn('Existing open task check fell back to visible state:', err);
+                existingOpenTask = AppState.tasks.find((t) =>
+                    t.businessId === bizId &&
+                    isActiveTask(t.status) &&
+                    (!targetProjectId || t.type !== 'PROJECT')
+                ) || null;
+            }
             if (existingOpenTask && !targetProjectId) {
                 throw new Error("Bu işletmede zaten açık bir genel görev var. Mevcut görevi kullanın ya da önce kapatın.");
             }
@@ -603,69 +719,38 @@ const ProjectController = {
         this.updateTargetLiveCount();
     },
 
-    updateTargetLiveCount() {
+    async updateTargetLiveCount() {
         const tp = document.getElementById('targetPullExisting');
         const countEl = document.getElementById('targetLiveCountDisplay');
         if (!tp || !countEl) return;
         if (!tp.checked) {
             countEl.style.display = 'block';
             countEl.innerHTML = 'Taslak';
+            this._lastTargetPreview = null;
             const tagsContainer = document.getElementById('targetFilterTags');
             if (tagsContainer) tagsContainer.innerHTML = `<span class="tcb-tag empty">Manuel proje modu aktif</span>`;
             return;
         }
 
-        const getSelectedValues = id => {
-            const el = document.getElementById(id);
-            if (!el) return [];
-            return Array.from(el.selectedOptions).map(opt => opt.value).filter(val => val);
-        };
-
-        const fCats = getSelectedValues('targetMainCat');
-        const fSubCats = getSelectedValues('targetSubCat');
-        const fCities = getSelectedValues('targetCity');
-        const fDistricts = getSelectedValues('targetDistrict');
-        const fSources = getSelectedValues('targetSource');
-        const fYears = getSelectedValues('targetYear');
-        const fMonths = getSelectedValues('targetMonth');
-
-        const incEl = document.getElementById('targetIncludeActive');
-        const includeActive = incEl ? incEl.checked : false;
-        const taskMap = AppState.getTaskMap();
-
-        const filters = {
-            mainCategories: fCats,
-            subCategories: fSubCats,
-            cities: fCities,
-            districts: fDistricts,
-            sources: fSources,
-            years: fYears,
-            months: fMonths,
-            includeActive,
-        };
-
-        const filtered = AppState.businesses.filter((biz) => this._matchesTargetAudienceFilters(biz, filters, taskMap));
+        const filters = this._getTargetAudienceFilters();
+        const requestSeq = ++this._targetPreviewRequestSeq;
         countEl.style.display = 'block';
-        countEl.innerHTML = filtered.length;
+        countEl.innerHTML = '...';
+        this._renderTargetFilterTags(filters);
 
-        const tagsContainer = document.getElementById('targetFilterTags');
-        if (tagsContainer) {
-            let tagsHtml = '';
-            if (fCats.length > 0) tagsHtml += `<span class="tcb-tag">Ana Kat: ${fCats.join(', ')}</span>`;
-            if (fSubCats.length > 0) tagsHtml += `<span class="tcb-tag">Alt Kat: ${fSubCats.join(', ')}</span>`;
-            if (fCities.length > 0) tagsHtml += `<span class="tcb-tag">İl: ${fCities.join(', ')}</span>`;
-            if (fDistricts.length > 0) tagsHtml += `<span class="tcb-tag">İlçe: ${fDistricts.join(', ')}</span>`;
-            if (fSources.length > 0) tagsHtml += `<span class="tcb-tag">Kaynak: ${fSources.join(', ')}</span>`;
-            if (fYears.length > 0) tagsHtml += `<span class="tcb-tag">Yıl: ${fYears.join(', ')}</span>`;
-            if (fMonths.length > 0) tagsHtml += `<span class="tcb-tag">Ay: ${fMonths.join(', ')}</span>`;
-            if (includeActive) tagsHtml += `<span class="tcb-tag warning">Aktif Görevler Dahil</span>`;
-            
-            if (tagsHtml === '') tagsHtml = `<span class="tcb-tag empty">Sadece Sistemdeki Tüm Boş Kayıtlar</span>`;
-            tagsContainer.innerHTML = tagsHtml;
+        try {
+            const preview = await this._fetchTargetAudiencePreview(filters);
+            if (requestSeq !== this._targetPreviewRequestSeq) return;
+            countEl.innerHTML = Number(preview?.count || 0);
+        } catch (err) {
+            if (requestSeq !== this._targetPreviewRequestSeq) return;
+            console.error('Target preview failed:', err);
+            countEl.innerHTML = '?';
+            showToast('Hedef kitle önizlemesi alınamadı.', 'error');
         }
     },
 
-    generateStrategicList() {
+    async generateStrategicList() {
         if (typeof hasPermission === 'function' && !hasPermission('manageProjects')) {
             showToast('Proje yonetimi yetkiniz bulunmuyor.', 'warning');
             return;
@@ -684,40 +769,20 @@ const ProjectController = {
         const bulkNote = esc((document.getElementById('targetBulkNote')?.value || '').trim());
         const baseNote = esc((document.getElementById('targetBaseNote')?.value || '').trim());
         const projectNote = bulkNote || baseNote;
-        let targetBizIds = [];
+        let targetBusinesses = [];
 
         const tp = document.getElementById('targetPullExisting');
         if (tp && tp.checked) {
-            const fCats = getSelectedValues('targetMainCat');
-            const fSubCats = getSelectedValues('targetSubCat');
-            const fCities = getSelectedValues('targetCity');
-            const fDistricts = getSelectedValues('targetDistrict');
-            const fSources = getSelectedValues('targetSource');
-            const fYears = getSelectedValues('targetYear');
-            const fMonths = getSelectedValues('targetMonth');
-
-            const incEl = document.getElementById('targetIncludeActive');
-            const includeActive = incEl ? incEl.checked : false;
-            const taskMap = AppState.getTaskMap();
-
-            const filters = {
-                mainCategories: fCats,
-                subCategories: fSubCats,
-                cities: fCities,
-                districts: fDistricts,
-                sources: fSources,
-                years: fYears,
-                months: fMonths,
-                includeActive,
-            };
-
-            targetBizIds = AppState.businesses
-                .filter((biz) => this._matchesTargetAudienceFilters(biz, filters, taskMap))
-                .map((b) => b.id);
+            const filters = this._getTargetAudienceFilters();
+            const serializedFilters = JSON.stringify(filters);
+            const preview = this._lastTargetPreview?.filters === serializedFilters
+                ? this._lastTargetPreview.result
+                : await this._fetchTargetAudiencePreview(filters);
+            targetBusinesses = Array.isArray(preview?.items) ? preview.items : [];
         }
 
         const shouldPullExisting = Boolean(tp && tp.checked);
-        if (shouldPullExisting && targetBizIds.length === 0) return showToast("Filtrelere uyan işletme bulunamadı!", "warning");
+        if (shouldPullExisting && targetBusinesses.length === 0) return showToast("Filtrelere uyan işletme bulunamadı!", "warning");
         if (!shouldPullExisting && typeof hasPermission === 'function' && !hasPermission('createManualProject')) {
             showToast('Bos veya taslak proje olusturma yetkiniz bulunmuyor.', 'warning');
             return;
@@ -730,10 +795,11 @@ const ProjectController = {
             mode: shouldPullExisting ? 'DATA_DRIVEN' : 'MANUAL',
         };
 
-        DataService.apiRequest('/projects', {
-            method: 'POST',
-            body: JSON.stringify(pObj)
-        }).then(project => {
+        try {
+            const project = await DataService.apiRequest('/projects', {
+                method: 'POST',
+                body: JSON.stringify(pObj)
+            });
             this._upsertProjectInState(project, pMonth, pYear);
             const newProjectId = project.id;
             const actorName = AppState.loggedInUser?.name || 'Sistem';
@@ -743,13 +809,13 @@ const ProjectController = {
                 showToast(`"${pName}" taslak proje olarak oluşturuldu.`, "success");
                 this.renderActiveProjects();
                 if (typeof DropdownController !== 'undefined') DropdownController.updateAssigneeDropdowns();
-                return [];
+                return;
             }
 
             // 2. Her işletme için görev oluştur
-            const taskPromises = targetBizIds.map((bId) => {
-                const bizObj = AppState.businesses.find(x => x.id === bId) || {};
-                const bizTask = (AppState.getTaskMap()[bId] || [])[0];
+            const taskPromises = targetBusinesses.map((bizObj) => {
+                const bId = bizObj.id;
+                const bizTask = bizObj.latestTask || null;
                 const rawSrc = bizTask ? (bizTask.sourceType || bizTask.source || 'OLD') : (bizObj.sourceType || bizObj.source || 'OLD');
                 const srcEnum = ({'Fresh Account':'FRESH','Old Account':'OLD','Old Account Rakip':'OLD_RAKIP','Old Account Query':'QUERY','Query':'QUERY','Lead':'FRESH','Rakip':'RAKIP','Referans':'REFERANS'}[rawSrc]) || (['QUERY','FRESH','RAKIP','OLD_RAKIP','REFERANS','OLD'].includes(rawSrc) ? rawSrc : 'OLD');
                 const taskPayload = {
@@ -776,12 +842,10 @@ const ProjectController = {
                 });
             });
 
-            return Promise.all(taskPromises);
-        }).then((results) => {
-            if (!shouldPullExisting) return;
+            const results = await Promise.all(taskPromises);
             const successCount = results.filter((item) => item?.ok).length;
             const failedCount = results.length - successCount;
-            addSystemLog(`"${pName}" hedef listesi oluşturuldu. (${targetBizIds.length} İşletme)`);
+            addSystemLog(`"${pName}" hedef listesi oluşturuldu. (${targetBusinesses.length} İşletme)`);
             if (failedCount > 0) {
                 showToast(`"${pName}" oluşturuldu. ${successCount} görev eklendi, ${failedCount} görev eklenemedi.`, "warning");
             } else {
@@ -789,10 +853,10 @@ const ProjectController = {
             }
             this.renderActiveProjects();
             if (typeof DropdownController !== 'undefined') DropdownController.updateAssigneeDropdowns();
-        }).catch(err => {
+        } catch (err) {
             console.error('Strategic list error:', err);
             showToast('Liste oluşturulurken hata: ' + err.message, 'error');
-        });
+        }
     },
 
     // ---- Aktif Projeler ----
@@ -833,47 +897,67 @@ const ProjectController = {
         return project?.displayPeriod || [project?.month, project?.year].filter(Boolean).join(' ') || '-';
     },
 
-    _getProjectTasks(projectId) {
-        const projectTaskMap = typeof AppState.getProjectTaskMap === 'function' ? AppState.getProjectTaskMap() : null;
-        return projectTaskMap?.[projectId] ? [...projectTaskMap[projectId]] : [];
-    },
-
-    _getProjectPoolTasks(projectId) {
-        return this._getProjectTasks(projectId).filter((task) => task.assignee === 'TARGET_POOL');
-    },
-
-    _getProjectVisibleActiveTasks(projectId) {
-        return this._getProjectTasks(projectId).filter((task) => {
-            if (task.assignee === 'TARGET_POOL') return false;
-            if (typeof isVisibleTaskListProjectTask === 'function') return isVisibleTaskListProjectTask(task);
-            return Boolean(task.projectId) && typeof isActiveTask === 'function' ? isActiveTask(task.status) : !['deal', 'cold', 'pending_approval'].includes(task.status);
+    async _fetchProjectTaskReportRows(projectId, extraQuery = {}) {
+        if (!projectId) return { rows: [], total: 0 };
+        const params = new URLSearchParams();
+        params.set('projectId', projectId);
+        Object.entries(extraQuery || {}).forEach(([key, value]) => {
+            if (value === undefined || value === null || value === '') return;
+            params.set(key, String(value));
         });
+        const response = await DataService.apiRequest(`/reports/tasks?${params.toString()}`);
+        const rows = Array.isArray(response?.rows) ? response.rows : [];
+        return {
+            rows,
+            total: Number(response?.total || rows.length || 0),
+        };
     },
 
-    _summarizeProject(project) {
-        const allTasks = this._getProjectTasks(project.id);
-        const poolTasks = allTasks.filter((task) => task.assignee === 'TARGET_POOL');
-        const activeTasks = this._getProjectVisibleActiveTasks(project.id);
-        const total = allTasks.length;
-        const dealCount = allTasks.filter((task) => task.status === 'deal').length;
-        const coldCount = allTasks.filter((task) => task.status === 'cold').length;
-        const openCount = activeTasks.length;
-        const isUndistributed = poolTasks.length > 0 || total === 0;
-        const isActiveDistributed = poolTasks.length === 0 && openCount > 0;
-        const isArchived = total > 0 && poolTasks.length === 0 && openCount === 0;
+    async _fetchProjectSummary(project) {
+        const projectId = project?.id;
+        if (!projectId) {
+            return {
+                project,
+                allTasks: [],
+                poolTasks: [],
+                activeTasks: [],
+                total: 0,
+                dealCount: 0,
+                coldCount: 0,
+                openCount: 0,
+                isUndistributed: true,
+                isActiveDistributed: false,
+                isArchived: false,
+            };
+        }
+
+        const [allPayload, poolPayload, openPayload, dealPayload, coldPayload] = await Promise.all([
+            DataService.fetchTaskPage({ view: 'summary', projectId, page: 1, limit: 1 }),
+            this._fetchProjectTaskReportRows(projectId, { historicalAssignee: 'TARGET_POOL', generalStatus: 'OPEN' }),
+            DataService.fetchTaskPage({ view: 'summary', projectId, generalStatus: 'OPEN', page: 1, limit: 1 }),
+            DataService.fetchTaskPage({ view: 'summary', projectId, status: 'DEAL', page: 1, limit: 1 }),
+            DataService.fetchTaskPage({ view: 'summary', projectId, status: 'COLD', page: 1, limit: 1 }),
+        ]);
+
+        const total = Number(allPayload?.total || 0);
+        const poolTasks = Array.isArray(poolPayload?.rows) ? poolPayload.rows : [];
+        const poolCount = Number(poolPayload?.total || poolTasks.length || 0);
+        const openCount = Math.max(0, Number(openPayload?.total || 0) - poolCount);
+        const dealCount = Number(dealPayload?.total || 0);
+        const coldCount = Number(coldPayload?.total || 0);
 
         return {
             project,
-            allTasks,
+            allTasks: [],
             poolTasks,
-            activeTasks,
+            activeTasks: [],
             total,
             dealCount,
             coldCount,
             openCount,
-            isUndistributed,
-            isActiveDistributed,
-            isArchived,
+            isUndistributed: poolCount > 0 || total === 0,
+            isActiveDistributed: poolCount === 0 && openCount > 0,
+            isArchived: total > 0 && poolCount === 0 && openCount === 0,
         };
     },
 
@@ -922,25 +1006,36 @@ const ProjectController = {
 
         let html = `<div style="background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0; overflow:hidden;"><table class="history-table" style="width:100%; margin:0; border:none;"><thead><tr><th style="background:#fff; border-bottom:1px solid #e2e8f0;">İşletme Adı</th><th style="background:#fff; border-bottom:1px solid #e2e8f0;">Görev</th><th style="background:#fff; border-bottom:1px solid #e2e8f0;">Kaynak</th><th style="background:#fff; border-bottom:1px solid #e2e8f0;">Kategori</th><th style="text-align:right; background:#fff; border-bottom:1px solid #e2e8f0;">İşlem</th></tr></thead><tbody>`;
         tasks.forEach(t => {
-            const biz = AppState.businesses.find(b => b.id === t.businessId) || {};
-            const rCountHtml = `<span style="font-size:11px; color:#888; margin-top:3px; display:block;"><b>${(AppState.getTaskMap()[biz.id] || []).length} İşlem</b> geçmişi</span>`;
+            const biz = AppState.businesses.find(b => b.id === t.businessId) || {
+                id: t.businessId,
+                companyName: t.businessName || t.companyName || 'Bilinmiyor',
+            };
+            const historyLabel = Number(t.conversationHistoryCount || 0) > 0
+                ? `<span style="font-size:11px; color:#888; margin-top:3px; display:block;"><b>${Number(t.conversationHistoryCount || 0)} İşlem</b> geçmişi</span>`
+                : '';
             const taskLabel = (typeof TASK_STATUS_LABELS !== 'undefined' ? TASK_STATUS_LABELS[t.status] : null) || t.status || '-';
             const assigneeLabel = t.assignee || '-';
             const actionButton = showRemoveButton
                 ? `<button class="btn-danger" style="padding:4px 10px; font-size:11px; border-radius:6px; box-shadow:none;" onclick="ProjectController.removeTaskFromProject('${t.id}', '${projectId}')">Listeden Çıkar</button>`
                 : `<button class="btn-action" style="padding:4px 10px; font-size:11px;" onclick="document.getElementById('customProjectDetailModal').style.display='none'; openTaskModal('${t.id}')">Görevi Aç</button>`;
-            html += `<tr><td><strong style="color:var(--primary-color); cursor:pointer; text-decoration:underline;" onclick="openBusinessDetailModal('${biz.id}')">${biz.companyName || 'Bilinmiyor'}</strong>${rCountHtml}</td><td><span style="font-size:12px; font-weight:700; color:#0f172a;">${taskLabel}</span><br><span style="font-size:11px; color:#64748b;">👤 ${assigneeLabel}</span></td><td><span class="badge badge-source">${t.sourceType || '-'}</span></td><td><span style="font-size:12px; font-weight:600; color:#475569;">${t.mainCategory || '-'}</span><br><span style="font-size:11px; color:#94a3b8;">${t.subCategory || '-'}</span></td><td style="text-align:right;">${actionButton}</td></tr>`;
+            html += `<tr><td><strong style="color:var(--primary-color); cursor:pointer; text-decoration:underline;" onclick="openBusinessDetailModal('${biz.id}')">${biz.companyName || 'Bilinmiyor'}</strong>${historyLabel}</td><td><span style="font-size:12px; font-weight:700; color:#0f172a;">${taskLabel}</span><br><span style="font-size:11px; color:#64748b;">👤 ${assigneeLabel}</span></td><td><span class="badge badge-source">${t.sourceType || t.sourceKey || '-'}</span></td><td><span style="font-size:12px; font-weight:600; color:#475569;">${t.mainCategory || '-'}</span><br><span style="font-size:11px; color:#94a3b8;">${t.subCategory || '-'}</span></td><td style="text-align:right;">${actionButton}</td></tr>`;
         });
         html += `</tbody></table></div>`;
         return html;
     },
 
-    renderActiveProjects() {
+    async renderActiveProjects() {
         const container = document.getElementById('targetActiveProjectsList'); if (!container) return;
-        container.innerHTML = '';
+        container.innerHTML = `<div style="text-align:center; padding:30px; color:#64748b; background:#fff; border-radius:8px; border:1px solid var(--border-light);">Projeler yükleniyor...</div>`;
         const canManageProjects = typeof hasPermission === 'function' ? hasPermission('manageProjects') : true;
-
-        const summaries = AppState.projects.map((project) => this._summarizeProject(project));
+        let summaries = [];
+        try {
+            summaries = await Promise.all((AppState.projects || []).map((project) => this._fetchProjectSummary(project)));
+        } catch (error) {
+            console.error('Project summaries could not be loaded from backend:', error);
+            container.innerHTML = `<div style="text-align:center; padding:30px; color:#b45309; background:#fff; border-radius:8px; border:1px solid #fde68a;">Projeler şu anda yüklenemedi. Lütfen tekrar deneyin.</div>`;
+            return;
+        }
         const undistributedProjects = summaries.filter((summary) => summary.isUndistributed);
         const activeDistributedProjects = summaries.filter((summary) => summary.isActiveDistributed);
 
@@ -1027,23 +1122,30 @@ const ProjectController = {
         container.innerHTML = htmlStr;
     },
 
-    updateProjectPoolCount(projectId) {
+    async updateProjectPoolCount(projectId) {
         const sourceSelect = document.getElementById('dist_source_' + projectId);
         const countEl = document.getElementById('pool_count_' + projectId);
         if (!sourceSelect || !countEl) return;
 
         const sourceFilter = sourceSelect.value;
-        let pTasks = AppState.tasks.filter(t => t.projectId === projectId && t.assignee === 'TARGET_POOL');
-        
-        if (sourceFilter !== 'Tüm Kaynaklar') {
-            const selectedSource = this._normalizeSourceKey(sourceFilter);
-            pTasks = pTasks.filter(t => this._normalizeSourceKey(t.sourceType || t.source) === selectedSource);
+        countEl.innerText = '...';
+
+        try {
+            const extraQuery = {
+                historicalAssignee: 'TARGET_POOL',
+                generalStatus: 'OPEN',
+            };
+            const payload = sourceFilter !== 'Tüm Kaynaklar'
+                ? await this._fetchProjectTaskReportRows(projectId, { ...extraQuery, source: this._normalizeSourceKey(sourceFilter) })
+                : await this._fetchProjectTaskReportRows(projectId, extraQuery);
+            countEl.innerText = String(payload.total || 0);
+        } catch (error) {
+            console.warn('Project pool count could not be refreshed from backend:', error);
+            countEl.innerText = '-';
         }
-        
-        countEl.innerText = pTasks.length;
     },
 
-    openProjectDetailsModal(projectId, focus = 'pool') {
+    async openProjectDetailsModal(projectId, focus = 'pool') {
         let m = document.getElementById('customProjectDetailModal');
         if (!m) {
             m = document.createElement('div');
@@ -1061,9 +1163,32 @@ const ProjectController = {
         }
 
         const p = AppState.projects.find(x => x.id === projectId); if (!p) return;
-        const summary = this._summarizeProject(p);
-        const pTasks = summary.poolTasks;
-        const activeTasks = summary.activeTasks;
+        const area = document.getElementById('customProjectDetailArea');
+        if (area) area.innerHTML = `<div style="padding:30px; text-align:center; color:#64748b;">Proje detayları yükleniyor...</div>`;
+        m.style.display = 'flex';
+
+        const sourceFilter = document.getElementById('dist_source_' + projectId)?.value || 'Tüm Kaynaklar';
+        const sourceQuery = sourceFilter !== 'Tüm Kaynaklar'
+            ? { source: this._normalizeSourceKey(sourceFilter) }
+            : {};
+
+        let pTasks = [];
+        let activeTasks = [];
+        let summary = null;
+        try {
+            summary = await this._fetchProjectSummary(p);
+            const [poolPayload, activePayload] = await Promise.all([
+                this._fetchProjectTaskReportRows(projectId, { historicalAssignee: 'TARGET_POOL', generalStatus: 'OPEN', ...sourceQuery }),
+                this._fetchProjectTaskReportRows(projectId, { generalStatus: 'OPEN', ...sourceQuery }),
+            ]);
+            pTasks = Array.isArray(poolPayload?.rows) ? poolPayload.rows : [];
+            activeTasks = (Array.isArray(activePayload?.rows) ? activePayload.rows : []).filter((task) => String(task?.assignee || '').trim() !== 'TARGET_POOL');
+        } catch (error) {
+            console.error('Project details could not be loaded from backend:', error);
+            if (area) area.innerHTML = `<div style="padding:30px; text-align:center; color:#b45309;">Proje detaylari su anda yuklenemedi. Lutfen tekrar deneyin.</div>`;
+            return;
+        }
+
         const showActiveFirst = focus === 'active';
 
         let html = `<div class="fresh-modal-header" style="margin-bottom:20px;"><h3 style="margin:0; color:var(--primary-color);">🎯 ${p.name} - Proje Detayı</h3><p style="margin:5px 0 0 0; color:#888; font-size:13px;">Projede bekleyen havuz kayıtlarını ve açık görevleri buradan inceleyebilirsiniz.</p></div>`;
@@ -1082,7 +1207,7 @@ const ProjectController = {
                 showRemoveButton: true,
             });
 
-        const area = document.getElementById('customProjectDetailArea'); if (area) area.innerHTML = html;
+        if (area) area.innerHTML = html;
         m.style.display = 'flex';
     },
 
@@ -1120,7 +1245,7 @@ const ProjectController = {
         });
     },
 
-    distributeProjectTasks(projectId) {
+    async distributeProjectTasks(projectId) {
         if (typeof hasPermission === 'function' && !hasPermission('manageProjects')) {
             showToast('Proje dagitim yetkiniz bulunmuyor.', 'warning');
             return;
@@ -1133,14 +1258,21 @@ const ProjectController = {
         const p = AppState.projects.find(x => x.id === projectId);
         const pName = p ? p.name : 'Bilinmeyen Proje';
 
-        let pTasks = AppState.tasks.filter(t => t.projectId === projectId && t.assignee === 'TARGET_POOL');
-        if (pTasks.length === 0) return showToast("Dağıtılacak görev kalmadı.", "info");
-
         const sourceFilter = sourceSelect ? sourceSelect.value : 'Tüm Kaynaklar';
-        if (sourceFilter !== 'Tüm Kaynaklar') {
-            const selectedSource = this._normalizeSourceKey(sourceFilter);
-            pTasks = pTasks.filter(t => this._normalizeSourceKey(t.sourceType || t.source) === selectedSource);
+        let pTasks = [];
+        try {
+            const payload = await this._fetchProjectTaskReportRows(projectId, {
+                historicalAssignee: 'TARGET_POOL',
+                generalStatus: 'OPEN',
+                ...(sourceFilter !== 'Tüm Kaynaklar' ? { source: this._normalizeSourceKey(sourceFilter) } : {}),
+            });
+            pTasks = Array.isArray(payload?.rows) ? payload.rows : [];
+        } catch (error) {
+            console.error('Project pool tasks could not be loaded for distribution:', error);
+            return showToast("Proje havuzu su anda yuklenemedi.", "error");
         }
+
+        if (pTasks.length === 0) return showToast("Dağıtılacak görev kalmadı.", "info");
         if (pTasks.length === 0) return showToast("Bu kaynağa ait dağıtılacak görev yok.", "warning");
 
         const teams = [];
@@ -1153,11 +1285,6 @@ const ProjectController = {
                 method: 'POST',
                 body: JSON.stringify({ poolTeam: targetPool })
             });
-            const refreshedTask = await DataService.readPath(`tasks/${t.id}`).catch(() => null);
-            if (refreshedTask) {
-                const taskIndex = AppState.tasks.findIndex(x => x.id === t.id);
-                if (taskIndex >= 0) AppState.tasks[taskIndex] = refreshedTask;
-            }
             return { ok: true, taskId: t.id };
         });
 
@@ -1246,7 +1373,7 @@ const ProjectController = {
 
     // ---- Geçmiş Projeler ----
 
-    renderPastProjects(isFiltered = false) {
+    async renderPastProjects(isFiltered = false) {
         const container = document.getElementById('pastProjectResults'); if (!container) return;
         const canManageProjects = typeof hasPermission === 'function' ? hasPermission('manageProjects') : true;
 
@@ -1260,8 +1387,18 @@ const ProjectController = {
         const clearBtn = document.getElementById('btnClearPastProjFilters');
         if (clearBtn) clearBtn.style.display = 'inline-block';
 
-        let pastProjects = AppState.projects.filter(p => {
-            const summary = this._summarizeProject(p);
+        let summaries = [];
+        try {
+            summaries = await Promise.all((AppState.projects || []).map((project) => this._fetchProjectSummary(project)));
+        } catch (error) {
+            console.error('Past project summaries could not be loaded from backend:', error);
+            container.style.display = "block";
+            container.innerHTML = `<div style="text-align:center; padding:30px; color:#b45309; background:#fff; border-radius:8px; border:1px solid #fde68a;">Arşiv proje özetleri şu anda yüklenemedi. Lütfen tekrar deneyin.</div>`;
+            return;
+        }
+
+        let pastProjects = summaries.filter((summary) => {
+            const p = summary.project;
             if (!summary.isArchived) return false;
             if (query && !(p.name || '').toLowerCase().includes(query)) return false;
             const period = typeof extractProjectPeriod === 'function'
@@ -1271,7 +1408,7 @@ const ProjectController = {
             if (selYear && String(period.year) !== String(selYear)) return false;
             return true;
         });
-        pastProjects.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+        pastProjects.sort((a, b) => new Date(b.project?.createdAt || 0) - new Date(a.project?.createdAt || 0));
 
         const pagContainer = document.getElementById('pastProjPagination');
         if (!pagContainer) return;
@@ -1293,8 +1430,8 @@ const ProjectController = {
         const paginatedData = pastProjects.slice(startIndex, startIndex + itemsPerPage);
 
         let htmlStr = "";
-        paginatedData.forEach(p => {
-            const summary = this._summarizeProject(p);
+        paginatedData.forEach((summary) => {
+            const p = summary.project;
             const total = summary.total;
             const dealCount = summary.dealCount;
             const coldCount = summary.coldCount;
@@ -1340,7 +1477,7 @@ const ProjectController = {
         const modal = document.getElementById('cloneProjectModal'); if (modal) modal.style.display = 'flex';
     },
 
-    executeProjectClone() {
+    async executeProjectClone() {
         if (typeof hasPermission === 'function' && !hasPermission('manageProjects')) {
             showToast('Proje klonlama yetkiniz bulunmuyor.', 'warning');
             return;
@@ -1358,20 +1495,36 @@ const ProjectController = {
 
         if (!newProjectName) { if (btn) { btn.disabled = false; btn.innerText = "🚀 Klonla ve Aktif Havuza Gönder"; } return showToast("Lütfen yeni proje adını girin!", "warning"); }
 
-        let oldTasks = AppState.tasks.filter(t => t.projectId === sourceProjectId);
-        if (audience === 'deal') oldTasks = oldTasks.filter(t => t.status === 'deal');
-        else if (audience === 'cold') oldTasks = oldTasks.filter(t => t.status === 'cold');
+        let oldTasks = [];
+        try {
+            const payload = await this._fetchProjectTaskReportRows(sourceProjectId, audience === 'deal'
+                ? { status: 'DEAL' }
+                : audience === 'cold'
+                    ? { status: 'COLD' }
+                    : {});
+            oldTasks = Array.isArray(payload?.rows) ? payload.rows : [];
+        } catch (error) {
+            if (btn) { btn.disabled = false; btn.innerText = "🚀 Klonla ve Aktif Havuza Gönder"; }
+            console.error('Project source tasks could not be loaded for clone:', error);
+            return showToast("Kaynak proje görevleri şu anda yüklenemedi!", "error");
+        }
 
         if (oldTasks.length === 0) { if (btn) { btn.disabled = false; btn.innerText = "🚀 Klonla ve Aktif Havuza Gönder"; } return showToast("Seçtiğiniz kritere uygun geçmiş kayıt bulunamadı!", "warning"); }
 
         let targetBizIds = [...new Set(oldTasks.map(t => t.businessId))];
 
         if (excludeActive) {
-            const taskMap = AppState.getTaskMap();
-            targetBizIds = targetBizIds.filter(bId => {
-                const bizTasks = taskMap[bId] || [];
-                return !bizTasks.some(t => isActiveTask(t.status));
-            });
+            const activityChecks = await Promise.all(targetBizIds.map(async (bId) => {
+                try {
+                    const rows = await this._fetchBusinessTaskHistory(bId);
+                    const hasOpenTask = rows.some((task) => String(task?.generalStatus || '').toUpperCase() === 'OPEN');
+                    return hasOpenTask ? null : bId;
+                } catch (error) {
+                    console.warn('Business history check failed during project clone:', error);
+                    return bId;
+                }
+            }));
+            targetBizIds = activityChecks.filter(Boolean);
         }
 
         if (targetBizIds.length === 0) { if (btn) { btn.disabled = false; btn.innerText = "🚀 Klonla ve Aktif Havuza Gönder"; } return showToast("Filtrelere uygun işletme kalmadı (veya hepsi şu an aktif işlemde)!", "warning"); }
@@ -1390,8 +1543,8 @@ const ProjectController = {
             // 2. Her işletme için klonlanmış görev oluştur
             const taskPromises = targetBizIds.map((bId) => {
                 const bizObj = AppState.businesses.find(x => x.id === bId) || {};
-                const bizTask = (AppState.getTaskMap()[bId] || [])[0];
-                const rawSrc2 = bizTask ? (bizTask.sourceType || bizTask.source || 'OLD') : (bizObj.sourceType || bizObj.source || 'OLD');
+                const bizTask = oldTasks.find((task) => task.businessId === bId) || null;
+                const rawSrc2 = bizTask ? (bizTask.sourceKey || bizTask.sourceType || bizTask.source || 'OLD') : (bizObj.sourceType || bizObj.source || 'OLD');
                 const srcEnum2 = ({'Fresh Account':'FRESH','Old Account':'OLD','Old Account Rakip':'OLD_RAKIP','Old Account Query':'QUERY','Query':'QUERY','Lead':'FRESH','Rakip':'RAKIP','Referans':'REFERANS'}[rawSrc2]) || (['QUERY','FRESH','RAKIP','OLD_RAKIP','REFERANS','OLD'].includes(rawSrc2) ? rawSrc2 : 'OLD');
                 const actorName = AppState.loggedInUser?.name || 'Sistem';
                 const taskPayload = {

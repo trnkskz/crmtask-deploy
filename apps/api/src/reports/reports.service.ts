@@ -375,6 +375,11 @@ export class ReportsService {
 
   private async buildTaskReportRows(
     q: {
+      q?: string
+      businessId?: string
+      projectId?: string
+      creationChannel?: string
+      type?: string
       ownerId?: string
       historicalAssignee?: string
       team?: string
@@ -394,6 +399,19 @@ export class ReportsService {
   ) {
     const where: any = await this.taskScope(user)
     const isSalesperson = user?.role === 'SALESPERSON'
+    if (q.businessId) where.accountId = q.businessId
+    if (q.projectId) where.projectId = q.projectId
+    if (q.q) {
+      where.account = {
+        ...(where.account || {}),
+        OR: [
+          { accountName: { contains: q.q, mode: 'insensitive' } },
+          { businessName: { contains: q.q, mode: 'insensitive' } },
+          { city: { contains: q.q, mode: 'insensitive' } },
+          { district: { contains: q.q, mode: 'insensitive' } },
+        ],
+      }
+    }
     if (q.ownerId && !isSalesperson) where.ownerId = q.ownerId
     if (q.historicalAssignee) where.historicalAssignee = { contains: q.historicalAssignee, mode: 'insensitive' }
     if (q.team && !isSalesperson) where.owner = { ...(where.owner || {}), team: q.team, role: 'SALESPERSON' } as any
@@ -420,6 +438,7 @@ export class ReportsService {
           },
         },
         owner: { select: { id: true, email: true, name: true, team: true } },
+        creator: { select: { id: true, email: true, name: true } },
         logs: {
           select: { text: true, createdAt: true, reason: true },
           orderBy: { createdAt: 'desc' },
@@ -448,6 +467,10 @@ export class ReportsService {
           district: task.account?.district || '-',
           assignee: this.resolveTaskAssignee(task),
           assigneeTeam: task.owner?.team || '',
+          projectId: task.projectId || '',
+          creationChannel: task.creationChannel || '',
+          createdById: task.createdById || '',
+          createdByName: task.creator?.name || task.creator?.email || '',
           statusKey: String(task.status || '').toLowerCase(),
           statusLabel: String(task.status || ''),
           sourceKey: this.normalizeReportSource(task.source || task.account?.source || ''),
@@ -464,6 +487,9 @@ export class ReportsService {
         }
       })
       .filter((row) => {
+        if (q.creationChannel && String(row.creationChannel || '').toUpperCase() !== String(q.creationChannel).toUpperCase()) return false
+        if (q.type === 'PROJECT' && !row.projectId) return false
+        if (q.type === 'GENERAL' && row.projectId) return false
         if (q.team && row.assigneeTeam !== q.team) return false
         if (q.mainCategory && row.mainCategory !== q.mainCategory) return false
         if (q.subCategory && row.subCategory !== q.subCategory) return false

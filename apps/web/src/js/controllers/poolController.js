@@ -4,6 +4,47 @@
 // ============================================================
 
 const PoolController = (() => {
+    async function _fetchPoolTasks(tab) {
+        const selectedSources = Array.from(document.querySelectorAll('.pool-source-filter:checked'))
+            .map(cb => normalizeSourceKey(cb.value))
+            .filter(Boolean);
+
+        const pageKey = tab === 'team1' ? 'poolTeam1' : tab === 'team2' ? 'poolTeam2' : 'poolGen';
+        const page = AppState.pagination?.[pageKey] || 1;
+        const query = {
+            view: 'summary',
+            page,
+            limit: ITEMS_PER_PAGE,
+            generalStatus: 'OPEN',
+        };
+
+        if (tab === 'general') {
+            query.pool = 'GENERAL';
+            query.poolTeam = 'GENERAL';
+        } else if (tab === 'team1') {
+            query.pool = 'GENERAL';
+            query.poolTeam = 'TEAM_1';
+        } else if (tab === 'team2') {
+            query.pool = 'GENERAL';
+            query.poolTeam = 'TEAM_2';
+        }
+
+        if (selectedSources.length === 1) {
+            query.source = selectedSources[0];
+        }
+
+        const payload = await DataService.fetchTaskPage(query);
+        let items = Array.isArray(payload?.items) ? payload.items : [];
+        if (selectedSources.length > 1) {
+            items = items.filter((task) => selectedSources.includes(normalizeSourceKey(task.sourceType)));
+        }
+        return {
+            items,
+            total: Number(payload?.total || items.length || 0),
+            page: Number(payload?.page || page),
+        };
+    }
+
     function normalizeSourceKey(value) {
         const raw = String(value || '').trim().toUpperCase();
         if (!raw) return '';
@@ -83,36 +124,34 @@ const PoolController = (() => {
         }
     }
 
-    function renderPoolTasks() {
+    async function renderPoolTasks() {
         const genList = document.getElementById('poolGeneralList');
         const t1List = document.getElementById('poolTeam1List');
         const t2List = document.getElementById('poolTeam2List');
-
-        const selectedSources = Array.from(document.querySelectorAll('.pool-source-filter:checked'))
-            .map(cb => normalizeSourceKey(cb.value))
-            .filter(Boolean);
-        const bizMap = AppState.getBizMap();
-        const poolGroups = typeof AppState.getPoolTaskGroups === 'function'
-            ? AppState.getPoolTaskGroups()
-            : {
-                general: AppState.tasks.filter(t => t.assignee === 'UNASSIGNED' && t.status !== 'cold' && t.status !== 'deal'),
-                team1: AppState.tasks.filter(t => t.assignee === 'Team 1' && t.status !== 'cold' && t.status !== 'deal'),
-                team2: AppState.tasks.filter(t => t.assignee === 'Team 2' && t.status !== 'cold' && t.status !== 'deal'),
-            };
-
-        const filterBySource = (tasks) => {
-            if (selectedSources.length === 0) return tasks;
-            return tasks.filter((task) => selectedSources.includes(normalizeSourceKey(task.sourceType)));
-        };
-
-        const genTasks = filterBySource(poolGroups.general);
-        const t1Tasks = filterBySource(poolGroups.team1);
-        const t2Tasks = filterBySource(poolGroups.team2);
-
         const tab = AppState.currentPoolTab;
-        if (tab === 'general') _renderPoolTab(genTasks, genList, AppState.pagination.poolGen, (v) => AppState.setPage('poolGen', v));
-        if (tab === 'team1') _renderPoolTab(t1Tasks, t1List, AppState.pagination.poolTeam1, (v) => AppState.setPage('poolTeam1', v));
-        if (tab === 'team2') _renderPoolTab(t2Tasks, t2List, AppState.pagination.poolTeam2, (v) => AppState.setPage('poolTeam2', v));
+        try {
+            if (tab === 'general') {
+                const payload = await _fetchPoolTasks('general');
+                _renderPoolTab(payload.items, payload.total, genList, payload.page, (v) => AppState.setPage('poolGen', v));
+                _setPoolDot('dot-general', payload.total);
+            }
+            if (tab === 'team1') {
+                const payload = await _fetchPoolTasks('team1');
+                _renderPoolTab(payload.items, payload.total, t1List, payload.page, (v) => AppState.setPage('poolTeam1', v));
+                _setPoolDot('dot-team1', payload.total);
+            }
+            if (tab === 'team2') {
+                const payload = await _fetchPoolTasks('team2');
+                _renderPoolTab(payload.items, payload.total, t2List, payload.page, (v) => AppState.setPage('poolTeam2', v));
+                _setPoolDot('dot-team2', payload.total);
+            }
+        } catch (err) {
+            console.error('Pool tasks load failed:', err);
+            const activeList = tab === 'team1' ? t1List : tab === 'team2' ? t2List : genList;
+            if (activeList) {
+                activeList.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:40px; color:var(--danger-color);">Havuz verileri yüklenemedi.</td></tr>`;
+            }
+        }
 
         // Tüm seçim kutularını sıfırla
         ['selectAllGen', 'selectAllT1', 'selectAllT2'].forEach(id => {
@@ -122,46 +161,30 @@ const PoolController = (() => {
 
         _updatePoolActionBar();
         
-        // Tab Dot (Kırmızı Nokta) Mantığı
-        const dotGen = document.getElementById('dot-general');
-        if (dotGen) {
-            if (genTasks.length > 0) dotGen.classList.add('active');
-            else dotGen.classList.remove('active');
-        }
-        const dotT1 = document.getElementById('dot-team1');
-        if (dotT1) {
-            if (t1Tasks.length > 0) dotT1.classList.add('active');
-            else dotT1.classList.remove('active');
-        }
-        const dotT2 = document.getElementById('dot-team2');
-        if (dotT2) {
-            if (t2Tasks.length > 0) dotT2.classList.add('active');
-            else dotT2.classList.remove('active');
-        }
     }
 
-    function _renderPoolTab(taskList, listEl, pageVar, setPageVar) {
+    function _setPoolDot(dotId, count) {
+        const dot = document.getElementById(dotId);
+        if (!dot) return;
+        if (count > 0) dot.classList.add('active');
+        else dot.classList.remove('active');
+    }
+
+    function _renderPoolTab(taskList, totalCount, listEl, currentPage, setPageVar) {
         if (!listEl) return;
 
-        if (taskList.length === 0) {
+        if (!Array.isArray(taskList) || totalCount === 0) {
             listEl.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:40px;">
                 <div style="font-size:40px; margin-bottom:10px;">🏆</div>
                 <strong style="color:var(--primary-color); display:block; font-size:16px;">Harika!</strong>
                 <span style="color:#888; font-size:13px;">Bu havuzda görev yok.</span>
             </td></tr>`;
-            _renderPoolPagination(listEl, [], 1, setPageVar);
+            _renderPoolPagination(listEl, totalCount, 1, setPageVar);
             return;
         }
 
         const bizMap = AppState.getBizMap();
-        const totalPages = Math.ceil(taskList.length / ITEMS_PER_PAGE);
-        let page = pageVar;
-        if (page > totalPages) { page = totalPages || 1; setPageVar(page); }
-
-        const start = (page - 1) * ITEMS_PER_PAGE;
-        const paginated = taskList.slice(start, start + ITEMS_PER_PAGE);
-
-        const rows = paginated.map(t => {
+        const rows = taskList.map(t => {
             const biz = bizMap.get(t.businessId) || {};
             const isChecked = AppState.selectedPoolIds.has(t.id) ? 'checked' : '';
             return `<tr onclick="togglePoolRowCheckbox(event, '${t.id}')" style="cursor:pointer;">
@@ -176,10 +199,10 @@ const PoolController = (() => {
         }).join('');
 
         listEl.innerHTML = rows;
-        _renderPoolPagination(listEl, taskList, page, setPageVar);
+        _renderPoolPagination(listEl, totalCount, currentPage, setPageVar);
     }
 
-    function _renderPoolPagination(listEl, taskList, currentPage, setPageVar) {
+    function _renderPoolPagination(listEl, totalCount, currentPage, setPageVar) {
         const pagContainerId = listEl.id + 'Pagination';
         let pagContainer = document.getElementById(pagContainerId);
         if (!pagContainer) {
@@ -192,7 +215,7 @@ const PoolController = (() => {
             }
         }
 
-        renderPagination(pagContainer, taskList.length, currentPage, ITEMS_PER_PAGE, (i) => {
+        renderPagination(pagContainer, totalCount, currentPage, ITEMS_PER_PAGE, (i) => {
             setPageVar(i);
             renderPoolTasks();
         }, { compact: true, resultLabel: 'kayıt' });

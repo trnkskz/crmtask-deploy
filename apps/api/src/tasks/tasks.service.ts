@@ -765,6 +765,9 @@ export class TasksService {
       if (pool === 'GENERAL') where.ownerId = null
       if (pool === 'ASSIGNED' && where.ownerId === undefined) where.ownerId = { not: null }
     }
+    if (filter.poolTeam) {
+      where.poolTeam = String(filter.poolTeam).toUpperCase()
+    }
     if (filter.priority) where.priority = filter.priority
     if (filter.category) where.category = filter.category
     if (filter.accountType) where.accountType = filter.accountType

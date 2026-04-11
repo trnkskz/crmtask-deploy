@@ -143,14 +143,48 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
   app.useGlobalInterceptors(new RequestLoggerInterceptor());
   const realtime = app.get(RealtimeEventsService);
+  const buildRealtimeDelta = (req: any) => {
+    const method = String(req?.method || '').toUpperCase()
+    const rawPath = String(req?.originalUrl || req?.url || '')
+    const normalizedPath = rawPath.split('?')[0]
+    const taskMatch = normalizedPath.match(/\/api\/tasks\/([^/]+)/)
+    if (taskMatch) {
+      return {
+        type: method === 'DELETE' ? 'TASK_DELETED' : 'TASK_UPDATED',
+        taskId: taskMatch[1],
+        method,
+        path: rawPath,
+      }
+    }
+
+    const accountMatch = normalizedPath.match(/\/api\/accounts\/([^/]+)/)
+    if (accountMatch) {
+      return {
+        type: method === 'DELETE' ? 'ACCOUNT_DELETED' : 'ACCOUNT_UPDATED',
+        accountId: accountMatch[1],
+        method,
+        path: rawPath,
+      }
+    }
+
+    if (normalizedPath.startsWith('/api/users')) return { type: 'USERS_CHANGED', method, path: rawPath }
+    if (normalizedPath.startsWith('/api/projects')) return { type: 'PROJECTS_CHANGED', method, path: rawPath }
+    if (normalizedPath.startsWith('/api/notifications')) return { type: 'NOTIFICATIONS_CHANGED', method, path: rawPath }
+    if (normalizedPath.startsWith('/api/pricing')) return { type: 'PRICING_CHANGED', method, path: rawPath }
+    if (normalizedPath.startsWith('/api/lov/categories')) return { type: 'CATEGORIES_CHANGED', method, path: rawPath }
+
+    return {
+      type: 'invalidate',
+      method,
+      path: rawPath,
+    }
+  }
   app.use((req: any, res: any, next: any) => {
     res.on('finish', () => {
       if (res.statusCode >= 400) return;
       if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return;
       realtime.publish({
-        type: 'invalidate',
-        method: req.method,
-        path: req.originalUrl || req.url,
+        ...buildRealtimeDelta(req),
         userId: req?.user?.id || null,
         ts: Date.now(),
       });

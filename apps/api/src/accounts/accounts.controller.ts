@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@nestjs/common'
 import { AccountsService } from './accounts.service'
-import { AccountListQueryDto, CreateAccountDto, UpdateAccountDto, ImportCsvBodyDto, ChangeStatusDto, CreateContactDto, UpdateContactDto, CreateNoteDto, UpdateNoteDto, DuplicateDto } from './dto/account.dto'
+import { AccountListQueryDto, CreateAccountDto, UpdateAccountDto, ImportCsvBodyDto, ChangeStatusDto, CreateContactDto, UpdateContactDto, CreateNoteDto, UpdateNoteDto, DuplicateDto, AccountTargetPreviewDto } from './dto/account.dto'
 import { MinRole } from '../security/roles.decorator'
 import { Roles } from '../security/role.types'
 import { ApiTags } from '@nestjs/swagger'
@@ -22,6 +22,18 @@ export class AccountsController {
   @MinRole(Roles.SALESPERSON)
   search(@Query('q') q?: string, @Query('take') take?: string) {
     return this.svc.search(q || '', take ? Number(take) : 10)
+  }
+
+  @Post('target-preview')
+  @MinRole(Roles.SALESPERSON)
+  targetPreview(@Body() body: AccountTargetPreviewDto) {
+    return this.svc.targetPreview(body)
+  }
+
+  @Get('target-filter-options')
+  @MinRole(Roles.SALESPERSON)
+  targetFilterOptions() {
+    return this.svc.targetFilterOptions()
   }
 
   @Get(':id')

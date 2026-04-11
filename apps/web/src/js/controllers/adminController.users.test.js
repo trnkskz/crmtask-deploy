@@ -1,7 +1,7 @@
 const { loadController, createDocument, createElement } = require('../testUtils/controllerTestUtils');
 
 describe('AdminController user management', () => {
-    it('renders visible users by default without forcing search or team filter', () => {
+    it('renders visible users by default without forcing search or team filter', async () => {
         const usersListContainer = createElement();
         const elements = {
             usersListContainer,
@@ -18,21 +18,23 @@ describe('AdminController user management', () => {
                 ],
                 tasks: [],
                 loggedInUser: { email: 'manager@example.com', role: 'Yönetici', team: '-' },
-                getTaskDerivedIndex: () => ({
-                    tasksByAssignee: new Map([['Ayse Kaya', []]]),
-                    openCountByAssignee: new Map([['Ayse Kaya', 2]]),
+            },
+            DataService: {
+                apiRequest: jest.fn().mockResolvedValue({
+                    records: [{ user: { name: 'Ayse Kaya' }, metrics: { monthly: { open: { count: 2 }, deal: { count: 0 }, cold: { count: 0 } } } }],
                 }),
             },
             isActiveTask: () => true,
         });
 
         context.window.switchAdminTab('users');
+        await new Promise((resolve) => setImmediate(resolve));
 
         expect(usersListContainer.innerHTML).toContain('Ayse Kaya');
         expect(usersListContainer.innerHTML).toContain('2 Açık');
     });
 
-    it('falls back to visible users when a stale team filter does not match any available team', () => {
+    it('falls back to visible users when a stale team filter does not match any available team', async () => {
         const usersListContainer = createElement();
         const elements = {
             usersListContainer,
@@ -49,15 +51,17 @@ describe('AdminController user management', () => {
                 ],
                 tasks: [],
                 loggedInUser: { email: 'manager@example.com', role: 'Yönetici', team: '-' },
-                getTaskDerivedIndex: () => ({
-                    tasksByAssignee: new Map([['Ayse Kaya', []]]),
-                    openCountByAssignee: new Map([['Ayse Kaya', 2]]),
+            },
+            DataService: {
+                apiRequest: jest.fn().mockResolvedValue({
+                    records: [{ user: { name: 'Ayse Kaya' }, metrics: { monthly: { open: { count: 2 }, deal: { count: 0 }, cold: { count: 0 } } } }],
                 }),
             },
             isActiveTask: () => true,
         });
 
         context.window.switchAdminTab('users');
+        await new Promise((resolve) => setImmediate(resolve));
 
         expect(usersListContainer.innerHTML).toContain('Ayse Kaya');
     });
@@ -78,16 +82,17 @@ describe('AdminController user management', () => {
             users: [],
             tasks: [],
             loggedInUser: { email: 'manager@example.com', role: 'Yönetici', team: '-' },
-            getTaskDerivedIndex: () => ({
-                tasksByAssignee: new Map([['Ayse Kaya', []]]),
-                openCountByAssignee: new Map([['Ayse Kaya', 2]]),
-            }),
         };
 
         const { context } = loadController('controllers/adminController.js', 'AdminController', {
             document,
             AppState: appState,
-            DataService: { fetchOnce },
+            DataService: {
+                fetchOnce,
+                apiRequest: jest.fn().mockResolvedValue({
+                    records: [{ user: { name: 'Ayse Kaya' }, metrics: { monthly: { open: { count: 2 }, deal: { count: 0 }, cold: { count: 0 } } } }],
+                }),
+            },
             isActiveTask: () => true,
         });
 
@@ -99,7 +104,7 @@ describe('AdminController user management', () => {
         expect(usersListContainer.innerHTML).toContain('Ayse Kaya');
     });
 
-    it('scopes team leaders to their own team in the user list', () => {
+    it('scopes team leaders to their own team in the user list', async () => {
         const usersListContainer = createElement();
         const elements = {
             usersListContainer,
@@ -118,22 +123,27 @@ describe('AdminController user management', () => {
                 ],
                 tasks: [],
                 loggedInUser: { email: 'lider@example.com', role: 'Takım Lideri', team: 'Team 1' },
-                getTaskDerivedIndex: () => ({
-                    tasksByAssignee: new Map(),
-                    openCountByAssignee: new Map([['Ayse Kaya', 4], ['Mehmet', 8]]),
+            },
+            DataService: {
+                apiRequest: jest.fn().mockResolvedValue({
+                    records: [
+                        { user: { name: 'Ayse Kaya', team: 'Team 1' }, metrics: { monthly: { open: { count: 4 }, deal: { count: 0 }, cold: { count: 0 } } } },
+                        { user: { name: 'Mehmet', team: 'Team 2' }, metrics: { monthly: { open: { count: 8 }, deal: { count: 0 }, cold: { count: 0 } } } },
+                    ],
                 }),
             },
             isActiveTask: () => true,
         });
 
         context.window.switchAdminTab('users');
+        await new Promise((resolve) => setImmediate(resolve));
 
         expect(usersListContainer.innerHTML).toContain('Ayse Kaya');
         expect(usersListContainer.innerHTML).not.toContain('Mehmet');
         expect(usersListContainer.innerHTML).toContain('Sadece Görüntüleme');
     });
 
-    it('renders open task counts from the derived task index', () => {
+    it('renders open task counts from the backend pulse summary', async () => {
         const usersListContainer = createElement();
         const elements = {
             usersListContainer,
@@ -149,15 +159,17 @@ describe('AdminController user management', () => {
                     { name: 'Ayse Kaya', email: 'ayse@example.com', role: 'Satış Temsilcisi', team: 'Team 1', status: 'Aktif' },
                 ],
                 tasks: [],
-                getTaskDerivedIndex: () => ({
-                    tasksByAssignee: new Map([['Ayse Kaya', [{ id: 'task-1', assignee: 'Ayse Kaya', status: 'hot' }]]]),
-                    openCountByAssignee: new Map([['Ayse Kaya', 7]]),
+            },
+            DataService: {
+                apiRequest: jest.fn().mockResolvedValue({
+                    records: [{ user: { name: 'Ayse Kaya' }, metrics: { monthly: { open: { count: 7 }, deal: { count: 0 }, cold: { count: 0 } } } }],
                 }),
             },
             isActiveTask: () => true,
         });
 
         context.window.switchAdminTab('users');
+        await new Promise((resolve) => setImmediate(resolve));
 
         expect(usersListContainer.innerHTML).toContain('7 Açık');
         expect(controller).toBeTruthy();
@@ -269,7 +281,7 @@ describe('AdminController user management', () => {
         expect(context.AppState.loggedInUser.name).toBe('Yeni Ad');
     });
 
-    it('uses cached user task summaries when deciding deletion transfer flow', () => {
+    it('uses backend task rows when deciding deletion transfer flow', async () => {
         const elements = {
             transferTaskDesc: createElement(),
             transferTargetUserEmail: createElement(),
@@ -283,14 +295,16 @@ describe('AdminController user management', () => {
             AppState: {
                 users: [{ id: 'user_1', name: 'Ayse', email: 'ayse@example.com', role: 'Satış Temsilcisi', team: 'Team 1', status: 'Aktif' }],
                 tasks: [],
-                getUserTaskSummaryMap: () => new Map([['Ayse', { tasks: [], totalCount: 7, openCount: 2 }]]),
             },
             askConfirm: jest.fn(),
             showToast: jest.fn(),
-            DataService: { deleteUser: jest.fn() },
+            DataService: {
+                deleteUser: jest.fn(),
+                apiRequest: jest.fn().mockResolvedValue(Array.from({ length: 7 }, (_, index) => ({ id: `task-${index}` }))),
+            },
         });
 
-        controller.requestUserDeletion('ayse@example.com');
+        await controller.requestUserDeletion('ayse@example.com');
 
         expect(elements.transferTaskDesc.innerHTML).toContain('7 adet GÖREV');
         expect(elements.transferActionType.value).toBe('delete');

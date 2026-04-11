@@ -10,7 +10,7 @@ function createSelect(overrides = {}) {
 }
 
 describe('AdminController category safety and migration', () => {
-    it('opens transfer modal when only business records still use the category', () => {
+    it('opens transfer modal when only business records still use the category', async () => {
         const elements = {
             catTransferMessage: createElement({ innerHTML: '' }),
             catTransferNewMain: createSelect(),
@@ -40,14 +40,14 @@ describe('AdminController category safety and migration', () => {
             askConfirm: jest.fn(),
         });
 
-        context.window.removeSystemMainCategory('İftar (Core)');
+        await context.window.removeSystemMainCategory('İftar (Core)');
 
         expect(elements.categoryTransferModal.style.display).toBe('flex');
         expect(elements.catTransferMessage.innerHTML).toContain('1 işletme kaydı');
         expect(saveCategories).not.toHaveBeenCalled();
     });
 
-    it('opens transfer modal when tasks still use the category even if there is no linked business id', () => {
+    it('opens transfer modal when tasks still use the category even if there is no linked business id', async () => {
         const elements = {
             catTransferMessage: createElement({ innerHTML: '' }),
             catTransferNewMain: createSelect(),
@@ -82,7 +82,7 @@ describe('AdminController category safety and migration', () => {
             askConfirm: jest.fn(),
         });
 
-        context.window.removeSystemMainCategory('İftar (Core)');
+        await context.window.removeSystemMainCategory('İftar (Core)');
 
         expect(elements.categoryTransferModal.style.display).toBe('flex');
         expect(elements.catTransferMessage.innerHTML).toContain('1 görev');
@@ -98,7 +98,21 @@ describe('AdminController category safety and migration', () => {
         };
         const document = createDocument(elements);
         const saveCategories = jest.fn().mockResolvedValue({});
-        const apiRequest = jest.fn().mockResolvedValue({});
+        const apiRequest = jest.fn()
+            .mockResolvedValueOnce({
+                taskIds: ['task-1'],
+                businessIds: ['biz-1'],
+                taskCount: 1,
+                businessCount: 1,
+                hasLinkedRecords: true,
+            })
+            .mockResolvedValueOnce({
+                taskIds: ['task-1'],
+                businessIds: ['biz-1'],
+                taskCount: 1,
+                businessCount: 1,
+                success: true,
+            });
         const addSystemLog = jest.fn();
         const showToast = jest.fn();
 
@@ -133,20 +147,22 @@ describe('AdminController category safety and migration', () => {
             askConfirm: jest.fn(),
         });
 
-        context.window.openCategoryTransferModal('main', 'İftar (Core)', null, null, 1);
+        await context.window.openCategoryTransferModal('main', 'İftar (Core)', null, null, 1);
         context.window.executeCategoryTransfer();
         await new Promise((resolve) => setImmediate(resolve));
         await new Promise((resolve) => setImmediate(resolve));
 
         expect(saveCategories).toHaveBeenCalled();
-        expect(apiRequest).toHaveBeenCalledWith('/tasks/task-1', expect.objectContaining({
-            method: 'PATCH',
-            body: JSON.stringify({ mainCategory: 'Yemek (Core)', subCategory: 'Akşam Yemeği' }),
+        expect(apiRequest).toHaveBeenCalledWith('/admin/maintenance/transfer-category', expect.objectContaining({
+            method: 'POST',
         }));
-        expect(apiRequest).toHaveBeenCalledWith('/accounts/biz-1', expect.objectContaining({
-            method: 'PATCH',
-            body: JSON.stringify({ mainCategory: 'Yemek (Core)', subCategory: 'Akşam Yemeği' }),
-        }));
+        const transferCall = apiRequest.mock.calls.find(([path]) => path === '/admin/maintenance/transfer-category');
+        expect(JSON.parse(transferCall[1].body)).toMatchObject({
+            type: 'main',
+            oldMain: 'İftar (Core)',
+            newMain: 'Yemek (Core)',
+            newSub: 'Akşam Yemeği',
+        });
         expect(context.AppState.tasks[0].mainCategory).toBe('Yemek (Core)');
         expect(context.AppState.businesses[0].mainCategory).toBe('Yemek (Core)');
         expect(elements.categoryTransferModal.style.display).toBe('none');

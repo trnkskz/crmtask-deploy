@@ -943,3 +943,103 @@ describe('AccountsService.update', () => {
     expect(prisma.accountContact.delete).not.toHaveBeenCalled()
   })
 })
+
+describe('AccountsService.targetPreview', () => {
+  function buildTargetPreviewService(overrides: Record<string, any> = {}) {
+    const prisma = {
+      account: {
+        findMany: jest.fn(),
+      },
+      ...overrides,
+    } as any
+    const service = new AccountsService(prisma)
+    return { service, prisma }
+  }
+
+  it('matches month names, task history categories and source history on the server', async () => {
+    const { service, prisma } = buildTargetPreviewService()
+    prisma.account.findMany.mockResolvedValue([
+      {
+        id: 'acc_1',
+        accountName: 'Deneme',
+        mainCategory: 'Kahvalti',
+        subCategory: 'Serpme',
+        source: 'OLD',
+        city: 'Istanbul',
+        district: 'Kadikoy',
+        status: 'ACTIVE',
+        createdAt: new Date('2026-01-10T12:00:00.000Z'),
+        tasks: [
+          {
+            id: 'task_old',
+            source: 'QUERY',
+            mainCategory: 'İftar (Core)',
+            subCategory: 'Restoranda İftar',
+            status: 'deal',
+            generalStatus: 'CLOSED',
+            creationDate: new Date('2025-12-15T12:00:00.000Z'),
+            createdAt: new Date('2025-12-15T12:00:00.000Z'),
+          },
+        ],
+      },
+    ])
+
+    const result = await service.targetPreview({
+      sources: ['Old Account Query'],
+      mainCategories: ['İftar (Core)'],
+      subCategories: ['Restoranda İftar'],
+      years: ['2025'],
+      months: ['Aralık'],
+      includeActive: true,
+    } as any)
+
+    expect(result.count).toBe(1)
+    expect(result.ids).toEqual(['acc_1'])
+    expect(result.items[0]).toEqual(
+      expect.objectContaining({
+        id: 'acc_1',
+        sourceType: 'OLD',
+        latestTask: expect.objectContaining({
+          id: 'task_old',
+          sourceType: 'QUERY',
+        }),
+      }),
+    )
+  })
+
+  it('excludes accounts with open tasks when includeActive is false', async () => {
+    const { service, prisma } = buildTargetPreviewService()
+    prisma.account.findMany.mockResolvedValue([
+      {
+        id: 'acc_open',
+        accountName: 'Acik Kayit',
+        mainCategory: 'Kategori',
+        subCategory: 'Alt',
+        source: 'FRESH',
+        city: 'Istanbul',
+        district: 'Sisli',
+        status: 'ACTIVE',
+        createdAt: new Date('2026-04-01T12:00:00.000Z'),
+        tasks: [
+          {
+            id: 'task_open',
+            source: 'FRESH',
+            mainCategory: 'Kategori',
+            subCategory: 'Alt',
+            status: 'new',
+            generalStatus: 'OPEN',
+            creationDate: new Date('2026-04-02T12:00:00.000Z'),
+            createdAt: new Date('2026-04-02T12:00:00.000Z'),
+          },
+        ],
+      },
+    ])
+
+    const result = await service.targetPreview({
+      includeActive: false,
+    } as any)
+
+    expect(result.count).toBe(0)
+    expect(result.ids).toEqual([])
+  })
+})

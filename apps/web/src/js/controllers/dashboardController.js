@@ -22,81 +22,12 @@ const DashboardController = {
         return [];
     },
 
-    _getTaskDerivedIndex() {
-        if (typeof AppState.getTaskDerivedIndex === 'function') {
-            return AppState.getTaskDerivedIndex();
-        }
-
-        const nonPoolTasks = AppState.tasks.filter((task) => !['UNASSIGNED', 'Team 1', 'Team 2', 'TARGET_POOL'].includes(task.assignee));
-        const tasksByAssignee = new Map();
-        const openCountByAssignee = new Map();
-
-        nonPoolTasks.forEach((task) => {
-            const assigneeTasks = tasksByAssignee.get(task.assignee) || [];
-            assigneeTasks.push(task);
-            tasksByAssignee.set(task.assignee, assigneeTasks);
-
-            if (isActiveTask(task.status)) {
-                openCountByAssignee.set(task.assignee, (openCountByAssignee.get(task.assignee) || 0) + 1);
-            }
-        });
-
-        return { nonPoolTasks, tasksByAssignee, openCountByAssignee };
-    },
-
-    _getUserTaskSummaryMap() {
-        if (typeof AppState.getUserTaskSummaryMap === 'function') {
-            return AppState.getUserTaskSummaryMap();
-        }
-
-        const taskIndex = this._getTaskDerivedIndex();
-        const summaryMap = new Map();
-        taskIndex.tasksByAssignee.forEach((tasks, assignee) => {
-            const summary = {
-                tasks: Array.isArray(tasks) ? tasks : [],
-                totalCount: Array.isArray(tasks) ? tasks.length : 0,
-                openCount: taskIndex.openCountByAssignee.get(assignee) || 0,
-                monthlyStats: {},
-            };
-
-            summary.tasks.forEach((task) => {
-                const effectiveMs = task.logs?.length > 0 ? parseLogDate(task.logs[0].date) : new Date(task.createdAt || 0).getTime();
-                if (!effectiveMs) return;
-                const effectiveDate = new Date(effectiveMs);
-                if (Number.isNaN(effectiveDate.getTime())) return;
-                const monthKey = `${effectiveDate.getFullYear()}-${String(effectiveDate.getMonth() + 1).padStart(2, '0')}`;
-                const monthly = summary.monthlyStats[monthKey] || { total: 0, deal: 0, cold: 0 };
-                monthly.total += 1;
-                if (task.status === 'deal') monthly.deal += 1;
-                if (task.status === 'cold') monthly.cold += 1;
-                summary.monthlyStats[monthKey] = monthly;
-            });
-
-            summaryMap.set(assignee, summary);
-        });
-
-        return summaryMap;
-    },
-
     _getMonthlySummary(summary, monthKey) {
         return summary?.monthlyStats?.[monthKey] || { total: 0, deal: 0, cold: 0 };
     },
 
     _getScopedOpenStatusCounts(teamFilter = null) {
-        const statusCounts = { new: 0, hot: 0, nothot: 0, followup: 0 };
-        const scopedUsers = teamFilter ? new Set(this._getScopeUsers(teamFilter).map((user) => user.name)) : null;
-        const taskIndex = this._getTaskDerivedIndex();
-        const openTasks = Array.isArray(taskIndex.openNonPoolTasks)
-            ? taskIndex.openNonPoolTasks
-            : taskIndex.nonPoolTasks.filter((task) => isActiveTask(task.status));
-
-        openTasks.forEach((task) => {
-            if (scopedUsers && !scopedUsers.has(task.assignee)) return;
-            if (statusCounts[task.status] === undefined) return;
-            statusCounts[task.status] += 1;
-        });
-
-        return statusCounts;
+        return { new: 0, hot: 0, nothot: 0, followup: 0 };
     },
 
     _getScopeUsers(teamFilter = null) {
@@ -110,21 +41,7 @@ const DashboardController = {
         });
     },
 
-    _getMonthlyStatsForTasks(tasks, currentMonth, currentYear) {
-        let total = 0;
-        let deal = 0;
-        let cold = 0;
-
-        tasks.forEach((task) => {
-            const d = (task.logs && task.logs.length > 0) ? new Date(parseLogDate(task.logs[0].date)) : new Date(task.createdAt);
-            if (d.getMonth() !== currentMonth || d.getFullYear() !== currentYear) return;
-            total += 1;
-            if (task.status === 'deal') deal += 1;
-            if (task.status === 'cold') cold += 1;
-        });
-
-        return { total, deal, cold };
-    },
+    _getMonthlyStatsForTasks() { return { total: 0, deal: 0, cold: 0 }; },
 
     _getPulseMetric(record, metricKey, period = 'monthly') {
         return Number(record?.metrics?.[period]?.[metricKey]?.count || 0);
@@ -179,6 +96,10 @@ const DashboardController = {
         if (!force) return path;
         const sep = path.includes('?') ? '&' : '?';
         return `${path}${sep}_ts=${Date.now()}`;
+    },
+
+    _renderMetricLoadError(metricIds = []) {
+        metricIds.forEach((id) => this._setMetric(id, '-'));
     },
 
     render(force = false) {
@@ -296,7 +217,7 @@ const DashboardController = {
         this._setMetric('mgrDashNotHot', '...');
         this._setMetric('mgrDashFollowup', '...');
 
-        this._renderPerformanceGrid(currentMonth, currentYear);
+        this._renderPerformanceGrid(currentMonth, currentYear, force);
 
         const requestId = ++this._dashboardSnapshotRequestId;
         try {
@@ -327,139 +248,46 @@ const DashboardController = {
                 radarFilter.value = radarUsers.some((user) => user.id === currentVal) ? currentVal : '';
             }
         } catch (err) {
-            console.error('Dashboard snapshot load failed, manager fallback kullanılacak:', err);
-            this._renderManagerDashboardFallback(currentMonth, currentYear);
+            console.error('Dashboard snapshot load failed:', err);
+            this._renderMetricLoadError([
+                'mgrTotalActive',
+                'mgrTotalDeal',
+                'mgrDealRatio',
+                'mgrDashNew',
+                'mgrDashHot',
+                'mgrDashNotHot',
+                'mgrDashFollowup',
+            ]);
+            this._renderSmartFocusCarousel('mgrSmartFocusText', [
+                { text: 'Yönetici özet verileri şu anda yüklenemedi.', action: "switchPage('page-dashboard')", icon: '⚠️' },
+            ]);
         }
 
         this._renderLiveFeed();
     },
 
     _renderManagerDashboardFallback(currentMonth, currentYear) {
-        const currentUser = AppState.loggedInUser;
-        const isTeamLeader = currentUser.role === 'Takım Lideri';
-        const teamFilter = (isTeamLeader && currentUser.team && currentUser.team !== '-') ? currentUser.team : null;
-        const taskIndex = this._getTaskDerivedIndex();
-        const userTaskSummaryMap = this._getUserTaskSummaryMap();
-        const monthKey = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
-        const inScopeUsers = this._getScopeUsers(teamFilter);
-        const inScopeUserNames = inScopeUsers.map((u) => u.name);
-
-        const allActiveCount = teamFilter
-            ? inScopeUserNames.reduce((sum, userName) => sum + (userTaskSummaryMap.get(userName)?.openCount || 0), 0)
-            : taskIndex.nonPoolTasks.filter((task) => isActiveTask(task.status)).length;
-        this._setMetric('mgrTotalActive', allActiveCount);
-
-        const monthlyStats = (teamFilter ? inScopeUserNames : Array.from(userTaskSummaryMap.keys())).reduce((acc, userName) => {
-            const monthly = this._getMonthlySummary(userTaskSummaryMap.get(userName), monthKey);
-            acc.total += monthly.total;
-            acc.deal += monthly.deal;
-            acc.cold += monthly.cold;
-            return acc;
-        }, { total: 0, deal: 0, cold: 0 });
-        this._setMetric('mgrTotalDeal', monthlyStats.deal);
-        const closedBase = monthlyStats.deal + monthlyStats.cold;
-        this._setMetric('mgrDealRatio', `%${closedBase > 0 ? Math.round((monthlyStats.deal / closedBase) * 100) : 0}`);
-
-        const openStatusCounts = this._getScopedOpenStatusCounts(teamFilter);
-        this._setMetric('mgrDashNew', openStatusCounts.new);
-        this._setMetric('mgrDashHot', openStatusCounts.hot);
-        this._setMetric('mgrDashNotHot', openStatusCounts.nothot);
-        this._setMetric('mgrDashFollowup', openStatusCounts.followup);
-
-        const focusItems = [];
-        const bizMap = AppState.getBizMap ? AppState.getBizMap() : {};
-        const unassignedTasks = (userTaskSummaryMap.get('UNASSIGNED')?.tasks || []).filter((t) => (
-            t.assignee === 'UNASSIGNED' &&
-            isActiveTask(t.status) &&
-            t.businessId &&
-            Boolean(bizMap.get ? bizMap.get(t.businessId) : bizMap[t.businessId])
-        ));
-        if (!teamFilter && unassignedTasks.length > 0) {
-            focusItems.push({ text: `Havuzda bekleyen ${unassignedTasks.length} aktif kayıt var.`, action: "switchPage('page-task-list')", icon: '⚡' });
-        }
-        if (monthlyStats.deal > 0) {
-            focusItems.push({ text: `Bu ay ${monthlyStats.deal} kapanış yapıldı.`, action: "openSummaryModal('deal')", icon: '✅' });
-        }
-        inScopeUsers.forEach((u) => {
-            const uOpen = userTaskSummaryMap.get(u.name)?.openCount || 0;
-            if (uOpen > 50) focusItems.push({ text: `${u.name} üzerinde çok fazla (${uOpen}) açık görev birikmiş durumda.`, action: "switchPage('page-all-tasks')", icon: '📊' });
-            if (uOpen < 5) focusItems.push({ text: `${u.name} üzerinde iş kalmadı (${uOpen} açık görev). Yeni atama yapın.`, action: isTeamLeader ? "switchPage('page-all-tasks')" : "switchPage('page-task-list')", icon: '⚡' });
-        });
-        this._renderSmartFocusCarousel('mgrSmartFocusText', focusItems.length ? focusItems : [{ text: 'Ekibinizin tüm metrikleri normal.', action: "switchPage('page-all-tasks')", icon: '🎯' }]);
-
-        const radarFilter = document.getElementById('mgrRadarUserFilter');
-        if (radarFilter) {
-            const currentVal = radarFilter.value;
-            radarFilter.innerHTML = '<option value="">Tüm Ekip</option>';
-            inScopeUsers.forEach((u) => radarFilter.add(new Option(u.name, u.id)));
-            radarFilter.value = inScopeUsers.some((u) => u.id === currentVal) ? currentVal : '';
-        }
+        this._renderMetricLoadError([
+            'mgrTotalActive',
+            'mgrTotalDeal',
+            'mgrDealRatio',
+            'mgrDashNew',
+            'mgrDashHot',
+            'mgrDashNotHot',
+            'mgrDashFollowup',
+        ]);
     },
 
     _renderPerformanceGridFallback(currentMonth, currentYear) {
-        const currentUser = AppState.loggedInUser;
-        const isTeamLeader = currentUser.role === 'Takım Lideri';
-        const teamFilter = (isTeamLeader && currentUser.team && currentUser.team !== '-') ? currentUser.team : null;
-        const userTaskSummaryMap = this._getUserTaskSummaryMap();
-        const monthKey = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
-
-        const userStats = [];
-        const scopeUsers = this._getScopeUsers(teamFilter);
-
-        scopeUsers.forEach(u => {
-            const summary = userTaskSummaryMap.get(u.name);
-            const uOpen = summary?.openCount || 0;
-            const monthlyStats = this._getMonthlySummary(summary, monthKey);
-            userStats.push({
-                key: encodeURIComponent(u.id || u.name),
-                user: { id: u.id, name: u.name, team: u.team },
-                metrics: {
-                    daily: {
-                        contacted: { count: 0, items: [] },
-                    },
-                    monthly: {
-                        open: { count: uOpen, items: [] },
-                        deal: { count: monthlyStats.deal || 0, items: [] },
-                        cold: { count: monthlyStats.cold || 0, items: [] },
-                        opened: { count: 0, items: [] },
-                    },
-                },
-                dealRatio: monthlyStats.total > 0 ? Math.round(((monthlyStats.deal || 0) / monthlyStats.total) * 100) : 0,
-            });
-        });
-
-        const tfEl = document.getElementById('mgrTeamFilter');
-        const tFilter = (tfEl && tfEl.value) ? tfEl.value : '';
-        const filteredStats = (tFilter && !teamFilter) ? userStats.filter(u => u.team === tFilter) : userStats;
         const ptGrid = document.getElementById('mgrPerformanceGrid');
         if (!ptGrid) return;
-
+        ptGrid.innerHTML = `<div class="no-records-dashboard">Performans verileri yüklenemedi.</div>`;
         if (typeof window.setTeamPulseRecords === 'function') {
-            window.setTeamPulseRecords(filteredStats);
+            window.setTeamPulseRecords([]);
         }
-
-        ptGrid.innerHTML = '';
-        if (filteredStats.length === 0) {
-            ptGrid.innerHTML = `<div class="no-records-dashboard">Kayıt yok.</div>`;
-            return;
-        }
-
-        const sortedForMedal = [...userStats].sort((a, b) => this._getPulseMetric(b, 'deal', 'monthly') - this._getPulseMetric(a, 'deal', 'monthly') || this._getPulseMetric(b, 'open', 'monthly') - this._getPulseMetric(a, 'open', 'monthly'));
-        const htmlParts = [];
-        filteredStats.forEach(u => {
-            const rankIndex = sortedForMedal.findIndex(x => x.key === u.key);
-            let medalHtml = '';
-            if (!tFilter && this._getPulseMetric(u, 'deal', 'monthly') > 0) {
-                if (rankIndex === 0) medalHtml = '<span title="1. Sırada" class="medal-icon">🥇</span> ';
-                if (rankIndex === 1) medalHtml = '<span title="2. Sırada" class="medal-icon">🥈</span> ';
-                if (rankIndex === 2) medalHtml = '<span title="3. Sırada" class="medal-icon">🥉</span> ';
-            }
-            htmlParts.push(this._buildPerformanceCard(u, medalHtml));
-        });
-        ptGrid.innerHTML = htmlParts.join('');
     },
 
-    async _renderPerformanceGrid(currentMonth, currentYear) {
+    async _renderPerformanceGrid(currentMonth, currentYear, force = false) {
         const ptGrid = document.getElementById('mgrPerformanceGrid');
         if (!ptGrid) return;
 
@@ -515,9 +343,12 @@ const DashboardController = {
             }).join('');
             this._performanceGridCache.set(cacheKey, { html: ptGrid.innerHTML, records: stats, at: now });
         } catch (err) {
-            console.error('Performance grid load failed, falling back to local summary:', err);
+            console.error('Performance grid load failed:', err);
             if (requestId !== this._performanceGridRequestId) return;
-            this._renderPerformanceGridFallback(currentMonth, currentYear);
+            ptGrid.innerHTML = `<div class="no-records-dashboard">Performans verileri yüklenemedi.</div>`;
+            if (typeof window.setTeamPulseRecords === 'function') {
+                window.setTeamPulseRecords([]);
+            }
         }
     },
 
@@ -637,78 +468,37 @@ const DashboardController = {
                 : [{ text: 'Harika! Bugün için acil bir işlem görünmüyor.', action: "switchPage('page-my-tasks')", icon: '🎉' }]);
             this._renderUpcomingFollowups(userSnapshot.upcomingFollowups || []);
         } catch (err) {
-            console.error('Dashboard snapshot load failed, user fallback kullanılacak:', err);
-            this._renderUserDashboardFallback(currentMonth, currentYear);
+            console.error('Dashboard snapshot load failed:', err);
+            this._renderMetricLoadError([
+                'dashTotalTasks',
+                'dashMyDealMonthly',
+                'dashMyColdMonthly',
+                'dashNew',
+                'dashHot',
+                'dashNotHot',
+                'dashFollowup',
+            ]);
+            this._renderSmartFocusCarousel('userSmartFocusText', [
+                { text: 'Gösterge paneli verileri şu anda yüklenemedi.', action: "switchPage('page-my-tasks')", icon: '⚠️' },
+            ]);
+            this._renderUpcomingFollowups([]);
         }
     },
 
     _renderUserDashboardFallback(currentMonth, currentYear) {
-        const userTaskSummaryMap = this._getUserTaskSummaryMap();
-        const monthKey = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
-        const mySummary = userTaskSummaryMap.get(AppState.loggedInUser.name) || { tasks: [], openCount: 0, monthlyStats: {} };
-        const myTasks = mySummary.tasks;
-        const openTasksCount = mySummary.openCount;
-        this._setMetric('dashTotalTasks', openTasksCount);
-
-        const myMonthlyStats = this._getMonthlySummary(mySummary, monthKey);
-        this._setMetric('dashMyDealMonthly', myMonthlyStats.deal);
-        this._setMetric('dashMyColdMonthly', myMonthlyStats.cold);
-
-        const counts = { new: 0, hot: 0, nothot: 0, followup: 0 };
-        myTasks.forEach((task) => { if (counts[task.status] !== undefined) counts[task.status] += 1; });
-        this._setMetric('dashNew', counts.new);
-        this._setMetric('dashHot', counts.hot);
-        this._setMetric('dashNotHot', counts.nothot);
-        this._setMetric('dashFollowup', counts.followup);
-
-        const nowTime = Date.now();
-        const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
-        const delayedTasks = myTasks.filter((task) => {
-            if (task.status === 'cold' || task.status === 'deal') return false;
-            const lastTime = (task.logs && task.logs.length > 0) ? parseLogDate(task.logs[0].date) : new Date(task.createdAt).getTime();
-            return (lastTime > 0 && (nowTime - lastTime) > threeDaysMs);
-        });
-
-        const focusToday = new Date(); focusToday.setHours(0, 0, 0, 0);
-        const focusTomorrow = new Date(focusToday); focusTomorrow.setDate(focusTomorrow.getDate() + 1);
-        const dueFollowupCalls = myTasks.filter((task) => {
-            if (task.status !== 'followup' || !task.nextCallDate) return false;
-            const nextCallTime = new Date(task.nextCallDate);
-            return !Number.isNaN(nextCallTime.getTime()) && nextCallTime < focusTomorrow;
-        }).length;
-
-        const focusItems = [];
-        if (dueFollowupCalls > 0) {
-            focusItems.push({ text: `Bugün gerçekleştirmeniz gereken planlanmış ${dueFollowupCalls} aramanız (followup) bulunuyor.`, action: "switchPage('page-my-tasks')", icon: '📅' });
-        } else if (delayedTasks.length > 0) {
-            focusItems.push({ text: `Dikkat: Üzerinde 3 günden uzun süredir işlem yapmadığınız ${delayedTasks.length} görev var!`, action: "switchPage('page-my-tasks')", icon: '⚠️' });
-        } else if (openTasksCount > 0) {
-            focusItems.push({ text: `Üzerinizde aktif olarak bekleyen toplam ${openTasksCount} açık görev bulunuyor.`, action: "switchPage('page-my-tasks')", icon: '📋' });
-        } else {
-            focusItems.push({ text: 'Harika! Bugün için acil bir işlem görünmüyor.', action: "switchPage('page-my-tasks')", icon: '🎉' });
-        }
-        this._renderSmartFocusCarousel('userSmartFocusText', focusItems);
-
-        const today = new Date(); today.setHours(0, 0, 0, 0);
-        const nextWeek = new Date(today); nextWeek.setDate(nextWeek.getDate() + 7);
-        const upcomingTasks = myTasks
-            .filter((task) => task.status === 'followup' && task.nextCallDate && new Date(task.nextCallDate) >= today && new Date(task.nextCallDate) <= nextWeek)
-            .sort((a, b) => new Date(a.nextCallDate) - new Date(b.nextCallDate))
-            .map((task) => ({
-                taskId: task.id,
-                businessId: task.businessId,
-                ownerId: task.ownerId || null,
-                assignee: task.assignee || '',
-                sourceType: task.sourceType || '',
-                mainCategory: task.mainCategory || '',
-                subCategory: task.subCategory || '',
-                logs: Array.isArray(task.logs) ? task.logs : [],
-                createdAt: task.createdAt || '',
-                businessName: (AppState.getBizMap().get(task.businessId) || task).companyName || 'Bilinmeyen İşletme',
-                city: (AppState.getBizMap().get(task.businessId) || task).city || '-',
-                nextCallDate: task.nextCallDate,
-            }));
-        this._renderUpcomingFollowups(upcomingTasks);
+        this._renderMetricLoadError([
+            'dashTotalTasks',
+            'dashMyDealMonthly',
+            'dashMyColdMonthly',
+            'dashNew',
+            'dashHot',
+            'dashNotHot',
+            'dashFollowup',
+        ]);
+        this._renderSmartFocusCarousel('userSmartFocusText', [
+            { text: 'Gösterge paneli verileri şu anda yüklenemedi.', action: "switchPage('page-my-tasks')", icon: '⚠️' },
+        ]);
+        this._renderUpcomingFollowups([]);
     },
 
     _renderSmartFocusCarousel(elementId, focusItems) {

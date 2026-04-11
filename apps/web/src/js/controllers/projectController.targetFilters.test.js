@@ -251,6 +251,7 @@ describe('ProjectController.submitCreateNewTask', () => {
         const apiRequest = jest.fn()
             .mockResolvedValueOnce({ id: 'acc_1' })
             .mockResolvedValueOnce({ id: 'task_1' });
+        const readPath = jest.fn().mockResolvedValue({ id: 'task_1', status: 'new' });
 
         const { controller } = loadController('controllers/projectController.js', 'ProjectController', {
             document,
@@ -258,7 +259,7 @@ describe('ProjectController.submitCreateNewTask', () => {
                 users: [],
                 projects: [{ id: 'proj_99', name: 'Nisan Hedefleri' }],
             },
-            DataService: { apiRequest },
+            DataService: { apiRequest, readPath },
             showToast: jest.fn(),
             addSystemLog: jest.fn(),
             esc: (value) => String(value ?? ''),
@@ -271,6 +272,8 @@ describe('ProjectController.submitCreateNewTask', () => {
         controller.submitCreateNewTask();
         await Promise.resolve();
         await Promise.resolve();
+        await Promise.resolve();
+        await new Promise((resolve) => setImmediate(resolve));
 
         const [, taskRequest] = apiRequest.mock.calls[1];
         const payload = JSON.parse(taskRequest.body);
@@ -321,13 +324,91 @@ describe('ProjectController.generateStrategicList', () => {
         });
 
         controller.renderActiveProjects = renderActiveProjects;
-        controller.generateStrategicList();
-        await Promise.resolve();
-        await Promise.resolve();
+        await controller.generateStrategicList();
 
         expect(apiRequest).toHaveBeenCalledTimes(1);
         const [, projectRequest] = apiRequest.mock.calls[0];
         expect(JSON.parse(projectRequest.body).mode).toBe('MANUAL');
         expect(renderActiveProjects).toHaveBeenCalled();
+    });
+
+    it('uses server-side target preview instead of filtering AppState businesses', async () => {
+        const targetProjectName = createElement({ value: 'Sunucu Projesi' });
+        const targetPullExisting = createElement({ checked: true });
+        const targetYear = createElement({ selectedOptions: [] });
+        const targetMonth = createElement({ selectedOptions: [] });
+        const targetBulkNote = createElement({ value: '' });
+        const targetBaseNote = createElement({ value: 'Not' });
+        const targetMainCat = createElement({ selectedOptions: [] });
+        const targetSubCat = createElement({ selectedOptions: [] });
+        const targetCity = createElement({ selectedOptions: [] });
+        const targetDistrict = createElement({ selectedOptions: [] });
+        const targetSource = createElement({ selectedOptions: [] });
+        const targetIncludeActive = createElement({ checked: false });
+        const document = createDocument({
+            targetProjectName,
+            targetPullExisting,
+            targetYear,
+            targetMonth,
+            targetBulkNote,
+            targetBaseNote,
+            targetMainCat,
+            targetSubCat,
+            targetCity,
+            targetDistrict,
+            targetSource,
+            targetIncludeActive,
+        });
+
+        const fetchAccountTargetPreview = jest.fn().mockResolvedValue({
+            count: 1,
+            ids: ['biz_1'],
+            items: [{
+                id: 'biz_1',
+                companyName: 'Demo',
+                mainCategory: 'Ana',
+                subCategory: 'Alt',
+                sourceType: 'QUERY',
+                latestTask: {
+                    id: 'task_1',
+                    sourceType: 'QUERY',
+                    mainCategory: 'Ana',
+                    subCategory: 'Alt',
+                },
+            }],
+        });
+        const apiRequest = jest.fn()
+            .mockResolvedValueOnce({ id: 'proj_1', name: 'Sunucu Projesi' })
+            .mockResolvedValueOnce({ id: 'task_new' });
+
+        const { controller } = loadController('controllers/projectController.js', 'ProjectController', {
+            document,
+            AppState: {
+                businesses: [{ id: 'stale_biz' }],
+                tasks: [],
+                projects: [],
+                loggedInUser: { name: 'Admin' },
+                getTaskMap: () => { throw new Error('client-side task map should not be used'); },
+                getProjectTaskMap: () => ({}),
+            },
+            DataService: { apiRequest, fetchAccountTargetPreview },
+            DropdownController: { updateAssigneeDropdowns: jest.fn() },
+            showToast: jest.fn(),
+            addSystemLog: jest.fn(),
+            esc: (value) => String(value ?? ''),
+            matchesTaskHistoryCategoryFilter: () => true,
+            resolveCanonicalCategory: (mainCategory, subCategory) => ({ mainCategory, subCategory }),
+        });
+
+        controller.renderActiveProjects = jest.fn();
+        await controller.generateStrategicList();
+
+        expect(fetchAccountTargetPreview).toHaveBeenCalledTimes(1);
+        expect(apiRequest).toHaveBeenCalledTimes(2);
+        const [, taskRequest] = apiRequest.mock.calls[1];
+        expect(JSON.parse(taskRequest.body)).toEqual(expect.objectContaining({
+            accountId: 'biz_1',
+            source: 'QUERY',
+        }));
     });
 });

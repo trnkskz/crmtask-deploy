@@ -1,7 +1,7 @@
 const { loadController } = require('../testUtils/controllerTestUtils');
 
-describe('SyncService cache warm-up', () => {
-    it('warms derived caches after full snapshot bootstrap', async () => {
+describe('SyncService bootstrap', () => {
+    it('loads shell collections first and defers secondary collections', async () => {
         const fetchCalls = [];
         const fetchOnce = jest.fn(async (path) => {
             fetchCalls.push(path);
@@ -9,7 +9,6 @@ describe('SyncService cache warm-up', () => {
             if (path === 'categories') return {};
             return [];
         });
-        const warmDerivedCaches = jest.fn();
 
         const { controller } = loadController('services/syncService.js', 'SyncService', {
             AppState: {
@@ -19,10 +18,7 @@ describe('SyncService cache warm-up', () => {
                 isAllLoaded: jest.fn(() => false),
                 isSystemReady: false,
                 isDataSyncing: false,
-                warmDerivedCaches,
                 set users(v) { this._users = v; },
-                set businesses(v) { this._businesses = v; },
-                set tasks(v) { this._tasks = v; },
                 set notifications(v) { this._notifications = v; },
                 set projects(v) { this._projects = v; },
                 set systemLogs(v) { this._systemLogs = v; },
@@ -48,12 +44,10 @@ describe('SyncService cache warm-up', () => {
 
         await controller.bootstrapFullSync();
 
-        expect(warmDerivedCaches).toHaveBeenCalled();
-        expect(warmDerivedCaches.mock.calls[0][0]).toContain('tasks');
-        expect(warmDerivedCaches.mock.calls[0][0]).not.toContain('projects');
-        expect(fetchCalls.slice(0, 5)).toEqual(['users', 'businesses', 'tasks', 'notifications', 'categories']);
+        expect(fetchCalls.slice(0, 4)).toEqual(['users', 'notifications', 'categories', 'pricingData']);
+        expect(fetchCalls).not.toContain('businesses');
+        expect(fetchCalls).not.toContain('tasks');
         expect(fetchCalls).toContain('projects');
-        expect(fetchCalls).toContain('pricingData');
         expect(fetchCalls).toContain('systemLogs');
     });
 });

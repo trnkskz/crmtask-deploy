@@ -185,22 +185,12 @@ const AppState = (() => {
     // --- Önbellekler ---
     let _bizMapCache = null;
     let _bizMapRevision = -1;
-    let _taskMapCache = null;
-    let _taskMapRevision = -1;
-    let _projectTaskMapCache = null;
-    let _projectTaskMapRevision = -1;
     let _userNameMapCache = null;
     let _userNameMapRevision = -1;
     let _userEmailMapCache = null;
     let _userEmailMapRevision = -1;
     let _assignableUsersCache = null;
     let _assignableUsersRevision = -1;
-    let _taskDerivedIndexCache = null;
-    let _taskDerivedIndexRevision = -1;
-    let _userTaskSummaryCache = null;
-    let _userTaskSummaryRevision = -1;
-    let _businessTaskSummaryCache = null;
-    let _businessTaskSummaryRevision = -1;
     let _reportTaskMetaMapCache = null;
     let _reportTaskMetaMapRevision = -1;
     let _poolTaskGroupCache = null;
@@ -291,41 +281,13 @@ const AppState = (() => {
         },
 
         isAllLoaded() {
-            const criticalKeys = ['users', 'businesses', 'tasks', 'notifications', 'systemLogs', 'categories', 'pricing'];
+            const criticalKeys = ['users', 'notifications', 'categories', 'pricing'];
             if (shouldRequireProjectsForCurrentRole()) criticalKeys.push('projects');
             return criticalKeys.every(key => _loadedState[key]);
         },
 
         resetLoadedState() {
             Object.keys(_loadedState).forEach(k => _loadedState[k] = false);
-        },
-
-        warmDerivedCaches(changedKeys = []) {
-            const keySet = Array.isArray(changedKeys) ? new Set(changedKeys) : new Set();
-            const warmAll = keySet.size === 0;
-
-            try {
-                if (warmAll || keySet.has('users')) {
-                    this.getUserNameMap();
-                    this.getUserEmailMap();
-                    this.getAssignableUsers();
-                }
-
-                if (warmAll || keySet.has('businesses')) {
-                    this.getBizMap();
-                }
-
-                if (warmAll || keySet.has('tasks')) {
-                    this.getTaskMap();
-                    this.getProjectTaskMap();
-                    this.getTaskDerivedIndex();
-                    this.getUserTaskSummaryMap();
-                    this.getBusinessTaskSummaryMap();
-                    this.getPoolTaskGroups();
-                }
-            } catch (err) {
-                console.warn('Cache warm-up failed:', err?.message || err);
-            }
         },
 
         getCacheDiagnostics() {
@@ -379,37 +341,6 @@ const AppState = (() => {
             _businessDetailCache = new Map();
         },
 
-        getTaskMap() {
-            if (_taskMapCache && _taskMapRevision === _collectionRevisions.tasks) return _taskMapCache;
-            _taskMapCache = {};
-            for (let i = 0; i < _tasks.length; i++) {
-                const bId = _tasks[i].businessId;
-                if (!_taskMapCache[bId]) _taskMapCache[bId] = [];
-                _taskMapCache[bId].push(_tasks[i]);
-            }
-            for (const key in _taskMapCache) {
-                _taskMapCache[key].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-            }
-            _taskMapRevision = _collectionRevisions.tasks;
-            return _taskMapCache;
-        },
-
-        getProjectTaskMap() {
-            if (_projectTaskMapCache && _projectTaskMapRevision === _collectionRevisions.tasks) return _projectTaskMapCache;
-            _projectTaskMapCache = {};
-            for (let i = 0; i < _tasks.length; i++) {
-                const pId = _tasks[i].projectId;
-                if (!pId) continue;
-                if (!_projectTaskMapCache[pId]) _projectTaskMapCache[pId] = [];
-                _projectTaskMapCache[pId].push(_tasks[i]);
-            }
-            for (const key in _projectTaskMapCache) {
-                _projectTaskMapCache[key].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-            }
-            _projectTaskMapRevision = _collectionRevisions.tasks;
-            return _projectTaskMapCache;
-        },
-
         getUserNameMap() {
             if (_userNameMapCache && _userNameMapRevision === _collectionRevisions.users) return _userNameMapCache;
             _userNameMapCache = new Map();
@@ -437,129 +368,6 @@ const AppState = (() => {
             _assignableUsersCache = _users.filter((user) => isOperationalTaskUser(user));
             _assignableUsersRevision = _collectionRevisions.users;
             return _assignableUsersCache;
-        },
-
-        getTaskDerivedIndex() {
-            if (_taskDerivedIndexCache && _taskDerivedIndexRevision === _collectionRevisions.tasks) {
-                return _taskDerivedIndexCache;
-            }
-
-            const nonPoolTasks = [];
-            const openNonPoolTasks = [];
-            const tasksByAssignee = new Map();
-            const activeAssigneeNames = new Set();
-            let todayDealCount = 0;
-            let todayColdCount = 0;
-
-            for (let i = 0; i < _tasks.length; i++) {
-                const task = _tasks[i];
-                if (isPoolAssignee(task.assignee) || !isOperationalTaskAssignee(task.assignee, _users)) continue;
-
-                nonPoolTasks.push(task);
-
-                if (task.assignee) {
-                    const assigneeTasks = tasksByAssignee.get(task.assignee) || [];
-                    assigneeTasks.push(task);
-                    tasksByAssignee.set(task.assignee, assigneeTasks);
-                }
-
-                const status = String(task.status || '').toLowerCase();
-                if (status === 'deal' && task.logs?.length > 0 && isDateToday(task.logs[0].date)) todayDealCount += 1;
-                if (status === 'cold' && task.logs?.length > 0 && isDateToday(task.logs[0].date)) todayColdCount += 1;
-
-                if (!isPassiveTaskStatus(status) && status !== 'pending_approval') {
-                    openNonPoolTasks.push(task);
-                    if (task.assignee) activeAssigneeNames.add(task.assignee);
-                }
-            }
-
-            _taskDerivedIndexCache = {
-                nonPoolTasks,
-                openNonPoolTasks,
-                tasksByAssignee,
-                activeAssigneeNames,
-                todayDealCount,
-                todayColdCount,
-            };
-            _taskDerivedIndexRevision = _collectionRevisions.tasks;
-            return _taskDerivedIndexCache;
-        },
-
-        getUserTaskSummaryMap() {
-            if (_userTaskSummaryCache && _userTaskSummaryRevision === _collectionRevisions.tasks) {
-                return _userTaskSummaryCache;
-            }
-
-            _userTaskSummaryCache = new Map();
-
-            for (let i = 0; i < _tasks.length; i++) {
-                const task = _tasks[i];
-                const assignee = String(task.assignee || '');
-                if (!assignee || !isOperationalTaskAssignee(assignee, _users)) continue;
-
-                let summary = _userTaskSummaryCache.get(assignee);
-                if (!summary) {
-                    summary = {
-                        tasks: [],
-                        totalCount: 0,
-                        openCount: 0,
-                        monthlyStats: {},
-                    };
-                    _userTaskSummaryCache.set(assignee, summary);
-                }
-
-                summary.tasks.push(task);
-                summary.totalCount += 1;
-                if (isActiveTaskStatus(task.status)) summary.openCount += 1;
-
-                const effectiveDate = getTaskEffectiveDate(task);
-                if (!effectiveDate) continue;
-                const monthKey = `${effectiveDate.getFullYear()}-${String(effectiveDate.getMonth() + 1).padStart(2, '0')}`;
-                const monthly = summary.monthlyStats[monthKey] || { total: 0, deal: 0, cold: 0 };
-                monthly.total += 1;
-                if (String(task.status || '').toLowerCase() === 'deal') monthly.deal += 1;
-                if (String(task.status || '').toLowerCase() === 'cold') monthly.cold += 1;
-                summary.monthlyStats[monthKey] = monthly;
-            }
-
-            _userTaskSummaryRevision = _collectionRevisions.tasks;
-            return _userTaskSummaryCache;
-        },
-
-        getBusinessTaskSummaryMap() {
-            if (_businessTaskSummaryCache && _businessTaskSummaryRevision === _collectionRevisions.tasks) {
-                return _businessTaskSummaryCache;
-            }
-
-            const taskMap = this.getTaskMap();
-            _businessTaskSummaryCache = new Map();
-
-            Object.keys(taskMap).forEach((businessId) => {
-                const bizTasks = taskMap[businessId] || [];
-                const visibleBizTasks = bizTasks.filter((task) => {
-                    if (!task?.assignee) return true;
-                    return isOperationalTaskAssignee(task.assignee, _users);
-                });
-                const latestTask = visibleBizTasks[0] || null;
-                let hasActive = false;
-                const sourceKeys = new Set();
-
-                for (let i = 0; i < visibleBizTasks.length; i++) {
-                    const task = visibleBizTasks[i];
-                    if (isActiveTaskStatus(task.status)) hasActive = true;
-                    const sourceKey = normalizeSourceKey(task.sourceType);
-                    if (sourceKey) sourceKeys.add(sourceKey);
-                }
-
-                _businessTaskSummaryCache.set(businessId, {
-                    latestTask,
-                    hasActive,
-                    sourceKeys,
-                });
-            });
-
-            _businessTaskSummaryRevision = _collectionRevisions.tasks;
-            return _businessTaskSummaryCache;
         },
 
         getReportTaskMetaMap() {
@@ -606,16 +414,6 @@ const AppState = (() => {
         },
 
         invalidateTaskMapCache() {
-            _taskMapCache = null;
-            _taskMapRevision = -1;
-            _projectTaskMapCache = null;
-            _projectTaskMapRevision = -1;
-            _taskDerivedIndexCache = null;
-            _taskDerivedIndexRevision = -1;
-            _userTaskSummaryCache = null;
-            _userTaskSummaryRevision = -1;
-            _businessTaskSummaryCache = null;
-            _businessTaskSummaryRevision = -1;
             _reportTaskMetaMapCache = null;
             _reportTaskMetaMapRevision = -1;
             _poolTaskGroupCache = null;
