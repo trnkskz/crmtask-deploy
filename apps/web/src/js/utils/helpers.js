@@ -427,12 +427,41 @@ function normalizeTaskSourceKey(value) {
     const raw = String(value || '').trim().toUpperCase();
     if (!raw) return '';
     if (raw.includes('OLD ACCOUNT RAKIP') || raw.includes('OLD_RAKIP')) return 'OLD_RAKIP';
+    if (raw.includes('OLD ACCOUNT QUERY') || raw.includes('OLD_QUERY')) return 'OLD_QUERY';
+    if (raw === 'QUERY' || raw.startsWith('QUERY ') || raw.includes(' QUERY') || raw.includes('QUERY/')) return 'QUERY';
+    if (raw.includes('LEAD')) return 'LEAD';
     if (raw.includes('RAKIP')) return 'RAKIP';
     if (raw.includes('REFERANS')) return 'REFERANS';
-    if (raw.includes('OLD ACCOUNT QUERY') || raw === 'QUERY' || raw.includes('LEAD')) return 'QUERY';
     if (raw.includes('OLD')) return 'OLD';
     if (raw.includes('FRESH')) return 'FRESH';
     return raw;
+}
+
+function getTaskSourceLabel(value) {
+    const raw = normalizeTaskSourceKey(value);
+    if (!raw) return '-';
+    if (raw === 'OLD_RAKIP') return 'Old Account Rakip';
+    if (raw === 'OLD_QUERY') return 'Old Account Query';
+    if (raw === 'QUERY') return 'Query';
+    if (raw === 'LEAD') return 'Lead';
+    if (raw === 'RAKIP') return 'Rakip';
+    if (raw === 'REFERANS') return 'Referans';
+    if (raw === 'OLD') return 'Old Account';
+    if (raw === 'FRESH') return 'Fresh Account';
+    return String(value || '-');
+}
+
+function normalizeTaskStatusKey(value) {
+    const raw = String(value || '').trim().toUpperCase();
+    if (!raw) return '';
+    if (raw === 'NOT_HOT' || raw === 'NOTHOT') return 'nothot';
+    if (raw === 'FOLLOWUP' || raw === 'FOLLOW_UP') return 'followup';
+    return raw.toLowerCase();
+}
+
+function getTaskStatusLabel(value) {
+    const key = normalizeTaskStatusKey(value);
+    return TASK_STATUS_LABELS[key] || String(value || '-');
 }
 
 function matchesTaskHistoryCategoryFilter(taskList, mainFilters, subFilters, companyName = '') {
@@ -699,8 +728,11 @@ if (typeof module !== 'undefined' && module.exports) {
         formatProjectPeriod,
         getTaskEffectiveTimestamp,
         getTaskUrgencyRank,
+        getTaskSourceLabel,
+        getTaskStatusLabel,
         isVisibleTaskListProjectTask,
         normalizeTaskSourceKey,
+        normalizeTaskStatusKey,
         businessMatchesSearch,
         getBusinessSearchTokens,
         splitMultiContactValues,

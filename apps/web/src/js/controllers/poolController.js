@@ -46,12 +46,15 @@ const PoolController = (() => {
     }
 
     function normalizeSourceKey(value) {
+        if (typeof normalizeTaskSourceKey === 'function') return normalizeTaskSourceKey(value);
         const raw = String(value || '').trim().toUpperCase();
         if (!raw) return '';
         if (raw.includes('OLD ACCOUNT RAKIP') || raw.includes('OLD_RAKIP')) return 'OLD_RAKIP';
+        if (raw.includes('OLD ACCOUNT QUERY') || raw.includes('OLD_QUERY')) return 'OLD_QUERY';
+        if (raw === 'QUERY' || raw.startsWith('QUERY ') || raw.includes(' QUERY')) return 'QUERY';
+        if (raw.includes('LEAD')) return 'LEAD';
         if (raw.includes('RAKIP')) return 'RAKIP';
         if (raw.includes('REFERANS')) return 'REFERANS';
-        if (raw.includes('OLD ACCOUNT QUERY') || raw === 'QUERY' || raw.includes('LEAD')) return 'QUERY';
         if (raw.includes('OLD')) return 'OLD';
         if (raw.includes('FRESH')) return 'FRESH';
         return raw;

@@ -6,6 +6,7 @@ import { TaskFocusContactDto } from './dto/task-focus-contact.dto'
 import { GeneralStatus, TaskListTag, Reason } from '@prisma/client'
 import { NotificationsService } from '../notifications/notifications.service'
 import { AuditService } from '../audit/audit.service'
+import { normalizeAccountSource } from '../common/source-type'
 
 const AUTO_SYSTEM_NOTE_TEXTS = new Set([
   'satış temsilcisi bu işletmeyi havuzdan kendi üzerine aldı',
@@ -315,13 +316,7 @@ export class TasksService {
       return 'ISTANBUL_CORE'
     }
     const parseSource = (s: any) => {
-      const q = String(s).toLowerCase()
-      if (q.includes('old account rakip')) return 'OLD_RAKIP'
-      if (q.includes('old account query') || q.includes('query')) return 'QUERY'
-      if (q.includes('rakip')) return 'RAKIP'
-      if (q.includes('referans')) return 'REFERANS'
-      if (q.includes('old')) return 'OLD'
-      return 'FRESH'
+      return normalizeAccountSource(s)
     }
     dto.category = parseCategory(dto.category) as any
     dto.source = parseSource(dto.source) as any
@@ -850,7 +845,7 @@ export class TasksService {
     if (filter.priority) where.priority = filter.priority
     if (filter.category) where.category = filter.category
     if (filter.accountType) where.accountType = filter.accountType
-    if (filter.source) where.source = filter.source
+    if (filter.source) where.source = normalizeAccountSource(filter.source)
     if (filter.historicalAssignee) where.historicalAssignee = { contains: String(filter.historicalAssignee), mode: 'insensitive' }
     if (filter.mainCategory) where.mainCategory = { contains: String(filter.mainCategory), mode: 'insensitive' }
     if (filter.subCategory) where.subCategory = { contains: String(filter.subCategory), mode: 'insensitive' }
@@ -1404,13 +1399,7 @@ export class TasksService {
       return 'ISTANBUL_CORE'
     }
     const parseSource = (s: any) => {
-      const q = String(s).toLowerCase()
-      if (q.includes('old account rakip')) return 'OLD_RAKIP'
-      if (q.includes('old account query') || q.includes('query')) return 'QUERY'
-      if (q.includes('rakip')) return 'RAKIP'
-      if (q.includes('referans')) return 'REFERANS'
-      if (q.includes('old')) return 'OLD'
-      return 'FRESH'
+      return normalizeAccountSource(s)
     }
 
     const fields = ['category','type','priority','accountType','source','mainCategory','subCategory','city','district','contact','details']

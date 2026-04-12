@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { PrismaService } from '../infrastructure/prisma/prisma.service'
 import { OperationsRadarQueryDto } from './dto/operations-radar.dto'
+import { getAccountSourceLabel, normalizeAccountSource } from '../common/source-type'
 
 function toCsv(rows: any[]): string {
   if (!rows.length) return ''
@@ -81,15 +82,7 @@ function readDealField(text: unknown, label: string) {
 }
 
 function toTaskReportSourceLabel(value: unknown) {
-  const raw = String(value || '').trim().toUpperCase()
-  if (!raw) return '-'
-  if (raw === 'OLD_RAKIP') return 'Old Account Rakip'
-  if (raw === 'RAKIP') return 'Rakip'
-  if (raw === 'REFERANS') return 'Referans'
-  if (raw === 'QUERY') return 'Old Account Query'
-  if (raw === 'OLD') return 'Old Account'
-  if (raw === 'FRESH') return 'Fresh Account'
-  return String(value || '-')
+  return getAccountSourceLabel(value || '')
 }
 
 @Injectable()
@@ -383,15 +376,8 @@ export class ReportsService {
   }
 
   private normalizeReportSource(value: unknown) {
-    const raw = String(value || '').trim().toUpperCase()
-    if (!raw) return ''
-    if (raw.includes('OLD ACCOUNT RAKIP') || raw.includes('OLD_RAKIP')) return 'OLD_RAKIP'
-    if (raw.includes('RAKIP')) return 'RAKIP'
-    if (raw.includes('REFERANS')) return 'REFERANS'
-    if (raw.includes('OLD ACCOUNT QUERY') || raw === 'QUERY' || raw.includes('LEAD')) return 'QUERY'
-    if (raw.includes('OLD')) return 'OLD'
-    if (raw.includes('FRESH')) return 'FRESH'
-    return raw
+    if (!String(value || '').trim()) return ''
+    return normalizeAccountSource(value)
   }
 
   private getCurrentMonthRange() {
@@ -479,7 +465,7 @@ export class ReportsService {
     if (q.team && !isSalesperson) where.owner = { ...(where.owner || {}), team: q.team, role: 'SALESPERSON' } as any
     if (q.status) where.status = this.normalizeTaskStatusFilter(q.status) as any
     if (q.generalStatus) where.generalStatus = String(q.generalStatus).toUpperCase() as any
-    if (q.source) where.source = q.source as any
+    if (q.source) where.source = normalizeAccountSource(q.source) as any
     if (q.city) where.account = { ...(where.account || {}), city: { contains: q.city, mode: 'insensitive' } }
     if (q.district) where.account = { ...(where.account || {}), district: { contains: q.district, mode: 'insensitive' } }
     this.applyTaskDateFilter(where, q)
@@ -1512,7 +1498,7 @@ export class ReportsService {
     if (q.historicalAssignee) where.historicalAssignee = { contains: q.historicalAssignee, mode: 'insensitive' }
     if (q.status) where.status = q.status as any
     if (q.generalStatus) where.generalStatus = q.generalStatus as any
-    if (q.source) where.source = q.source as any
+    if (q.source) where.source = normalizeAccountSource(q.source) as any
     if (q.creationChannel) where.creationChannel = q.creationChannel as any
     this.applyTaskDateFilter(where, q)
 
@@ -1655,7 +1641,7 @@ export class ReportsService {
     // Accounts are not per-owner; scope indirectly by tasks when role != ADMIN
     let where: any = {}
     if (q.status) where.status = q.status as any
-    if (q.source) where.source = q.source as any
+    if (q.source) where.source = normalizeAccountSource(q.source) as any
     if (q.type) where.type = q.type as any
     if (q.from || q.to) {
       where.creationDate = {}

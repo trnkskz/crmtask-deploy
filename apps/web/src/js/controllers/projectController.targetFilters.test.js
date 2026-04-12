@@ -33,7 +33,7 @@ describe('ProjectController target audience filters', () => {
             district: 'Kadıköy',
         };
         const taskMap = {
-            'biz-1': [{ id: 'task-1', status: 'deal', sourceType: 'QUERY', createdAt: '2026-04-05T10:00:00.000Z' }],
+            'biz-1': [{ id: 'task-1', status: 'deal', sourceType: 'OLD_QUERY', createdAt: '2026-04-05T10:00:00.000Z' }],
         };
 
         const result = controller._matchesTargetAudienceFilters(biz, {
@@ -118,7 +118,7 @@ describe('ProjectController target audience filters', () => {
             document,
             AppState: {
                 tasks: [
-                    { id: 'task-1', projectId: 'proj_1', assignee: 'TARGET_POOL', sourceType: 'QUERY' },
+                    { id: 'task-1', projectId: 'proj_1', assignee: 'TARGET_POOL', sourceType: 'OLD_QUERY' },
                     { id: 'task-2', projectId: 'proj_1', assignee: 'TARGET_POOL', sourceType: 'OLD' },
                 ],
             },
@@ -368,10 +368,10 @@ describe('ProjectController.generateStrategicList', () => {
                 companyName: 'Demo',
                 mainCategory: 'Ana',
                 subCategory: 'Alt',
-                sourceType: 'QUERY',
+                sourceType: 'OLD_QUERY',
                 latestTask: {
                     id: 'task_1',
-                    sourceType: 'QUERY',
+                    sourceType: 'OLD_QUERY',
                     mainCategory: 'Ana',
                     subCategory: 'Alt',
                 },
@@ -408,7 +408,7 @@ describe('ProjectController.generateStrategicList', () => {
         const [, taskRequest] = apiRequest.mock.calls[1];
         expect(JSON.parse(taskRequest.body)).toEqual(expect.objectContaining({
             accountId: 'biz_1',
-            source: 'QUERY',
+            source: 'OLD_QUERY',
         }));
     });
 });

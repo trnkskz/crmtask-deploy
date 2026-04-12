@@ -41,8 +41,8 @@ export class CreateTaskDto {
   @IsIn(['REQUEST_FLOW', 'MANUAL_TASK_CREATE', 'PROJECT_GENERATED', 'UNKNOWN'])
   creationChannel?: 'REQUEST_FLOW' | 'MANUAL_TASK_CREATE' | 'PROJECT_GENERATED' | 'UNKNOWN'
 
-  @IsIn(['QUERY','FRESH','RAKIP','OLD_RAKIP','REFERANS','OLD'])
-  source!: 'QUERY' | 'FRESH' | 'RAKIP' | 'OLD_RAKIP' | 'REFERANS' | 'OLD'
+  @IsIn(['QUERY','FRESH','RAKIP','OLD_RAKIP','REFERANS','OLD','OLD_QUERY','LEAD'])
+  source!: 'QUERY' | 'FRESH' | 'RAKIP' | 'OLD_RAKIP' | 'REFERANS' | 'OLD' | 'OLD_QUERY' | 'LEAD'
 
   @IsString()
   mainCategory!: string

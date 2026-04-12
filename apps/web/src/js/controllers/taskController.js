@@ -559,13 +559,16 @@ const TaskController = (() => {
     }
 
     function getTaskReportSourceLabel(sourceKey) {
+        if (typeof getTaskSourceLabel === 'function') return getTaskSourceLabel(sourceKey || '');
         if (typeof apiSourceToUi === 'function') return apiSourceToUi(sourceKey || '');
         const raw = String(sourceKey || '').trim().toUpperCase();
         if (!raw) return '-';
         if (raw === 'OLD_RAKIP') return 'Old Account Rakip';
+        if (raw === 'OLD_QUERY') return 'Old Account Query';
+        if (raw === 'QUERY') return 'Query';
+        if (raw === 'LEAD') return 'Lead';
         if (raw === 'RAKIP') return 'Rakip';
         if (raw === 'REFERANS') return 'Referans';
-        if (raw === 'QUERY') return 'Old Account Query';
         if (raw === 'OLD') return 'Old Account';
         if (raw === 'FRESH') return 'Fresh Account';
         return String(sourceKey || '-');
@@ -823,7 +826,7 @@ const TaskController = (() => {
                 <td>${escapeHtml(row.mainCategory || '-')}</td>
                 <td>${escapeHtml(row.subCategory || '-')}</td>
                 <td><strong>${escapeHtml(row.assignee || '-')}</strong><br><span style="font-size:11px; color:#64748b;">Oluşturan: ${escapeHtml(row.createdByName || 'Sistem')}</span></td>
-                <td><span class="modern-badge" style="background:#f8fafc; color:#0f172a; border:1px solid #cbd5e1;">${escapeHtml(TASK_STATUS_LABELS[String(row.statusKey || '').toLowerCase()] || row.statusKey || '-')}</span></td>
+                <td><span class="modern-badge" style="background:#f8fafc; color:#0f172a; border:1px solid #cbd5e1;">${escapeHtml(typeof getTaskStatusLabel === 'function' ? getTaskStatusLabel(row.statusKey || '') : (TASK_STATUS_LABELS[String(row.statusKey || '').toLowerCase()] || row.statusKey || '-'))}</span></td>
                 <td>${escapeHtml(row.city || '-')}<br><span style="font-size:11px; color:#64748b;">${escapeHtml(row.district || '-')}</span></td>
                 <td><span style="font-size:11px; color:#64748b;">${escapeHtml(row.lastActionDate || '-')}</span></td>
             </tr>
@@ -870,7 +873,7 @@ const TaskController = (() => {
                 alt_kategori: row.subCategory || '',
                 sorumlu: row.assignee || '',
                 olusturan: row.createdByName || 'Sistem',
-                durum: TASK_STATUS_LABELS[String(row.statusKey || '').toLowerCase()] || row.statusKey || '',
+                durum: typeof getTaskStatusLabel === 'function' ? getTaskStatusLabel(row.statusKey || '') : (TASK_STATUS_LABELS[String(row.statusKey || '').toLowerCase()] || row.statusKey || ''),
                 son_islem_tarihi: row.lastActionDate || '',
                 atil_mi: row.isIdle ? 'Evet' : 'Hayır',
                 gorev_notu: row.logContent || '',

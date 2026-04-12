@@ -83,4 +83,10 @@ describe('source normalization helpers', () => {
         expect(normalizeTaskSourceKey('Rakip')).toBe('RAKIP');
         expect(normalizeTaskSourceKey('Old Account')).toBe('OLD');
     });
+
+    it('keeps Old Account Query, Query and Lead distinct', () => {
+        expect(normalizeTaskSourceKey('Old Account Query')).toBe('OLD_QUERY');
+        expect(normalizeTaskSourceKey('Query')).toBe('QUERY');
+        expect(normalizeTaskSourceKey('Lead')).toBe('LEAD');
+    });
 });

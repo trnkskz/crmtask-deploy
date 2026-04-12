@@ -35,7 +35,7 @@ export class LovService {
       TaskType: ['GENERAL','PROJECT'],
       TaskPriority: ['LOW','MEDIUM','HIGH','CRITICAL'],
       AccountType: ['KEY','LONG_TAIL'],
-      AccountSource: ['QUERY','FRESH','RAKIP','OLD_RAKIP','REFERANS','OLD'],
+      AccountSource: ['QUERY','FRESH','RAKIP','OLD_RAKIP','REFERANS','OLD','OLD_QUERY','LEAD'],
       AccountStatus: ['ACTIVE','PASSIVE'],
       TaskStatus: ['NEW','HOT','NOT_HOT','FOLLOWUP','DEAL','COLD'],
       GeneralStatus: ['OPEN','CLOSED']

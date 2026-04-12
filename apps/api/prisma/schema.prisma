@@ -433,6 +433,8 @@ enum AccountSource {
   OLD_RAKIP
   REFERANS
   OLD
+  OLD_QUERY
+  LEAD
 }
 
 enum ContactType {

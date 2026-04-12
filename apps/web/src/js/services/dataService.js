@@ -823,24 +823,34 @@ const DataService = (() => {
     }
 
     function toApiSourceType(value) {
+        if (typeof normalizeTaskSourceKey === 'function') {
+            return normalizeTaskSourceKey(value) || 'FRESH';
+        }
         const raw = String(value || '').trim().toUpperCase();
         if (!raw) return 'FRESH';
         if (raw.includes('OLD ACCOUNT RAKIP') || raw.includes('OLD_RAKIP')) return 'OLD_RAKIP';
+        if (raw.includes('OLD ACCOUNT QUERY') || raw.includes('OLD_QUERY')) return 'OLD_QUERY';
+        if (raw === 'QUERY' || raw.startsWith('QUERY ') || raw.includes(' QUERY')) return 'QUERY';
+        if (raw.includes('LEAD')) return 'LEAD';
         if (raw.includes('RAKIP')) return 'RAKIP';
         if (raw.includes('REFERANS')) return 'REFERANS';
-        if (raw.includes('OLD ACCOUNT QUERY') || raw === 'QUERY' || raw.includes('LEAD')) return 'QUERY';
         if (raw.includes('OLD')) return 'OLD';
         if (raw.includes('FRESH')) return 'FRESH';
         return 'FRESH';
     }
 
     function apiSourceToUi(value) {
+        if (typeof getTaskSourceLabel === 'function') {
+            return getTaskSourceLabel(value || '');
+        }
         const raw = String(value || '').trim().toUpperCase();
         if (!raw) return 'Fresh Account';
         if (raw === 'OLD_RAKIP') return 'Old Account Rakip';
+        if (raw === 'OLD_QUERY') return 'Old Account Query';
+        if (raw === 'QUERY') return 'Query';
+        if (raw === 'LEAD') return 'Lead';
         if (raw === 'RAKIP') return 'Rakip';
         if (raw === 'REFERANS') return 'Referans';
-        if (raw === 'QUERY') return 'Old Account Query';
         if (raw === 'OLD') return 'Old Account';
         if (raw === 'FRESH') return 'Fresh Account';
         return String(value || '');

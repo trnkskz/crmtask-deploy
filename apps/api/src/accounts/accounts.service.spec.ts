@@ -972,7 +972,7 @@ describe('AccountsService.targetPreview', () => {
         tasks: [
           {
             id: 'task_old',
-            source: 'QUERY',
+            source: 'OLD_QUERY',
             mainCategory: 'İftar (Core)',
             subCategory: 'Restoranda İftar',
             status: 'deal',
@@ -1001,7 +1001,7 @@ describe('AccountsService.targetPreview', () => {
         sourceType: 'OLD',
         latestTask: expect.objectContaining({
           id: 'task_old',
-          sourceType: 'QUERY',
+          sourceType: 'OLD_QUERY',
         }),
       }),
     )

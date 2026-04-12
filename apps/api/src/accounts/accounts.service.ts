@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../infrastructure/prisma/prisma.service'
 import { AccountListQueryDto, AccountTargetPreviewDto, CreateAccountDto, SortOption, UpdateAccountDto } from './dto/account.dto'
 import { Prisma } from '@prisma/client'
+import { normalizeAccountSource } from '../common/source-type'
 
 @Injectable()
 export class AccountsService {
@@ -333,15 +334,8 @@ export class AccountsService {
   }
 
   private normalizeTargetPreviewSource(value: unknown) {
-    const raw = String(value || '').trim().toUpperCase()
-    if (!raw) return ''
-    if (raw.includes('OLD ACCOUNT RAKIP') || raw.includes('OLD_RAKIP')) return 'OLD_RAKIP'
-    if (raw.includes('RAKIP')) return 'RAKIP'
-    if (raw.includes('REFERANS')) return 'REFERANS'
-    if (raw.includes('OLD ACCOUNT QUERY') || raw === 'QUERY' || raw.includes('LEAD')) return 'QUERY'
-    if (raw.includes('OLD')) return 'OLD'
-    if (raw.includes('FRESH')) return 'FRESH'
-    return raw
+    if (!String(value || '').trim()) return ''
+    return normalizeAccountSource(value)
   }
 
   private normalizeTargetPreviewMonth(value: unknown) {
@@ -544,7 +538,7 @@ export class AccountsService {
     const where: any = {}
     const sourceValues = String(q.sourceType || '')
       .split(',')
-      .map((value) => String(value || '').trim())
+      .map((value) => normalizeAccountSource(value))
       .filter(Boolean)
 
     if (q.q) {
@@ -788,16 +782,7 @@ export class AccountsService {
       }
     }
 
-    let rawSource = (body.sourceType || body.source || '').toLowerCase()
-    let mappedSource = 'FRESH'
-    if (rawSource.includes('old account rakip')) mappedSource = 'OLD_RAKIP'
-    else if (rawSource.includes('old account query')) mappedSource = 'QUERY'
-    else if (rawSource.includes('old account')) mappedSource = 'OLD'
-    else if (rawSource.includes('query')) mappedSource = 'QUERY'
-    else if (rawSource.includes('lead')) mappedSource = 'FRESH'
-    else if (rawSource.includes('rakip')) mappedSource = 'RAKIP'
-    else if (rawSource.includes('referans')) mappedSource = 'REFERANS'
-    else mappedSource = (body.sourceType || body.source || 'FRESH')
+    const mappedSource = normalizeAccountSource(body.sourceType || body.source || 'FRESH')
 
     const primaryPhones = this.splitContactValues(body.contactPhone || body.businessContact, 'phone')
     const primaryNames = this.splitContactValues(body.contactPerson || body.contactName, 'name')
@@ -1678,14 +1663,7 @@ export class AccountsService {
 
       const { actualMainCatKey, finalSubCat } = this.resolveImportedCategories(row.mainCategory || '', row.subCategory || '', cleanCompanyName)
 
-      let rawSource = (row.sourceType || '').trim().toLowerCase();
-      let mappedSource = 'FRESH';
-      if (rawSource.includes('old account rakip')) mappedSource = 'OLD_RAKIP';
-      else if (rawSource.includes('old account query')) mappedSource = 'QUERY';
-      else if (rawSource.includes('old account')) mappedSource = 'OLD';
-      else if (rawSource.includes('query')) mappedSource = 'QUERY';
-      else if (rawSource.includes('lead')) mappedSource = 'FRESH'; 
-      else if (rawSource.includes('rakip')) mappedSource = 'RAKIP';
+      const mappedSource = normalizeAccountSource(row.sourceType || 'FRESH');
 
       let taskCatEnum = 'ISTANBUL_CORE';
       let rawTaskCat = String(row.taskCategory || '').toUpperCase();

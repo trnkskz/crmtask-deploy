@@ -118,13 +118,15 @@ const ProjectController = {
     },
 
     _mapUiSourceToApi(value) {
+        if (typeof normalizeTaskSourceKey === 'function') return normalizeTaskSourceKey(value) || 'FRESH';
         const raw = String(value || '').trim().toLowerCase();
         if (raw.includes('old account rakip')) return 'OLD_RAKIP';
-        if (raw.includes('old account query') || raw === 'query') return 'QUERY';
+        if (raw.includes('old account query')) return 'OLD_QUERY';
+        if (raw === 'query' || raw.includes(' query')) return 'QUERY';
         if (raw.includes('rakip')) return 'RAKIP';
         if (raw.includes('referans')) return 'REFERANS';
         if (raw.includes('old account')) return 'OLD';
-        if (raw.includes('lead')) return 'FRESH';
+        if (raw.includes('lead')) return 'LEAD';
         return 'FRESH';
     },
 
@@ -136,12 +138,15 @@ const ProjectController = {
     },
 
     _normalizeSourceKey(value) {
+        if (typeof normalizeTaskSourceKey === 'function') return normalizeTaskSourceKey(value);
         const raw = String(value || '').trim().toUpperCase();
         if (!raw) return '';
         if (raw.includes('OLD ACCOUNT RAKIP') || raw.includes('OLD_RAKIP')) return 'OLD_RAKIP';
+        if (raw.includes('OLD ACCOUNT QUERY') || raw.includes('OLD_QUERY')) return 'OLD_QUERY';
+        if (raw === 'QUERY' || raw.startsWith('QUERY ') || raw.includes(' QUERY')) return 'QUERY';
+        if (raw.includes('LEAD')) return 'LEAD';
         if (raw.includes('RAKIP')) return 'RAKIP';
         if (raw.includes('REFERANS')) return 'REFERANS';
-        if (raw.includes('OLD ACCOUNT QUERY') || raw === 'QUERY' || raw.includes('LEAD')) return 'QUERY';
         if (raw.includes('OLD')) return 'OLD';
         if (raw.includes('FRESH')) return 'FRESH';
         return raw;
@@ -817,7 +822,7 @@ const ProjectController = {
                 const bId = bizObj.id;
                 const bizTask = bizObj.latestTask || null;
                 const rawSrc = bizTask ? (bizTask.sourceType || bizTask.source || 'OLD') : (bizObj.sourceType || bizObj.source || 'OLD');
-                const srcEnum = ({'Fresh Account':'FRESH','Old Account':'OLD','Old Account Rakip':'OLD_RAKIP','Old Account Query':'QUERY','Query':'QUERY','Lead':'FRESH','Rakip':'RAKIP','Referans':'REFERANS'}[rawSrc]) || (['QUERY','FRESH','RAKIP','OLD_RAKIP','REFERANS','OLD'].includes(rawSrc) ? rawSrc : 'OLD');
+                const srcEnum = this._normalizeSourceKey(rawSrc || 'OLD') || 'OLD';
                 const taskPayload = {
                     projectId: newProjectId,
                     accountId: bId,
@@ -1545,7 +1550,7 @@ const ProjectController = {
                 const bizObj = AppState.businesses.find(x => x.id === bId) || {};
                 const bizTask = oldTasks.find((task) => task.businessId === bId) || null;
                 const rawSrc2 = bizTask ? (bizTask.sourceKey || bizTask.sourceType || bizTask.source || 'OLD') : (bizObj.sourceType || bizObj.source || 'OLD');
-                const srcEnum2 = ({'Fresh Account':'FRESH','Old Account':'OLD','Old Account Rakip':'OLD_RAKIP','Old Account Query':'QUERY','Query':'QUERY','Lead':'FRESH','Rakip':'RAKIP','Referans':'REFERANS'}[rawSrc2]) || (['QUERY','FRESH','RAKIP','OLD_RAKIP','REFERANS','OLD'].includes(rawSrc2) ? rawSrc2 : 'OLD');
+                const srcEnum2 = this._normalizeSourceKey(rawSrc2 || 'OLD') || 'OLD';
                 const actorName = AppState.loggedInUser?.name || 'Sistem';
                 const taskPayload = {
                     projectId: newProjectId,

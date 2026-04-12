@@ -178,8 +178,8 @@ export class CreateAccountDto {
   businessStatus?: 'ACTIVE' | 'PASSIVE'
 
   @IsOptional()
-  @IsIn(['QUERY', 'FRESH', 'RAKIP', 'OLD_RAKIP', 'REFERANS', 'OLD'])
-  sourceType?: 'QUERY' | 'FRESH' | 'RAKIP' | 'OLD_RAKIP' | 'REFERANS' | 'OLD'
+  @IsIn(['QUERY', 'FRESH', 'RAKIP', 'OLD_RAKIP', 'REFERANS', 'OLD', 'OLD_QUERY', 'LEAD'])
+  sourceType?: 'QUERY' | 'FRESH' | 'RAKIP' | 'OLD_RAKIP' | 'REFERANS' | 'OLD' | 'OLD_QUERY' | 'LEAD'
 
   @IsOptional()
   @IsIn(['KEY', 'LONG_TAIL'])
@@ -195,8 +195,8 @@ export class CreateAccountDto {
   category?: string
 
   @IsOptional()
-  @IsIn(['QUERY', 'FRESH', 'RAKIP', 'OLD_RAKIP', 'REFERANS', 'OLD'])
-  source?: 'QUERY' | 'FRESH' | 'RAKIP' | 'OLD_RAKIP' | 'REFERANS' | 'OLD'
+  @IsIn(['QUERY', 'FRESH', 'RAKIP', 'OLD_RAKIP', 'REFERANS', 'OLD', 'OLD_QUERY', 'LEAD'])
+  source?: 'QUERY' | 'FRESH' | 'RAKIP' | 'OLD_RAKIP' | 'REFERANS' | 'OLD' | 'OLD_QUERY' | 'LEAD'
 
   @IsOptional()
   @IsIn(['KEY', 'LONG_TAIL'])
@@ -283,8 +283,8 @@ export class UpdateAccountDto {
   businessStatus?: 'ACTIVE' | 'PASSIVE'
 
   @IsOptional()
-  @IsIn(['QUERY', 'FRESH', 'RAKIP', 'OLD_RAKIP', 'REFERANS', 'OLD'])
-  sourceType?: 'QUERY' | 'FRESH' | 'RAKIP' | 'OLD_RAKIP' | 'REFERANS' | 'OLD'
+  @IsIn(['QUERY', 'FRESH', 'RAKIP', 'OLD_RAKIP', 'REFERANS', 'OLD', 'OLD_QUERY', 'LEAD'])
+  sourceType?: 'QUERY' | 'FRESH' | 'RAKIP' | 'OLD_RAKIP' | 'REFERANS' | 'OLD' | 'OLD_QUERY' | 'LEAD'
 
   @IsOptional()
   @IsIn(['KEY', 'LONG_TAIL'])
@@ -304,8 +304,8 @@ export class UpdateAccountDto {
   category?: string
 
   @IsOptional()
-  @IsIn(['QUERY', 'FRESH', 'RAKIP', 'OLD_RAKIP', 'REFERANS', 'OLD'])
-  source?: 'QUERY' | 'FRESH' | 'RAKIP' | 'OLD_RAKIP' | 'REFERANS' | 'OLD'
+  @IsIn(['QUERY', 'FRESH', 'RAKIP', 'OLD_RAKIP', 'REFERANS', 'OLD', 'OLD_QUERY', 'LEAD'])
+  source?: 'QUERY' | 'FRESH' | 'RAKIP' | 'OLD_RAKIP' | 'REFERANS' | 'OLD' | 'OLD_QUERY' | 'LEAD'
 
   @IsOptional()
   @IsIn(['KEY', 'LONG_TAIL'])

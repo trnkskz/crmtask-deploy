@@ -370,7 +370,7 @@ describe('ReportController.renderReports', () => {
         expect(elements.reportsTbody.innerHTML).toContain('06.04.2026');
     });
 
-    it('normalizes source filters so Old Account Query and Lead records are not dropped', () => {
+    it('keeps Old Account Query filter distinct from Query and Lead records', () => {
         const filteredStore = { reports: [] };
         const elements = {
             repFilterAssignee: createElement({ value: '' }),
@@ -416,18 +416,38 @@ describe('ReportController.renderReports', () => {
                 businessId: 'biz-1',
                 status: 'new',
                 assignee: 'Ayse',
-                sourceType: 'Lead',
+                sourceType: 'Old Account Query',
                 createdAt: '2026-04-06T10:00:00.000Z',
                 offers: [],
                 logs: [],
             },
             {
-                id: 'task-old',
+                id: 'task-query-real',
                 businessId: 'biz-2',
                 status: 'new',
                 assignee: 'Ayse',
-                sourceType: 'Old Account',
+                sourceType: 'Query',
                 createdAt: '2026-04-05T10:00:00.000Z',
+                offers: [],
+                logs: [],
+            },
+            {
+                id: 'task-lead',
+                businessId: 'biz-3',
+                status: 'new',
+                assignee: 'Ayse',
+                sourceType: 'Lead',
+                createdAt: '2026-04-04T10:00:00.000Z',
+                offers: [],
+                logs: [],
+            },
+            {
+                id: 'task-old',
+                businessId: 'biz-4',
+                status: 'new',
+                assignee: 'Ayse',
+                sourceType: 'Old Account',
+                createdAt: '2026-04-03T10:00:00.000Z',
                 offers: [],
                 logs: [],
             },
@@ -444,15 +464,19 @@ describe('ReportController.renderReports', () => {
                 setFiltered: jest.fn((key, value) => { filteredStore[key] = value; }),
                 setPage: jest.fn(),
                 getBizMap: () => new Map([
-                    ['biz-1', { companyName: 'Acme Query' }],
-                    ['biz-2', { companyName: 'Acme Old' }],
+                    ['biz-1', { companyName: 'Acme Old Query' }],
+                    ['biz-2', { companyName: 'Acme Query' }],
+                    ['biz-3', { companyName: 'Acme Lead' }],
+                    ['biz-4', { companyName: 'Acme Old' }],
                 ]),
             },
             matchesAssigneeFilter: () => true,
             matchesCategoryFilter: () => true,
             normalizeTaskSourceKey: (value) => {
                 const raw = String(value || '').trim().toUpperCase();
-                if (raw.includes('OLD ACCOUNT QUERY') || raw === 'QUERY' || raw.includes('LEAD')) return 'QUERY';
+                if (raw.includes('OLD ACCOUNT QUERY') || raw.includes('OLD_QUERY')) return 'OLD_QUERY';
+                if (raw === 'QUERY') return 'QUERY';
+                if (raw.includes('LEAD')) return 'LEAD';
                 if (raw.includes('OLD')) return 'OLD';
                 return raw;
             },
@@ -466,7 +490,9 @@ describe('ReportController.renderReports', () => {
         controller.renderReports(true);
 
         expect(elements.repMetricValue1.innerText).toBe(1);
-        expect(elements.reportsTbody.innerHTML).toContain('Acme Query');
+        expect(elements.reportsTbody.innerHTML).toContain('Acme Old Query');
+        expect(elements.reportsTbody.innerHTML).not.toContain('Acme Query');
+        expect(elements.reportsTbody.innerHTML).not.toContain('Acme Lead');
         expect(elements.reportsTbody.innerHTML).not.toContain('Acme Old');
     });
 });

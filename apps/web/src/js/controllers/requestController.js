@@ -3,13 +3,15 @@ const RequestController = (() => {
     let workspaceState = loadWorkspaceState();
 
     function mapUiSourceToApi(value) {
+        if (typeof normalizeTaskSourceKey === 'function') return normalizeTaskSourceKey(value) || 'FRESH';
         const raw = String(value || '').trim().toLowerCase();
         if (raw.includes('old account rakip')) return 'OLD_RAKIP';
-        if (raw.includes('old account query') || raw === 'query') return 'QUERY';
+        if (raw.includes('old account query')) return 'OLD_QUERY';
+        if (raw === 'query' || raw.includes(' query')) return 'QUERY';
+        if (raw.includes('lead')) return 'LEAD';
         if (raw.includes('rakip')) return 'RAKIP';
         if (raw.includes('referans')) return 'REFERANS';
         if (raw.includes('old account')) return 'OLD';
-        if (raw.includes('lead')) return 'FRESH';
         return 'FRESH';
     }
 

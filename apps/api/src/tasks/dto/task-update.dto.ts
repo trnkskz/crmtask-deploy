@@ -9,7 +9,7 @@ export class UpdateTaskDto {
   @IsOptional() @IsIn(['GENERAL','PROJECT']) type?: any
   @IsOptional() @IsIn(['LOW','MEDIUM','HIGH','CRITICAL']) priority?: any
   @IsOptional() @IsIn(['KEY','LONG_TAIL']) accountType?: any
-  @IsOptional() @IsIn(['QUERY','FRESH','RAKIP','OLD_RAKIP','REFERANS','OLD']) source?: any
+  @IsOptional() @IsIn(['QUERY','FRESH','RAKIP','OLD_RAKIP','REFERANS','OLD','OLD_QUERY','LEAD']) source?: any
   @IsOptional() @IsString() mainCategory?: string
   @IsOptional() @IsString() subCategory?: string
   @IsOptional() @IsString() city?: string

@@ -119,12 +119,15 @@ const BusinessController = {
     },
 
     _normalizeSourceKey(value) {
+        if (typeof normalizeTaskSourceKey === 'function') return normalizeTaskSourceKey(value);
         const raw = String(value || '').trim().toUpperCase();
         if (!raw) return '';
         if (raw.includes('OLD ACCOUNT RAKIP') || raw.includes('OLD_RAKIP')) return 'OLD_RAKIP';
+        if (raw.includes('OLD ACCOUNT QUERY') || raw.includes('OLD_QUERY')) return 'OLD_QUERY';
+        if (raw === 'QUERY' || raw.startsWith('QUERY ') || raw.includes(' QUERY')) return 'QUERY';
+        if (raw.includes('LEAD')) return 'LEAD';
         if (raw.includes('RAKIP')) return 'RAKIP';
         if (raw.includes('REFERANS')) return 'REFERANS';
-        if (raw.includes('OLD ACCOUNT QUERY') || raw === 'QUERY' || raw.includes('LEAD')) return 'QUERY';
         if (raw.includes('OLD')) return 'OLD';
         if (raw.includes('FRESH')) return 'FRESH';
         return raw;
@@ -310,7 +313,9 @@ const BusinessController = {
             sourceType: row.source || '-',
             sourceKey: row.source || '-',
             status: row.status || '',
-            statusKey: String(row.status || '').toLowerCase(),
+            statusKey: typeof normalizeTaskStatusKey === 'function'
+                ? normalizeTaskStatusKey(row.status || '')
+                : String(row.status || '').toLowerCase(),
             statusLabel: row.status || '',
             generalStatus: row.generalStatus || '',
             closedAt: row.closedAt || null,
@@ -859,8 +864,12 @@ const BusinessController = {
         tbody.innerHTML = paginated.map((t) => {
             const createdAt = t.createdAt || t.creationDate || '';
             const assignee = t.assignee || t.historicalAssignee || t.owner?.name || t.owner?.email || 'Havuz';
-            const statusKey = String(t.statusKey || t.status || '').toLowerCase();
-            const sourceLabel = t.sourceType || t.sourceKey || '-';
+            const statusKey = typeof normalizeTaskStatusKey === 'function'
+                ? normalizeTaskStatusKey(t.statusKey || t.status || '')
+                : String(t.statusKey || t.status || '').toLowerCase();
+            const sourceLabel = typeof getTaskSourceLabel === 'function'
+                ? getTaskSourceLabel(t.sourceType || t.sourceKey || '')
+                : (t.sourceType || t.sourceKey || '-');
             return `<tr><td>${createdAt ? formatDate(createdAt).split(' ')[0] : '-'}</td><td><span class="clickable-badge" onclick="openUserProfileModal('${assignee}')">${assignee}</span></td><td><span style="font-size:11px; color:#64748b;">${t.mainCategory || '-'}<br>${t.subCategory || '-'}</span></td><td><span class="badge badge-source">${sourceLabel}</span></td><td><strong>${statusLabels[statusKey] || t.statusLabel || t.status || '-'}</strong></td><td><button class="btn-action" onclick="openTaskModal('${t.id}')" style="padding: 4px 8px; font-size:11px; cursor:pointer;">Detay</button></td></tr>`;
         }).join('');
 
@@ -1250,10 +1259,8 @@ const BusinessController = {
         if (taskCat === 'Anadolu Core') payload.category = 'ANADOLU_CORE';
         if (taskCat === 'Travel') payload.category = 'TRAVEL';
 
-        const srcUpper = (taskSourceType || '').toUpperCase().replace(/ /g, '_');
-        if (['QUERY','FRESH','RAKIP','OLD_RAKIP','REFERANS','OLD'].includes(srcUpper)) payload.source = srcUpper;
-        else if (srcUpper === 'OLD_ACCOUNT_RAKIP') payload.source = 'OLD_RAKIP';
-        else if (srcUpper === 'OLD_ACCOUNT' || srcUpper === 'OLD_ACCOUNT_QUERY') payload.source = 'OLD';
+        const normalizedSource = this._normalizeSourceKey(taskSourceType || 'FRESH');
+        if (normalizedSource) payload.source = normalizedSource;
 
         if (newContactObj) payload.newContact = newContactObj;
         if (isCampaignUrlRequiredSource(taskSourceType)) payload.campaignUrl = campaignUrl || undefined;

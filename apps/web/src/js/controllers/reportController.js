@@ -183,25 +183,19 @@ const ReportController = (() => {
     }
 
     function formatTaskReportRow(row) {
-        const sourceMap = {
-            FRESH: 'Fresh Account',
-            OLD: 'Old Account',
-            QUERY: 'Old Account Query',
-            RAKIP: 'Rakip',
-            OLD_RAKIP: 'Old Account Rakip',
-            REFERANS: 'Referans',
-        };
         return {
             id: row.id,
             businessId: row.businessId || '',
-            statusKey: String(row.statusKey || '').toLowerCase(),
+            statusKey: typeof normalizeTaskStatusKey === 'function'
+                ? normalizeTaskStatusKey(row.statusKey || '')
+                : String(row.statusKey || '').toLowerCase(),
             createdAt: row.createdAt ? formatDate(row.createdAt).split(' ')[0] : '-',
             businessName: row.businessName || '-',
             city: row.city || '-',
             district: row.district || '-',
             assignee: row.assignee || '-',
-            statusLabel: getStatusLabel(row.statusKey),
-            sourceLabel: sourceMap[String(row.sourceKey || '').toUpperCase()] || row.sourceKey || '-',
+            statusLabel: typeof getTaskStatusLabel === 'function' ? getTaskStatusLabel(row.statusKey || '') : getStatusLabel(row.statusKey),
+            sourceLabel: typeof getTaskSourceLabel === 'function' ? getTaskSourceLabel(row.sourceKey || '') : (row.sourceKey || '-'),
             mainCategory: row.mainCategory || '-',
             subCategory: row.subCategory || '-',
             publishedFeeText: row.publishedFeeText || '-',
