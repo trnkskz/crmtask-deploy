@@ -563,7 +563,7 @@ const AppController = (() => {
         if (!activePage) return;
 
         const refreshMap = {
-            'page-dashboard': () => DashboardController.render(),
+            'page-dashboard': () => DashboardController.render(false, { silent }),
             'page-task-list': () => PoolController.switchTab(AppState.currentPoolTab, { preserveState: true }),
             'page-my-tasks': () => TaskController.renderMyTasks({ silent }),
             'page-all-tasks': () => TaskController.renderAllTasks({ silent }),
@@ -572,7 +572,7 @@ const AppController = (() => {
             'page-reports': () => ReportController.renderReports(false, { silent }),
             'page-admin': () => AdminController.refreshActiveTab(),
             'page-pricing': () => renderPricingPage(),
-            'page-operations-radar': () => renderOperationsRadarPage(),
+            'page-operations-radar': () => renderOperationsRadarPage({ silent }),
         };
 
         const fn = refreshMap[activePage.id];

@@ -143,10 +143,10 @@ const OperationsRadarController = (() => {
         `).join('');
     }
 
-    async function load() {
+    async function load(options = {}) {
         const requestId = ++latestRequestId;
         const container = document.getElementById('operationsRadarResults');
-        if (container) container.innerHTML = '<div class="operations-radar-empty">Yükleniyor...</div>';
+        if (container && !options.silent) container.innerHTML = '<div class="operations-radar-empty">Yükleniyor...</div>';
         try {
             const data = await DataService.apiRequest(`/reports/operations-radar?${buildQuery()}`);
             if (requestId !== latestRequestId) return;
@@ -175,16 +175,18 @@ const OperationsRadarController = (() => {
         load();
     }
 
-    function render() {
+    function render(options = {}) {
         const dateInput = document.getElementById('operationsRadarDate');
         if (dateInput && !dateInput.value) {
             dateInput.value = new Date().toISOString().slice(0, 10);
             currentState.date = dateInput.value;
         }
-        populateFilters();
+        if (!options.silent) {
+            populateFilters();
+        }
         bindStateFromDom();
         syncVisibility();
-        load();
+        load(options);
     }
 
     return {

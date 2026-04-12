@@ -102,15 +102,15 @@ const DashboardController = {
         metricIds.forEach((id) => this._setMetric(id, '-'));
     },
 
-    render(force = false) {
+    render(force = false, options = {}) {
         if (!AppState.loggedInUser) return;
         const currentMonth = new Date().getMonth();
         const currentYear = new Date().getFullYear();
 
         if (AppState.loggedInUser.role === 'Yönetici' || AppState.loggedInUser.role === 'Takım Lideri') {
-            this._renderManagerDashboard(currentMonth, currentYear, force);
+            this._renderManagerDashboard(currentMonth, currentYear, force, options);
         } else {
-            this._renderUserDashboard(currentMonth, currentYear, force);
+            this._renderUserDashboard(currentMonth, currentYear, force, options);
         }
     },
 
@@ -195,7 +195,7 @@ const DashboardController = {
         }
     },
 
-    async _renderManagerDashboard(currentMonth, currentYear, force = false) {
+    async _renderManagerDashboard(currentMonth, currentYear, force = false, options = {}) {
         const uDash = document.getElementById('userDashboardSection');
         const mDash = document.getElementById('managerDashboardSection');
         if (uDash) uDash.style.display = 'none';
@@ -207,17 +207,19 @@ const DashboardController = {
         const greeting = hour < 12 ? '☀️ Günaydın' : (hour < 18 ? '👋 İyi Günler' : '🌙 İyi Akşamlar');
         const titleRole = isTeamLeader ? `Takım Lideri (${currentUser.team})` : 'Yönetici';
 
-        this._setMetric('mgrHeroGreeting', `${greeting} ${titleRole}, ${currentUser.name}`);
-        this._setMetric('mgrHeroDate', new Date().toLocaleDateString('tr-TR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }));
-        this._setMetric('mgrTotalActive', '...');
-        this._setMetric('mgrTotalDeal', '...');
-        this._setMetric('mgrDealRatio', '...');
-        this._setMetric('mgrDashNew', '...');
-        this._setMetric('mgrDashHot', '...');
-        this._setMetric('mgrDashNotHot', '...');
-        this._setMetric('mgrDashFollowup', '...');
+        if (!options.silent) {
+            this._setMetric('mgrHeroGreeting', `${greeting} ${titleRole}, ${currentUser.name}`);
+            this._setMetric('mgrHeroDate', new Date().toLocaleDateString('tr-TR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }));
+            this._setMetric('mgrTotalActive', '...');
+            this._setMetric('mgrTotalDeal', '...');
+            this._setMetric('mgrDealRatio', '...');
+            this._setMetric('mgrDashNew', '...');
+            this._setMetric('mgrDashHot', '...');
+            this._setMetric('mgrDashNotHot', '...');
+            this._setMetric('mgrDashFollowup', '...');
+        }
 
-        this._renderPerformanceGrid(currentMonth, currentYear, force);
+        this._renderPerformanceGrid(currentMonth, currentYear, force, options);
 
         const requestId = ++this._dashboardSnapshotRequestId;
         try {
@@ -263,7 +265,7 @@ const DashboardController = {
             ]);
         }
 
-        this._renderLiveFeed();
+        this._renderLiveFeed(options);
     },
 
     _renderManagerDashboardFallback(currentMonth, currentYear) {
@@ -287,7 +289,7 @@ const DashboardController = {
         }
     },
 
-    async _renderPerformanceGrid(currentMonth, currentYear, force = false) {
+    async _renderPerformanceGrid(currentMonth, currentYear, force = false, options = {}) {
         const ptGrid = document.getElementById('mgrPerformanceGrid');
         if (!ptGrid) return;
 
@@ -310,7 +312,8 @@ const DashboardController = {
             if (typeof window.setTeamPulseRecords === 'function') {
                 window.setTeamPulseRecords(cached.records || []);
             }
-        } else {
+            return;
+        } else if (!options.silent) {
             ptGrid.innerHTML = `<div class="no-records-dashboard">Performans verileri yükleniyor...</div>`;
         }
 
@@ -352,10 +355,12 @@ const DashboardController = {
         }
     },
 
-    async _renderLiveFeed() {
+    async _renderLiveFeed(options = {}) {
         const feed = document.getElementById('mgrLiveFeed');
         if (!feed) return;
-        feed.innerHTML = `<div class="no-feed-records" style="text-align:center; padding:40px 20px; color:#94a3b8; font-weight:600; font-size:13px;">Yükleniyor...</div>`;
+        if (!options.silent) {
+            feed.innerHTML = `<div class="no-feed-records" style="text-align:center; padding:40px 20px; color:#94a3b8; font-weight:600; font-size:13px;">Yükleniyor...</div>`;
+        }
 
         const currentUser = AppState.loggedInUser || {};
         const selectedUserId = document.getElementById('mgrRadarUserFilter')?.value || '';
@@ -432,7 +437,7 @@ const DashboardController = {
         feed.innerHTML = feedHtml;
     },
 
-    async _renderUserDashboard(currentMonth, currentYear, force = false) {
+    async _renderUserDashboard(currentMonth, currentYear, force = false, options = {}) {
         const uDash = document.getElementById('userDashboardSection');
         const mDash = document.getElementById('managerDashboardSection');
         if (uDash) uDash.style.display = 'block';
@@ -440,15 +445,18 @@ const DashboardController = {
 
         const hour = new Date().getHours();
         const greeting = hour < 12 ? '☀️ Günaydın' : (hour < 18 ? '👋 İyi Günler' : '🌙 İyi Akşamlar');
-        this._setMetric('userHeroGreeting', `${greeting}, ${AppState.loggedInUser.name}`);
-        this._setMetric('userHeroDate', new Date().toLocaleDateString('tr-TR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }));
-        this._setMetric('dashTotalTasks', '...');
-        this._setMetric('dashMyDealMonthly', '...');
-        this._setMetric('dashMyColdMonthly', '...');
-        this._setMetric('dashNew', '...');
-        this._setMetric('dashHot', '...');
-        this._setMetric('dashNotHot', '...');
-        this._setMetric('dashFollowup', '...');
+        
+        if (!options.silent) {
+            this._setMetric('userHeroGreeting', `${greeting}, ${AppState.loggedInUser.name}`);
+            this._setMetric('userHeroDate', new Date().toLocaleDateString('tr-TR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }));
+            this._setMetric('dashTotalTasks', '...');
+            this._setMetric('dashMyDealMonthly', '...');
+            this._setMetric('dashMyColdMonthly', '...');
+            this._setMetric('dashNew', '...');
+            this._setMetric('dashHot', '...');
+            this._setMetric('dashNotHot', '...');
+            this._setMetric('dashFollowup', '...');
+        }
 
         const requestId = ++this._dashboardSnapshotRequestId;
         try {
