@@ -538,8 +538,9 @@ export class AccountsService {
     const where: any = {}
     const sourceValues = String(q.sourceType || '')
       .split(',')
-      .map((value) => normalizeAccountSource(value))
+      .map((value) => String(value || '').trim())
       .filter(Boolean)
+      .map((value) => normalizeAccountSource(value))
 
     if (q.q) {
       where.OR = [
