@@ -2480,8 +2480,30 @@ const TaskController = (() => {
     async function _refreshBusinessTaskHistory(businessId) {
         if (!businessId || !document.getElementById('bizTaskHistoryBody')) return;
         try {
-            const response = await DataService.apiRequest(`/reports/tasks?businessId=${encodeURIComponent(businessId)}`);
-            window._currentBizTasks = Array.isArray(response) ? response : [];
+            if (typeof BusinessController !== 'undefined' && typeof BusinessController._fetchBusinessTaskHistory === 'function' && typeof BusinessController._mapBusinessTaskRows === 'function') {
+                const response = await BusinessController._fetchBusinessTaskHistory(businessId);
+                window._currentBizTasks = BusinessController._mapBusinessTaskRows(response);
+            } else {
+                const response = await DataService.apiRequest(`/accounts/${encodeURIComponent(businessId)}/task-history`);
+                window._currentBizTasks = Array.isArray(response) ? response.map((row) => ({
+                    id: row.id,
+                    createdAt: row.creationDate || '',
+                    creationDate: row.creationDate || '',
+                    assignee: row.historicalAssignee || row.owner?.name || row.owner?.email || 'Havuz',
+                    historicalAssignee: row.historicalAssignee || '',
+                    owner: row.owner || null,
+                    mainCategory: row.mainCategory || '-',
+                    subCategory: row.subCategory || '-',
+                    sourceType: row.source || '-',
+                    sourceKey: row.source || '-',
+                    status: row.status || '',
+                    statusKey: String(row.status || '').toLowerCase(),
+                    statusLabel: row.status || '',
+                    generalStatus: row.generalStatus || '',
+                    closedAt: row.closedAt || null,
+                    closedReason: row.closedReason || null,
+                })) : [];
+            }
         } catch (error) {
             console.warn('Business task history refresh failed:', error);
             window._currentBizTasks = [];

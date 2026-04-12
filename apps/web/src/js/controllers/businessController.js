@@ -290,16 +290,32 @@ const BusinessController = {
     _bizCurrentPage: 1,
     _globalSelectedBizIds: new Set(),
 
-    async _fetchBusinessTaskRows(bizId) {
-        if (!bizId || typeof DataService?.apiRequest !== 'function') return [];
-        const response = await DataService.apiRequest(`/reports/tasks?businessId=${encodeURIComponent(bizId)}`);
-        return Array.isArray(response) ? response : [];
-    },
-
     async _fetchBusinessTaskHistory(bizId) {
         if (!bizId || typeof DataService?.apiRequest !== 'function') return [];
         const response = await DataService.apiRequest(`/accounts/${encodeURIComponent(bizId)}/task-history`);
         return Array.isArray(response) ? response : [];
+    },
+
+    _mapBusinessTaskRows(historyRows) {
+        const rows = Array.isArray(historyRows) ? historyRows : [];
+        return rows.map((row) => ({
+            id: row.id,
+            createdAt: row.creationDate || '',
+            creationDate: row.creationDate || '',
+            assignee: row.historicalAssignee || row.owner?.name || row.owner?.email || 'Havuz',
+            historicalAssignee: row.historicalAssignee || '',
+            owner: row.owner || null,
+            mainCategory: row.mainCategory || '-',
+            subCategory: row.subCategory || '-',
+            sourceType: row.source || '-',
+            sourceKey: row.source || '-',
+            status: row.status || '',
+            statusKey: String(row.status || '').toLowerCase(),
+            statusLabel: row.status || '',
+            generalStatus: row.generalStatus || '',
+            closedAt: row.closedAt || null,
+            closedReason: row.closedReason || null,
+        }));
     },
 
     _buildBusinessQuery() {
@@ -591,18 +607,14 @@ const BusinessController = {
         window._openBusinessDetailId = bizId;
 
         const bStatus = biz.businessStatus || 'Aktif';
-        let bizTasks = [];
         let bizTaskHistory = [];
         try {
-            [bizTasks, bizTaskHistory] = await Promise.all([
-                this._fetchBusinessTaskRows(bizId),
-                this._fetchBusinessTaskHistory(bizId),
-            ]);
+            bizTaskHistory = await this._fetchBusinessTaskHistory(bizId);
         } catch (error) {
             console.warn('Business task history load failed:', error);
-            bizTasks = [];
             bizTaskHistory = [];
         }
+        const bizTasks = this._mapBusinessTaskRows(bizTaskHistory);
         window._currentBizTasks = bizTasks;
 
         let pendingUpdateBanner = ''; // Kaldırıldı
@@ -1274,7 +1286,8 @@ const BusinessController = {
             BusinessController.restoreRightPanel(bizId);
             // State anında güncellendiği için manuel unshift yapmıyoruz.
             try {
-                window._currentBizTasks = await BusinessController._fetchBusinessTaskRows(bizId);
+                const historyRows = await BusinessController._fetchBusinessTaskHistory(bizId);
+                window._currentBizTasks = BusinessController._mapBusinessTaskRows(historyRows);
             } catch (error) {
                 console.warn('Business task history refresh failed:', error);
                 window._currentBizTasks = [];
