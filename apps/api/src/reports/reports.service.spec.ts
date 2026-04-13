@@ -438,4 +438,55 @@ describe('ReportsService ratios', () => {
     expect(payload.records).toHaveLength(1)
     expect(payload.records[0].dealRatio).toBe(50)
   })
+
+  it('counts daily contacted not hot items in team pulse metrics', async () => {
+    const { service, prisma } = buildRatioService()
+    jest.spyOn(service as any, 'scopedSalesUsers').mockResolvedValue([
+      { id: 'sales_1', name: 'Elif', team: 'Team 1' },
+    ])
+    jest.spyOn(service as any, 'getIstanbulRangeStarts').mockReturnValue({
+      daily: Date.UTC(2026, 3, 13),
+      weekly: Date.UTC(2026, 3, 7),
+      monthly: Date.UTC(2026, 3, 1),
+    })
+    prisma.$transaction.mockResolvedValue([
+      [
+        {
+          id: 'task_not_hot',
+          accountId: 'acc_1',
+          ownerId: 'sales_1',
+          createdById: 'mgr_1',
+          status: 'NOT_HOT',
+          creationDate: new Date('2026-04-13T10:00:00.000Z'),
+          logs: [{ createdAt: new Date('2026-04-13T10:00:00.000Z'), followUpDate: null }],
+          account: { accountName: 'Not Hot Biz', businessName: 'Not Hot Biz', city: 'Istanbul' },
+        },
+      ],
+      [
+        {
+          authorId: 'sales_1',
+          createdAt: new Date('2026-04-13T12:00:00.000Z'),
+          text: '[Yetkiliye Ulasildi] Gorusuldu',
+          task: {
+            id: 'task_not_hot',
+            accountId: 'acc_1',
+            status: 'NOT_HOT',
+            account: { accountName: 'Not Hot Biz', businessName: 'Not Hot Biz', city: 'Istanbul' },
+          },
+        },
+      ],
+    ])
+
+    const payload = await service.teamPulse({ id: 'mgr_1', role: 'MANAGER' })
+
+    expect(payload.records).toHaveLength(1)
+    expect(payload.records[0].metrics.daily.contacted.count).toBe(1)
+    expect(payload.records[0].metrics.daily.contacted.items[0]).toEqual(
+      expect.objectContaining({
+        taskId: 'task_not_hot',
+        businessName: 'Not Hot Biz',
+        status: 'nothot',
+      }),
+    )
+  })
 })

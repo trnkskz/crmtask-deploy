@@ -219,7 +219,8 @@ export class ReportsService {
 
   private isOpenWorkflowStatus(value: unknown) {
     const raw = String(value || '').trim().toUpperCase()
-    return ['NEW', 'HOT', 'NOT_HOT', 'FOLLOWUP', 'DEAL', 'COLD'].includes(raw)
+    const normalized = raw === 'NOTHOT' ? 'NOT_HOT' : raw
+    return ['NEW', 'HOT', 'NOT_HOT', 'FOLLOWUP', 'DEAL', 'COLD'].includes(normalized)
   }
 
   private isDealStatus(value: unknown) {
