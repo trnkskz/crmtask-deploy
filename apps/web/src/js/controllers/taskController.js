@@ -9,6 +9,7 @@ const TaskController = (() => {
         selectedUserKey: '',
         modalPeriod: 'daily',
         selectedMetric: 'open',
+        currentPage: 1,
         recordsByKey: {},
     };
     let teamPulseResizeBound = false;
@@ -271,19 +272,26 @@ const TaskController = (() => {
 
     function buildTeamPulseDetailList(items, emptyText, options = {}) {
         const itemClass = options.itemClass || 'team-pulse-detail-item';
-        const limit = Number.isFinite(Number(options.limit)) ? Number(options.limit) : 6;
+        const limit = Number.isFinite(Number(options.limit)) ? Number(options.limit) : 10;
+        const page = Number(options.page) || 1;
         const ownerName = options.ownerName || '';
+        
         if (!items.length) {
             return `
                 <div class="team-pulse-empty">
                     <div class="team-pulse-empty-copy">
-                        <strong>Bu görünüm şu an boş.</strong>
+                        <strong>Kayıt bulunamadı.</strong>
                         <span>${emptyText}</span>
                     </div>
                 </div>
             `;
         }
-        return items.slice(0, limit).map((item) => `
+
+        const totalPages = Math.ceil(items.length / limit);
+        const startIndex = (page - 1) * limit;
+        const currentItems = items.slice(startIndex, startIndex + limit);
+
+        const listHtml = currentItems.map((item) => `
             <button type="button" class="${itemClass}" onclick="event.stopPropagation(); openTaskModal('${escapeHtml(item.taskId)}')">
                 <span class="team-pulse-detail-main team-pulse-detail-main-rich">
                     <strong>${escapeHtml(item.businessName)}</strong>
@@ -291,6 +299,25 @@ const TaskController = (() => {
                 <span class="team-pulse-detail-assignee">${escapeHtml(ownerName || '-')}</span>
             </button>
         `).join('');
+
+        if (totalPages <= 1) return listHtml;
+
+        const prevDisabled = page === 1 ? 'disabled' : '';
+        const nextDisabled = page === totalPages ? 'disabled' : '';
+
+        const paginationHtml = `
+            <div class="tp-modal-pagination" style="grid-column: 1 / -1;">
+                <button type="button" class="tp-page-btn" ${prevDisabled} onclick="event.stopPropagation(); setTeamPulseModalPage(${page - 1})">
+                    <i class="fas fa-chevron-left"></i>
+                </button>
+                <span class="tp-page-info">Sayfa <strong>${page}</strong> / ${totalPages} <span class="tp-page-total">(${items.length} Kayıt)</span></span>
+                <button type="button" class="tp-page-btn" ${nextDisabled} onclick="event.stopPropagation(); setTeamPulseModalPage(${page + 1})">
+                    <i class="fas fa-chevron-right"></i>
+                </button>
+            </div>
+        `;
+
+        return listHtml + paginationHtml;
     }
 
     function buildTeamPulseCardHtml(record) {
@@ -346,65 +373,40 @@ const TaskController = (() => {
 
         return `
             <div class="team-pulse-modal-shell">
-                <div class="team-pulse-modal-header">
-                    <div class="team-pulse-modal-head team-pulse-modal-head-inline">
-                        <div class="team-pulse-modal-inline-rail">
-                            <div class="team-pulse-modal-kicker"><i class="fas fa-chart-pie"></i> OPERASYON ÖZETİ</div>
-                            <h3 id="teamPulseModalTitle">${escapeHtml(record.user.name || '-')}</h3>
-                            <div class="team-pulse-modal-team-badge">${escapeHtml(record.user.team || 'Takım atanmadı')}</div>
-                        </div>
+                <div class="tp-minimal-header">
+                    <div class="tp-minimal-identity">
+                        <h3>${escapeHtml(record.user.name || '-')}</h3>
+                        <span class="tp-minimal-team">${escapeHtml(record.user.team || 'Takım atanmadı')}</span>
                     </div>
                 </div>
-                <div class="team-pulse-hero-summary">
-                    <button type="button" class="team-pulse-hero-stat open ${teamPulseUiState.selectedMetric === 'open' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('open')">
-                        <div class="stat-icon"><i class="fas fa-folder-open"></i></div>
-                        <div class="stat-content">
-                            <span>Açık</span>
-                            <strong>${openMetric.count}</strong>
-                            <small>Anlık açık görev yükü</small>
-                        </div>
+                
+                <div class="tp-minimal-tabs">
+                    <button type="button" class="tp-tab-btn ${teamPulseUiState.selectedMetric === 'open' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('open')">
+                        <span class="tp-tab-label">Açık</span>
+                        <span class="tp-tab-count">${openMetric.count}</span>
                     </button>
-                    <button type="button" class="team-pulse-hero-stat deal ${teamPulseUiState.selectedMetric === 'deal' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('deal')">
-                        <div class="stat-icon"><i class="fas fa-handshake"></i></div>
-                        <div class="stat-content">
-                            <span>Deal</span>
-                            <strong>${dealMetric.count}</strong>
-                            <small>Bu ay deal kapanışları</small>
-                        </div>
+                    <button type="button" class="tp-tab-btn ${teamPulseUiState.selectedMetric === 'deal' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('deal')">
+                        <span class="tp-tab-label">Deal</span>
+                        <span class="tp-tab-count">${dealMetric.count}</span>
                     </button>
-                    <button type="button" class="team-pulse-hero-stat cold ${teamPulseUiState.selectedMetric === 'cold' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('cold')">
-                        <div class="stat-icon"><i class="fas fa-snowflake"></i></div>
-                        <div class="stat-content">
-                            <span>Cold</span>
-                            <strong>${coldMetric.count}</strong>
-                            <small>Bu ay cold sonuçları</small>
-                        </div>
+                    <button type="button" class="tp-tab-btn ${teamPulseUiState.selectedMetric === 'cold' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('cold')">
+                        <span class="tp-tab-label">Cold</span>
+                        <span class="tp-tab-count">${coldMetric.count}</span>
                     </button>
-                    <button type="button" class="team-pulse-hero-stat contacted ${teamPulseUiState.selectedMetric === 'contacted' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('contacted')">
-                        <div class="stat-icon"><i class="fas fa-headset"></i></div>
-                        <div class="stat-content">
-                            <span>Bugün Görüşülen</span>
-                            <strong>${contactedMetric.count}</strong>
-                            <small>Bugün temas edilen işletmeler</small>
-                        </div>
+                    <button type="button" class="tp-tab-btn ${teamPulseUiState.selectedMetric === 'contacted' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('contacted')">
+                        <span class="tp-tab-label">Bugün Görüşülen</span>
+                        <span class="tp-tab-count">${contactedMetric.count}</span>
                     </button>
-                    <button type="button" class="team-pulse-hero-stat opened ${teamPulseUiState.selectedMetric === 'opened' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('opened')">
-                        <div class="stat-icon"><i class="fas fa-plus-circle"></i></div>
-                        <div class="stat-content">
-                            <span>Aylık Create Task</span>
-                            <strong>${openedMetric.count}</strong>
-                            <small>Bu ay oluşturduğu görevler</small>
-                        </div>
+                    <button type="button" class="tp-tab-btn ${teamPulseUiState.selectedMetric === 'opened' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('opened')">
+                        <span class="tp-tab-label">Aylık Create Task</span>
+                        <span class="tp-tab-count">${openedMetric.count}</span>
                     </button>
                 </div>
+
                 <div class="team-pulse-modal-layout single">
-                    <div class="team-pulse-modal-panel ${selectedMetric.tone}">
-                        <div class="team-pulse-panel-head">
-                            <div class="team-pulse-detail-title">${selectedMetric.label}</div>
-                            <div class="team-pulse-panel-count">${selectedMetric.items.length}</div>
-                        </div>
+                    <div class="tp-minimal-panel">
                         <div class="team-pulse-modal-grid">
-                            ${buildTeamPulseDetailList(selectedMetric.items, selectedMetric.empty, { itemClass: 'team-pulse-modal-item', limit: 10, ownerName: record.user?.name || '-' })}
+                            ${buildTeamPulseDetailList(selectedMetric.items, selectedMetric.empty, { itemClass: 'team-pulse-modal-item', limit: 12, page: teamPulseUiState.currentPage, ownerName: record.user?.name || '-' })}
                         </div>
                     </div>
                 </div>
@@ -922,6 +924,7 @@ const TaskController = (() => {
         teamPulseUiState.selectedUserKey = userKey;
         teamPulseUiState.modalPeriod = 'daily';
         teamPulseUiState.selectedMetric = metricKey || 'open';
+        teamPulseUiState.currentPage = 1;
         renderTeamPulseModal();
     }
 
@@ -933,6 +936,13 @@ const TaskController = (() => {
     function setTeamPulseModalMetric(metricKey) {
         if (!metricKey) return;
         teamPulseUiState.selectedMetric = metricKey;
+        teamPulseUiState.currentPage = 1;
+        renderTeamPulseModal();
+    }
+
+    function setTeamPulseModalPage(page) {
+        if (!page) return;
+        teamPulseUiState.currentPage = page;
         renderTeamPulseModal();
     }
 
@@ -2655,6 +2665,7 @@ const TaskController = (() => {
         openTeamPulseModal,
         setTeamPulseModalPeriod,
         setTeamPulseModalMetric,
+        setTeamPulseModalPage,
         setTeamPulseRecords,
         openTaskModal,
         renderTaskInline,
@@ -2700,6 +2711,7 @@ window.updateTaskReportSubCategories = TaskController.updateTaskReportSubCategor
 window.openTeamPulseModal = TaskController.openTeamPulseModal.bind(TaskController);
 window.setTeamPulseModalPeriod = TaskController.setTeamPulseModalPeriod.bind(TaskController);
 window.setTeamPulseModalMetric = TaskController.setTeamPulseModalMetric.bind(TaskController);
+window.setTeamPulseModalPage = TaskController.setTeamPulseModalPage.bind(TaskController);
 window.setTeamPulseRecords = TaskController.setTeamPulseRecords.bind(TaskController);
 window.openTaskModal = TaskController.openTaskModal.bind(TaskController);
 window.markActiveQuickFollowup = TaskController.markActiveQuickFollowup.bind(TaskController);

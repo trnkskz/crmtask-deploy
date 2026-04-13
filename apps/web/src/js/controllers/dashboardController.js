@@ -52,39 +52,47 @@ const DashboardController = {
         const dealCount = this._getPulseMetric(record, 'deal', 'monthly');
         const coldCount = this._getPulseMetric(record, 'cold', 'monthly');
         const dealRatio = Math.max(0, Math.min(100, Math.round(Number(record?.dealRatio || 0))));
-        const deg = (dealRatio / 100) * 360;
+        
+        // SVG Ring calculation (Radius = 45, Circumference = ~282.74)
+        const circumference = 282.74;
+        const dashOffset = circumference - (circumference * dealRatio) / 100;
+        
         const userKey = record?.key || '';
         const safeName = record?.user?.name || '-';
         const safeTeam = record?.user?.team || '-';
 
         return `
-            <div class="perf-card perf-card-reference" onclick="openTeamPulseModal('${userKey}', 'open')">
+            <div class="perf-card perf-card-modern" onclick="openTeamPulseModal('${userKey}', 'open')">
                 <div class="perf-card-header">
                     <div class="perf-card-title-block">
                         <div class="perf-card-name">${safeName}</div>
-                        <span class="perf-team-badge">${safeTeam || '-'}</span>
+                        <span class="perf-team-badge">${safeTeam}</span>
                     </div>
                 </div>
-                <div class="perf-ring-container">
-                    <div class="perf-ring" style="background: conic-gradient(#dfe6f1 0deg, #dfe6f1 ${Math.max(0, 360 - deg)}deg, #1f3325 ${Math.max(0, 360 - deg)}deg, #1f3325 360deg);">
-                        <div class="perf-ring-inner">
-                            <span class="perf-ring-value">${dealRatio}%</span>
-                            <span class="perf-ring-label">Deal</span>
-                        </div>
+                
+                <div class="perf-ring-modern-container">
+                    <svg width="110" height="110" viewBox="0 0 100 100" class="perf-ring-svg">
+                        <circle cx="50" cy="50" r="45" fill="none" stroke="#f1f5f9" stroke-width="6" />
+                        <circle cx="50" cy="50" r="45" fill="none" stroke="#0f766e" stroke-width="6" stroke-linecap="round"
+                            stroke-dasharray="${circumference}" stroke-dashoffset="${dashOffset}" transform="rotate(-90 50 50)" />
+                    </svg>
+                    <div class="perf-ring-modern-inner">
+                        <span class="perf-ring-modern-value">${dealRatio}%</span>
+                        <span class="perf-ring-modern-label">Deal</span>
                     </div>
                 </div>
-                <div class="perf-card-divider"></div>
-                <div class="perf-stats perf-stats-reference">
-                    <button type="button" class="p-stat p-stat-reference" onclick="event.stopPropagation(); openTeamPulseModal('${userKey}', 'open')">
-                        <span>AÇIK</span>
+                
+                <div class="perf-stats-modern">
+                    <button type="button" class="p-stat-modern" onclick="event.stopPropagation(); openTeamPulseModal('${userKey}', 'open')">
+                        <span>Açık</span>
                         <strong>${openCount}</strong>
                     </button>
-                    <button type="button" class="p-stat p-stat-reference" onclick="event.stopPropagation(); openTeamPulseModal('${userKey}', 'deal')">
-                        <span>DEAL</span>
+                    <button type="button" class="p-stat-modern" onclick="event.stopPropagation(); openTeamPulseModal('${userKey}', 'deal')">
+                        <span>Deal</span>
                         <strong class="is-deal">${dealCount}</strong>
                     </button>
-                    <button type="button" class="p-stat p-stat-reference" onclick="event.stopPropagation(); openTeamPulseModal('${userKey}', 'cold')">
-                        <span>COLD</span>
+                    <button type="button" class="p-stat-modern" onclick="event.stopPropagation(); openTeamPulseModal('${userKey}', 'cold')">
+                        <span>Cold</span>
                         <strong class="is-cold">${coldCount}</strong>
                     </button>
                 </div>

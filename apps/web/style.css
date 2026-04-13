@@ -8101,3 +8101,100 @@ html body .ubc-tag.status-none { background: #f8fafc !important; color: #64748b 
         border-radius: 18px;
     }
 }
+
+/* ============================================================
+   MODERN DASHBOARD & TEAM PULSE MODAL REDESIGN
+   ============================================================ */
+
+/* --- 1. Dashboard Cards --- */
+.perf-card-modern {
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 24px;
+    text-align: center;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.02);
+    border: 1px solid #f1f5f9;
+}
+.perf-card-modern:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 24px -6px rgba(15, 118, 110, 0.08), 0 4px 12px -4px rgba(15, 118, 110, 0.04);
+    border-color: #e2e8f0;
+}
+.perf-card-modern .perf-card-header { margin-bottom: 24px; }
+.perf-card-modern .perf-card-title-block {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+}
+.perf-card-modern .perf-card-name {
+    color: #0f172a; font-size: 18px; font-weight: 700; letter-spacing: -0.01em; text-align: left;
+}
+.perf-card-modern .perf-team-badge {
+    background: #f8fafc; color: #64748b; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 8px; border: 1px solid #e2e8f0;
+}
+.perf-ring-modern-container {
+    position: relative; display: flex; justify-content: center; align-items: center; margin-bottom: 24px; height: 110px;
+}
+.perf-ring-modern-inner {
+    position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.perf-ring-modern-value { font-size: 24px; font-weight: 800; color: #0f172a; line-height: 1; letter-spacing: -0.02em; }
+.perf-ring-modern-label { margin-top: 4px; font-size: 12px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+.perf-ring-svg circle { transition: stroke-dashoffset 1s cubic-bezier(0.4, 0, 0.2, 1); }
+.perf-stats-modern {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding-top: 16px; border-top: 1px solid #f1f5f9;
+}
+.p-stat-modern {
+    display: flex; flex-direction: column; align-items: center; gap: 4px; background: transparent; border: none; padding: 8px 4px; border-radius: 8px; cursor: pointer; transition: background 0.2s;
+}
+.p-stat-modern:hover { background: #f8fafc; }
+.p-stat-modern span { font-size: 11px; color: #64748b; font-weight: 600; }
+.p-stat-modern strong { font-size: 16px; color: #0f172a; font-weight: 700; }
+.p-stat-modern strong.is-deal { color: #0f766e; }
+.p-stat-modern strong.is-cold { color: #e11d48; }
+
+/* --- 2. Team Pulse Modal --- */
+.tp-minimal-header {
+    display: flex; justify-content: space-between; align-items: flex-end; padding-bottom: 24px; margin-bottom: 8px; border-bottom: 1px solid #f1f5f9;
+}
+.tp-minimal-identity h3 { margin: 0 0 4px 0; font-size: 28px; font-weight: 800; color: #0f172a; letter-spacing: -0.03em; }
+.tp-minimal-team { font-size: 13px; color: #64748b; font-weight: 600; background: #f8fafc; padding: 4px 10px; border-radius: 6px; border: 1px solid #e2e8f0; }
+.tp-minimal-tabs {
+    display: flex; gap: 8px; padding-bottom: 24px; overflow-x: auto; scrollbar-width: none;
+}
+.tp-minimal-tabs::-webkit-scrollbar { display: none; }
+.tp-tab-btn {
+    display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 12px; background: #ffffff; border: 1px solid #e2e8f0; cursor: pointer; transition: all 0.2s; flex: 0 0 auto;
+}
+.tp-tab-btn:hover { border-color: #cbd5e1; background: #f8fafc; }
+.tp-tab-btn.active { background: #0f766e; border-color: #0f766e; }
+.tp-tab-label { font-size: 13px; font-weight: 600; color: #475569; }
+.tp-tab-count { background: #f1f5f9; color: #0f172a; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 20px; }
+.tp-tab-btn.active .tp-tab-label { color: #ffffff; }
+.tp-tab-btn.active .tp-tab-count { background: #ffffff; color: #0f766e; }
+.tp-minimal-panel { background: #ffffff; border-radius: 16px; border: 1px solid #f1f5f9; padding: 20px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02); }
+
+/* --- 3. Modal Grid & Items --- */
+.team-pulse-modal-grid {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;
+}
+.team-pulse-modal-item {
+    width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-radius: 12px; border: 1px solid #f1f5f9; background: #ffffff; transition: all 0.2s; text-align: left; cursor: pointer;
+}
+.team-pulse-modal-item:hover { border-color: #cbd5e1; background: #f8fafc; transform: translateY(-1px); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02); }
+.team-pulse-detail-main strong { color: #0f172a; font-size: 15px; font-weight: 600; }
+.team-pulse-detail-main-rich span { display: block; margin-top: 4px; color: #64748b; font-size: 12px; }
+.team-pulse-detail-assignee { font-size: 12px; color: #94a3b8; font-weight: 500; }
+
+/* --- 4. Pagination --- */
+.tp-modal-pagination {
+    display: flex; align-items: center; justify-content: space-between; padding-top: 16px; margin-top: 8px; border-top: 1px solid #f1f5f9;
+}
+.tp-page-btn {
+    display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 8px; background: #ffffff; border: 1px solid #e2e8f0; color: #0f172a; cursor: pointer; transition: all 0.2s;
+}
+.tp-page-btn:hover:not([disabled]) { background: #f8fafc; border-color: #cbd5e1; color: #0f766e; }
+.tp-page-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+.tp-page-info { font-size: 13px; color: #64748b; }
+.tp-page-info strong { color: #0f172a; font-weight: 700; }
+.tp-page-total { font-size: 12px; opacity: 0.7; margin-left: 4px; }
