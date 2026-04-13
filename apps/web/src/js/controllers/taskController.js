@@ -1606,16 +1606,16 @@ const TaskController = (() => {
                 const canManageEntry = Boolean(taskId) && (canManageAnyLog || (currentUser?.id && entry.authorId === currentUser.id));
                 const encodedText = encodeURIComponent(entry.text || '');
                 const actionButtonsHtml = canManageEntry
-                    ? `<div style="position:absolute; right:0; top:50%; transform:translateY(-50%); display:flex; flex-direction:column; gap:6px; align-items:center;">
-                            <button class="log-delete-btn" style="position:static;" onclick="editTaskLog('${taskId}', ${logIdArg}, '${encodedText}')" title="Bu Logu Düzenle">✏️</button>
-                            <button class="log-delete-btn" style="position:static;" onclick="deleteTaskLog('${taskId}', ${logIdArg})" title="Bu Logu Sil">🗑️</button>
+                    ? `<div class="log-entry-actions">
+                            <button class="log-delete-btn" onclick="editTaskLog('${taskId}', ${logIdArg}, '${encodedText}')" title="Bu Logu Düzenle">✏️</button>
+                            <button class="log-delete-btn" onclick="deleteTaskLog('${taskId}', ${logIdArg})" title="Bu Logu Sil">🗑️</button>
                        </div>`
                     : '';
                 const boStyle = index !== group.entries.length - 1 ? 'border-bottom:1px dashed #e2e8f0; padding-bottom:10px; margin-bottom:10px;' : '';
 
                 return `
-                <div style="position:relative; display:block; width:100%; clear:both; padding-right:86px; ${boStyle}">
-                    <div style="display:block; word-wrap:break-word; color:var(--text-color); font-size:14px; line-height:1.6;">
+                <div class="log-entry-row${canManageEntry ? ' has-actions' : ''}" style="${boStyle}">
+                    <div class="log-entry-main" style="display:block; color:var(--text-color); font-size:14px; line-height:1.6;">
                         <span style="font-size:13px; font-weight:bold; color:var(--text-muted); opacity:0.8;">${entry.time}</span>
                         ${entry.tagSpan ? `<span style="color:#cbd5e1; margin:0 5px;">-</span> ${entry.tagSpan} <span style="color:#cbd5e1; margin:0 5px;">-</span>` : `<span style="color:#cbd5e1; margin:0 6px;">-</span>`}
                         <span style="color:var(--text-color); font-weight:500;">${entry.text}</span>

@@ -211,14 +211,19 @@ button:hover { background: linear-gradient(135deg, #35a045 0%, #258032 100%); tr
 .radar-module { background: #fff; border-radius: 16px; border: 1px solid var(--border-light); padding: 18px; box-shadow: 0 10px 30px rgba(0,0,0,0.03); display: flex; flex-direction: column; min-height: 320px; max-height: 420px; }
 .manager-status-module { margin-bottom: 0; }
 .manager-performance-module { margin-bottom: 0; }
-.manager-radar-column { height: 100%; }
-.manager-radar-module { height: 100%; min-height: 100%; max-height: none; }
+.manager-radar-column { display: flex; height: 100%; min-height: 0; }
+.manager-radar-module {
+    height: clamp(520px, calc(100vh - 190px), 760px) !important;
+    min-height: clamp(520px, calc(100vh - 190px), 760px) !important;
+    max-height: clamp(520px, calc(100vh - 190px), 760px) !important;
+    overflow: hidden;
+}
 .manager-primary-stack .manager-performance-module { margin-top: -2px; }
 .manager-module-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
 .manager-module-copy { margin: 0; font-size: 13px; color: #64748b; line-height: 1.5; }
 .manager-status-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .manager-status-grid .summary-list-item { margin-bottom: 0; min-height: 56px; align-items: center; }
-.radar-scroll-area { flex: 1; overflow-y: auto; padding-right: 10px; scrollbar-width: thin; }
+.radar-scroll-area { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 10px; scrollbar-width: thin; overscroll-behavior: contain; }
 .radar-scroll-area::-webkit-scrollbar { width: 6px; }
 .radar-scroll-area::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
 .radar-detail-trigger { width: 28px; height: 28px; border-radius: 999px; border: 1px solid #cbd5e1; background: #f8fafc; color: #0f172a; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: none; padding: 0; }
@@ -239,6 +244,8 @@ button:hover { background: linear-gradient(135deg, #35a045 0%, #258032 100%); tr
     .manager-primary-stack { grid-template-rows: auto auto auto; }
     .manager-secondary-stack { grid-template-rows: auto; }
     .manager-kpi-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .manager-radar-column { display: block; }
+    .manager-radar-module { height: auto !important; min-height: 320px !important; max-height: none !important; }
     .radar-module { max-height: none; }
     .performance-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -2326,6 +2333,37 @@ input:checked + .slider:before { transform: translateX(20px); }
     flex: 1;
     display: flex;
     align-items: center;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.log-text-content {
+    width: 100%;
+    min-width: 0;
+}
+
+.log-entry-row {
+    width: 100%;
+}
+
+.log-entry-row.has-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 34px;
+    gap: 12px;
+    align-items: start;
+}
+
+.log-entry-main {
+    min-width: 0;
+    word-break: break-word;
+}
+
+.log-entry-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: center;
+    justify-content: flex-start;
 }
 
 /* ==========================================
@@ -4791,6 +4829,16 @@ textarea.modern-capsule-input {
 }
 .modern-log-card:hover .log-delete-btn {
     opacity: 1 !important;
+}
+
+.log-entry-actions .log-delete-btn {
+    position: static !important;
+    right: auto !important;
+    top: auto !important;
+    width: 26px;
+    height: 26px;
+    opacity: 1 !important;
+    flex-shrink: 0;
 }
 
 /* ==========================================
