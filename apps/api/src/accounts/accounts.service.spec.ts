@@ -940,7 +940,103 @@ describe('AccountsService.update', () => {
       extraContacts: [{ name: 'Ayşe', phone: '05321111111', email: 'ayse@example.com' }],
     } as any)
 
-    expect(prisma.accountContact.delete).not.toHaveBeenCalled()
+    expect(prisma.taskContact.updateMany).toHaveBeenCalledWith({
+      where: { contactId: 'extra_dup' },
+      data: { contactId: 'extra_keep' },
+    })
+    expect(prisma.accountContact.delete).toHaveBeenCalledWith({ where: { id: 'extra_dup' } })
+  })
+
+  it('removes all extra contacts when update payload sends an empty extra contact list', async () => {
+    const { service, prisma } = buildUpdateService()
+    prisma.account.update.mockResolvedValue({
+      id: 'acc_1',
+      businessName: 'Demo Biz',
+      address: null,
+    })
+    prisma.account.findUnique.mockResolvedValue({
+      id: 'acc_1',
+      businessName: 'Demo Biz',
+      accountName: 'Demo Biz',
+      mainCategory: null,
+      subCategory: null,
+      source: 'FRESH',
+      type: 'KEY',
+      status: 'ACTIVE',
+    })
+    prisma.accountContact.findFirst.mockResolvedValue({
+      id: 'primary_1',
+      name: 'Ana Kişi',
+      phone: '05321234567',
+      email: null,
+      address: null,
+      isPrimary: true,
+    })
+    prisma.accountContact.findMany.mockResolvedValue([
+      {
+        id: 'extra_1',
+        name: 'Silinecek Yetkili',
+        phone: null,
+        email: null,
+        isPrimary: false,
+        taskLinks: [],
+      },
+    ])
+
+    await service.update('acc_1', { extraContacts: [] } as any)
+
+    expect(prisma.accountContact.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'extra_1' },
+        data: expect.objectContaining({ name: 'Demo Biz' }),
+      }),
+    )
+    expect(prisma.accountContact.delete).toHaveBeenCalledWith({ where: { id: 'extra_1' } })
+  })
+
+  it('re-links removed extra contacts with task links to the primary contact before deleting them', async () => {
+    const { service, prisma } = buildUpdateService()
+    prisma.account.update.mockResolvedValue({
+      id: 'acc_1',
+      businessName: 'Demo Biz',
+      address: null,
+    })
+    prisma.account.findUnique.mockResolvedValue({
+      id: 'acc_1',
+      businessName: 'Demo Biz',
+      accountName: 'Demo Biz',
+      mainCategory: null,
+      subCategory: null,
+      source: 'FRESH',
+      type: 'KEY',
+      status: 'ACTIVE',
+    })
+    prisma.accountContact.findFirst.mockResolvedValue({
+      id: 'primary_1',
+      name: 'Ana Kişi',
+      phone: '05321234567',
+      email: null,
+      address: null,
+      isPrimary: true,
+    })
+    prisma.accountContact.findMany.mockResolvedValue([
+      {
+        id: 'extra_linked',
+        name: 'Bağlı Yetkili',
+        phone: null,
+        email: null,
+        isPrimary: false,
+        taskLinks: [{ id: 'task_contact_1' }],
+      },
+    ])
+
+    await service.update('acc_1', { extraContacts: [] } as any)
+
+    expect(prisma.taskContact.updateMany).toHaveBeenCalledWith({
+      where: { contactId: 'extra_linked' },
+      data: { contactId: 'primary_1' },
+    })
+    expect(prisma.accountContact.delete).toHaveBeenCalledWith({ where: { id: 'extra_linked' } })
   })
 })
 

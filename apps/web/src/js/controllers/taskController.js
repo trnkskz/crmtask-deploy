@@ -29,7 +29,23 @@ const TaskController = (() => {
         (Array.isArray(AppState.tasks) ? AppState.tasks : []).forEach((item) => {
             if (item?.id) nextMap.set(item.id, item);
         });
-        incoming.forEach((item) => nextMap.set(item.id, item));
+        incoming.forEach((item) => {
+            const existing = nextMap.get(item.id) || null;
+            if (!existing) {
+                nextMap.set(item.id, item);
+                return;
+            }
+            nextMap.set(item.id, {
+                ...item,
+                logs: Array.isArray(existing.logs) && existing.logs.length > 1 ? existing.logs : (item.logs || existing.logs || []),
+                offers: Array.isArray(existing.offers) && existing.offers.length > 0 ? existing.offers : (item.offers || existing.offers || []),
+                dealDetails: existing.dealDetails || item.dealDetails || null,
+                specificContactName: existing.specificContactName || item.specificContactName || '',
+                specificContactPhone: existing.specificContactPhone || item.specificContactPhone || '',
+                specificContactEmail: existing.specificContactEmail || item.specificContactEmail || '',
+                nextCallDate: existing.nextCallDate || item.nextCallDate || '',
+            });
+        });
         AppState.tasks = Array.from(nextMap.values()).slice(-200);
     }
 
@@ -1494,7 +1510,8 @@ const TaskController = (() => {
 
     function renderTaskInline(taskId, containerId) {
         document.getElementById('modalContentArea').innerHTML = ''; 
-        const task = AppState.tasks.find(t => t.id === taskId);
+        const taskDetail = typeof AppState.getTaskDetail === 'function' ? AppState.getTaskDetail(taskId) : null;
+        const task = taskDetail || AppState.tasks.find(t => t.id === taskId);
         if (!task) return;
         task.logs = task.logs || [];
         task.offers = task.offers || [];
@@ -1642,6 +1659,7 @@ const TaskController = (() => {
                 time: timePart,
                 tagSpan: tagSpanText,
                 text: cleanText,
+                rawText: log.text || '',
                 fullDateOriginal: log.date
             });
         });
@@ -1650,7 +1668,7 @@ const TaskController = (() => {
             let entriesHtml = group.entries.map((entry, index) => {
                 const logIdArg = entry.id ? `'${entry.id}'` : `'${entry.fullDateOriginal}'`;
                 const canManageEntry = Boolean(taskId) && (canManageAnyLog || (currentUser?.id && entry.authorId === currentUser.id));
-                const encodedText = encodeURIComponent(entry.text || '');
+                const encodedText = encodeURIComponent(entry.rawText || entry.text || '');
                 const actionButtonsHtml = canManageEntry
                     ? `<div class="log-entry-actions">
                             <button class="log-delete-btn" onclick="editTaskLog('${taskId}', ${logIdArg}, '${encodedText}')" title="Bu Logu Düzenle">✏️</button>
@@ -2198,7 +2216,8 @@ const TaskController = (() => {
     }
 
     function triggerSaveAction(taskId) {
-        const task = AppState.tasks.find(t => t.id === taskId);
+        const taskDetail = typeof AppState.getTaskDetail === 'function' ? AppState.getTaskDetail(taskId) : null;
+        const task = taskDetail || AppState.tasks.find(t => t.id === taskId);
         if (!task) return;
 
         const logType = window._selectedModalLogType || '';
@@ -2342,7 +2361,8 @@ const TaskController = (() => {
     }
 
     async function executeContactUpdate(taskId) {
-        const task = AppState.tasks.find(t => t.id === taskId);
+        const taskDetail = typeof AppState.getTaskDetail === 'function' ? AppState.getTaskDetail(taskId) : null;
+        const task = taskDetail || AppState.tasks.find(t => t.id === taskId);
         if (!task) return;
 
         const newName = esc(document.getElementById('updTaskContactName').value.trim());
@@ -2708,7 +2728,8 @@ const TaskController = (() => {
         if (activeBtn?.id === 'tabBtnOffers') activeTab = 'offers';
         else if ((activeBtn?.textContent || '').includes('Sistem')) activeTab = 'system';
 
-        const task = AppState.tasks.find(t => t.id === taskId);
+        const taskDetail = typeof AppState.getTaskDetail === 'function' ? AppState.getTaskDetail(taskId) : null;
+        const task = taskDetail || AppState.tasks.find(t => t.id === taskId);
         if (!task) return;
         const biz = AppState.getBizMap().get(task.businessId) || task;
         task.logs = task.logs || [];

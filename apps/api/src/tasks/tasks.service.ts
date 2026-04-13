@@ -41,6 +41,24 @@ function shouldCreateInitialTaskNote(details?: string, systemLogText?: string) {
   return !AUTO_SYSTEM_NOTE_TEXTS.has(normalizedDetails)
 }
 
+function extractEditableLogPrefix(text: unknown) {
+  const raw = String(text || '').trim()
+  if (!raw) return ''
+  const htmlWrappedMatch = raw.match(/^((?:<[^>]+>\s*)*\[[^\]]+\](?:\s*<\/[^>]+>)?)\s*/i)
+  if (htmlWrappedMatch?.[1]) return htmlWrappedMatch[1].trim()
+  const plainMatch = raw.match(/^(\[[^\]]+\])\s*/i)
+  return plainMatch?.[1]?.trim() || ''
+}
+
+function mergeEditedLogText(originalText: unknown, nextText: unknown) {
+  const trimmedNextText = String(nextText || '').trim()
+  const originalPrefix = extractEditableLogPrefix(originalText)
+  if (!originalPrefix) return trimmedNextText
+  const nextPrefix = extractEditableLogPrefix(trimmedNextText)
+  if (nextPrefix) return trimmedNextText
+  return `${originalPrefix} ${trimmedNextText}`.trim()
+}
+
 @Injectable()
 export class TasksService {
   constructor(private prisma: PrismaService, @Optional() private notifications?: NotificationsService, @Optional() private audit?: AuditService) {}
@@ -1566,7 +1584,7 @@ export class TasksService {
     if (body.text !== undefined) {
       const trimmedText = String(body.text || '').trim()
       if (!trimmedText) throw new BadRequestException('text is required')
-      data.text = trimmedText
+      data.text = mergeEditedLogText(log.text, trimmedText)
     }
     if (body.followUpDate !== undefined) {
       if (String(log.reason || '').toUpperCase() !== 'TEKRAR_ARANACAK') {

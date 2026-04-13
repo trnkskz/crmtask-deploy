@@ -587,6 +587,10 @@ const DashboardController = {
         }).join('');
     },
 
+    _getSummaryModalOwnerLabel(row) {
+        return String(row?.ownerName || row?.assignee || row?.createdByName || '').trim();
+    },
+
     _renderTodayModalRows(rows) {
         return rows.map((row) => {
             const taskId = this._escapeHtml(row?.id || '');
@@ -626,12 +630,18 @@ const DashboardController = {
 
     _currentSummaryRows: [],
 
+    _getSummaryModalOwnerKey(row) {
+        return String(row?.ownerId || row?.assignee || row?.createdByName || '').trim();
+    },
+
     filterSummaryModal() {
         const filterEl = document.getElementById('summaryUserFilter');
         const listEl = document.getElementById('summaryModalList');
         if (!filterEl || !listEl) return;
         const selectedId = filterEl.value;
-        const filtered = selectedId ? this._currentSummaryRows.filter(r => String(r.ownerId) === selectedId) : this._currentSummaryRows;
+        const filtered = selectedId
+            ? this._currentSummaryRows.filter(r => this._getSummaryModalOwnerKey(r) === selectedId)
+            : this._currentSummaryRows;
         
         if (!filtered.length) {
             listEl.innerHTML = "<div style='color:var(--text-muted); font-size:13px;'>Seçili kullanıcıya ait görev bulunamadı.</div>";
@@ -674,8 +684,10 @@ const DashboardController = {
             if (uf && (type === 'deal' || type === 'cold' || type === 'active') && AppState.loggedInUser?.role !== 'Satış Temsilcisi') {
                 const usersMap = new Map();
                 rows.forEach(r => {
-                    if (r.ownerId && r.ownerName) {
-                        usersMap.set(r.ownerId, r.ownerName);
+                    const ownerId = this._getSummaryModalOwnerKey(r);
+                    const ownerLabel = this._getSummaryModalOwnerLabel(r);
+                    if (ownerId && ownerLabel) {
+                        usersMap.set(ownerId, ownerLabel);
                     }
                 });
                 if (usersMap.size > 0) {

@@ -281,6 +281,47 @@ describe('TasksService.list', () => {
   })
 })
 
+describe('TasksService.updateActivity', () => {
+  it('preserves the original result tag when editing a tagged activity log', async () => {
+    const prisma = {
+      activityLog: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'log_1',
+          taskId: 'task_1',
+          authorId: 'user_1',
+          reason: 'YETKILIYE_ULASILDI',
+          text: '[Yetkiliye Ulaşıldı] deneme3',
+          followUpDate: null,
+        }),
+        update: jest.fn().mockResolvedValue({
+          id: 'log_1',
+          taskId: 'task_1',
+          authorId: 'user_1',
+          reason: 'YETKILIYE_ULASILDI',
+          text: '[Yetkiliye Ulaşıldı] revize not',
+          followUpDate: null,
+          author: { id: 'user_1', name: 'Test User', role: 'SALESPERSON' },
+        }),
+      },
+    } as any
+
+    const service = new TasksService(prisma)
+
+    await service.updateActivity(
+      { id: 'user_1', role: 'SALESPERSON' },
+      'task_1',
+      'log_1',
+      { text: 'revize not' },
+    )
+
+    expect(prisma.activityLog.update).toHaveBeenCalledWith({
+      where: { id: 'log_1' },
+      data: { text: '[Yetkiliye Ulaşıldı] revize not' },
+      include: { author: { select: { id: true, name: true, role: true } } },
+    })
+  })
+})
+
 describe('TasksService.detail', () => {
   function buildService(overrides: Record<string, any> = {}) {
     const prisma = {

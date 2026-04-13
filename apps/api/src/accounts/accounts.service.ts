@@ -530,8 +530,18 @@ export class AccountsService {
     extras: Array<{ name?: string | null; phone?: string | null; email?: string | null }> = [],
     fallbackName = 'İsimsiz / Genel',
   ) {
-    const rows = this.expandContactRows({ name: '', phone: '', email: '' }, extras, fallbackName)
-    return rows.map((row) => ({ ...row, isPrimary: false }))
+    const meaningfulExtras = extras.filter((entry) => this.hasMeaningfulContact(entry))
+    if (meaningfulExtras.length === 0) return []
+    const rows = meaningfulExtras.flatMap((entry) => this.expandContactRows(entry, [], fallbackName))
+    const deduped: Array<{ name: string; phone: string | null; email: string | null; isPrimary: boolean }> = []
+    const seen = new Set<string>()
+    for (const row of rows) {
+      const key = this.contactRowKey(row)
+      if (seen.has(key)) continue
+      seen.add(key)
+      deduped.push({ ...row, isPrimary: false })
+    }
+    return deduped
   }
 
   private hasMeaningfulContact(row?: { name?: string | null; phone?: string | null; email?: string | null } | null) {
@@ -984,10 +994,11 @@ export class AccountsService {
       finalContactPerson !== undefined ||
       body.address !== undefined ||
       body.extraContacts !== undefined
+    let primaryContactId = primary?.id || ''
     if (emailToCheck) {
       const firstPrimaryRow = primaryRows[0] || { name: updated.businessName, phone: null, email: null, isPrimary: true }
       if (primary) {
-        await this.prisma.accountContact.update({
+        const updatedPrimary = await this.prisma.accountContact.update({
           where: { id: primary.id },
           data: {
             email: firstPrimaryRow.email,
@@ -996,8 +1007,9 @@ export class AccountsService {
             address: body.address !== undefined ? body.address || null : primary.address,
           },
         })
+        primaryContactId = updatedPrimary?.id || primary.id
       } else if (firstPrimaryRow.email || firstPrimaryRow.phone || firstPrimaryRow.name) {
-        await this.prisma.accountContact.create({
+        const createdPrimary = await this.prisma.accountContact.create({
           data: {
             accountId: id,
             type: 'PERSON',
@@ -1008,6 +1020,7 @@ export class AccountsService {
             isPrimary: true,
           },
         })
+        primaryContactId = createdPrimary.id
       }
     }
 
@@ -1070,9 +1083,16 @@ export class AccountsService {
           continue
         }
 
-        if (linkCount === 0) {
+        if (linkCount > 0 && primaryContactId && primaryContactId !== leftover.id) {
+          await this.prisma.taskContact.updateMany({
+            where: { contactId: leftover.id },
+            data: { contactId: primaryContactId },
+          })
           await this.prisma.accountContact.delete({ where: { id: leftover.id } })
+          continue
         }
+
+        await this.prisma.accountContact.delete({ where: { id: leftover.id } })
       }
     }
 
