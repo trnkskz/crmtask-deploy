@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import { PrismaService } from '../infrastructure/prisma/prisma.service'
 import { OperationsRadarQueryDto } from './dto/operations-radar.dto'
 import { getAccountSourceLabel, normalizeAccountSource } from '../common/source-type'
@@ -14,6 +15,24 @@ function toCsv(rows: any[]): string {
     return s
   }
   return [headers.join(','), ...rows.map(r => headers.map(h => esc((r as any)[h])).join(','))].join('\n')
+}
+
+function csvEscape(value: any) {
+  if (value == null) return ''
+  const text = String(value)
+  if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`
+  return text
+}
+
+function appendCsvChunk(headers: string[], lines: string[], rows: any[]) {
+  if (!Array.isArray(rows) || rows.length === 0) return
+  if (headers.length === 0) {
+    headers.push(...Object.keys(rows[0] || {}))
+    if (headers.length > 0) lines.push(headers.join(','))
+  }
+  for (const row of rows) {
+    lines.push(headers.map((header) => csvEscape((row as any)?.[header])).join(','))
+  }
 }
 
 function resolveCanonicalCategory(mainCategory: string, subCategory: string, companyName = '') {
@@ -143,6 +162,223 @@ export class ReportsService {
       },
       { total: 0, open: 0, closed: 0, deal: 0, cold: 0, idle: 0 },
     )
+  }
+
+  private countDistinctBusinessIds(rows: any[]) {
+    const seen = new Set()
+    for (const row of Array.isArray(rows) ? rows : []) {
+      const businessId = String(row?.businessId || row?.accountId || '').trim()
+      if (businessId) seen.add(businessId)
+    }
+    return seen.size
+  }
+
+  private parseAggregateCount(row: unknown, key: string) {
+    const raw = (row as Record<string, unknown> | null)?.[key]
+    const numeric = Number(raw || 0)
+    return Number.isFinite(numeric) ? numeric : 0
+  }
+
+  private async countSalespersonDelayedTasks(userId: string, threshold: Date) {
+    const rows = await this.prisma.$queryRaw<Array<{ count: bigint | number }>>(Prisma.sql`
+      SELECT COUNT(*)::int AS count
+      FROM "Task" AS t
+      LEFT JOIN LATERAL (
+        SELECT l."createdAt", l."followUpDate"
+        FROM "ActivityLog" AS l
+        WHERE l."taskId" = t."id"
+        ORDER BY l."createdAt" DESC
+        LIMIT 1
+      ) AS latest_log ON TRUE
+      WHERE t."ownerId" = ${userId}
+        AND t."generalStatus" = CAST('OPEN' AS "GeneralStatus")
+        AND NOT (
+          t."status" = CAST('FOLLOWUP' AS "TaskStatus")
+          AND latest_log."followUpDate" IS NOT NULL
+        )
+        AND COALESCE(latest_log."createdAt", t."creationDate") < ${threshold}
+    `)
+    return this.parseAggregateCount(rows?.[0], 'count')
+  }
+
+  private async findSalespersonUpcomingFollowups(userId: string, from: Date, to: Date) {
+    const rows = await this.prisma.$queryRaw<Array<{
+      taskId: string
+      businessId: string
+      businessName: string | null
+      city: string | null
+      status: string
+      sourceType: string | null
+      mainCategory: string | null
+      subCategory: string | null
+      nextCallDate: Date | null
+    }>>(Prisma.sql`
+      SELECT
+        t."id" AS "taskId",
+        t."accountId" AS "businessId",
+        COALESCE(a."accountName", a."businessName") AS "businessName",
+        a."city" AS "city",
+        t."status"::text AS "status",
+        t."source"::text AS "sourceType",
+        t."mainCategory" AS "mainCategory",
+        t."subCategory" AS "subCategory",
+        latest_log."followUpDate" AS "nextCallDate"
+      FROM "Task" AS t
+      INNER JOIN "Account" AS a ON a."id" = t."accountId"
+      INNER JOIN LATERAL (
+        SELECT l."followUpDate", l."createdAt"
+        FROM "ActivityLog" AS l
+        WHERE l."taskId" = t."id"
+        ORDER BY l."createdAt" DESC
+        LIMIT 1
+      ) AS latest_log ON TRUE
+      WHERE t."ownerId" = ${userId}
+        AND t."generalStatus" = CAST('OPEN' AS "GeneralStatus")
+        AND t."status" = CAST('FOLLOWUP' AS "TaskStatus")
+        AND latest_log."followUpDate" >= ${from}
+        AND latest_log."followUpDate" <= ${to}
+      ORDER BY latest_log."followUpDate" ASC, t."creationDate" DESC
+    `)
+
+    return rows.map((row) => ({
+      taskId: row.taskId,
+      businessId: row.businessId,
+      businessName: row.businessName || 'Bilinmeyen İşletme',
+      city: row.city || '-',
+      status: this.normalizeTaskStatusKey(row.status),
+      sourceType: String(row.sourceType || ''),
+      mainCategory: String(row.mainCategory || ''),
+      subCategory: String(row.subCategory || ''),
+      nextCallDate: row.nextCallDate?.toISOString?.() || null,
+    }))
+  }
+
+  private async collectTaskCsvRows(where: any, categoryFilter: { mainCategory?: string; subCategory?: string }) {
+    const headers: string[] = []
+    const lines: string[] = []
+    let skip = 0
+    const take = 1000
+
+    while (true) {
+      const rows = await this.prisma.task.findMany({
+        where,
+        include: {
+          account: { select: { accountName: true } },
+          owner: { select: { email: true, name: true, firstName: true, lastName: true } },
+          logs: { select: { reason: true, createdAt: true }, orderBy: { createdAt: 'desc' }, take: 1 },
+        },
+        orderBy: [{ creationDate: 'desc' }, { id: 'desc' }],
+        skip,
+        take,
+      })
+      if (!rows.length) break
+
+      const shaped = rows
+        .filter((row: any) => {
+          if (!categoryFilter.mainCategory && !categoryFilter.subCategory) return true
+          const resolved = resolveCanonicalCategory(row.mainCategory, row.subCategory, row.account?.accountName ?? '')
+          if (categoryFilter.mainCategory && resolved.mainCategory !== categoryFilter.mainCategory) return false
+          if (categoryFilter.subCategory && resolved.subCategory !== categoryFilter.subCategory) return false
+          return true
+        })
+        .map((row: any) => ({
+          id: row.id,
+          account: row.account?.accountName ?? row.accountId,
+          assignee: row.historicalAssignee || row.owner?.name || `${row.owner?.firstName ?? ''} ${row.owner?.lastName ?? ''}`.trim() || row.owner?.email || '',
+          ownerEmail: row.owner?.email ?? '',
+          historicalAssignee: row.historicalAssignee ?? '',
+          status: row.status,
+          generalStatus: row.generalStatus,
+          source: row.source,
+          creationChannel: row.creationChannel,
+          type: row.type,
+          projectId: row.projectId ?? '',
+          mainCategory: row.mainCategory ?? '',
+          subCategory: row.subCategory ?? '',
+          priority: row.priority,
+          ownerId: row.ownerId ?? '',
+          lastActivityReason: row.logs?.[0]?.reason || '',
+          lastActivityAt: row.logs?.[0]?.createdAt ? new Date(row.logs?.[0]?.createdAt).toISOString() : '',
+          creationDate: row.creationDate.toISOString(),
+          assignmentDate: row.assignmentDate?.toISOString() ?? '',
+          dueDate: row.dueDate?.toISOString() ?? '',
+          closedAt: row.closedAt ? row.closedAt.toISOString?.() || row.closedAt : '',
+          closedReason: row.closedReason || '',
+        }))
+
+      appendCsvChunk(headers, lines, shaped)
+
+      if (rows.length < take) break
+      skip += take
+    }
+
+    return lines.join('\n')
+  }
+
+  private async collectAccountCsvRows(where: any, user?: { id: string; role: 'ADMIN'|'MANAGER'|'TEAM_LEADER'|'SALESPERSON' }) {
+    const headers: string[] = []
+    const lines: string[] = []
+    const include: any = {
+      tasks: {
+        select: {
+          status: true,
+          creationDate: true,
+          ownerId: true,
+          owner: { select: { managerId: true, team: true, role: true } },
+        },
+        orderBy: { creationDate: 'desc' },
+        take: 1,
+      },
+    }
+    let actorTeam = ''
+    if (user?.role === 'TEAM_LEADER') {
+      const actor = await this.prisma.user.findUnique({
+        where: { id: user.id },
+        select: { team: true },
+      })
+      actorTeam = String(actor?.team || '').trim()
+    }
+
+    let skip = 0
+    const take = 1000
+    while (true) {
+      const rows = await this.prisma.account.findMany({
+        where,
+        orderBy: [{ creationDate: 'desc' }, { id: 'desc' }],
+        include,
+        skip,
+        take,
+      })
+      if (!rows.length) break
+
+      const shaped = rows
+        .filter((row: any) => {
+          if (!user || user.role === 'ADMIN' || user.role === 'MANAGER') return true
+          const latestTask = (row.tasks || [])[0]
+          if (!latestTask) return false
+          if (user.role === 'SALESPERSON') return latestTask.ownerId === user.id
+          if (user.role === 'TEAM_LEADER') return Boolean(actorTeam) && latestTask.owner?.team === actorTeam && latestTask.owner?.role === 'SALESPERSON'
+          return true
+        })
+        .map((row: any) => ({
+          id: row.id,
+          accountName: row.accountName,
+          businessName: row.businessName,
+          status: row.status,
+          source: row.source,
+          type: row.type,
+          category: row.category,
+          creationDate: row.creationDate.toISOString(),
+          lastTaskStatus: row.tasks?.[0]?.status || '',
+        }))
+
+      appendCsvChunk(headers, lines, shaped)
+
+      if (rows.length < take) break
+      skip += take
+    }
+
+    return lines.join('\n')
   }
 
   private async managerHasDirectSales(userId: string) {
@@ -645,72 +881,16 @@ export class ReportsService {
       )
 
       if (user?.role === 'SALESPERSON') {
-        const ownedOpenTasks = await this.prisma.task.findMany({
-          where: {
-            ownerId: user.id,
-            generalStatus: 'OPEN' as any,
-          },
-          select: {
-            id: true,
-            accountId: true,
-            status: true,
-            source: true,
-            mainCategory: true,
-            subCategory: true,
-            creationDate: true,
-            logs: {
-              orderBy: { createdAt: 'desc' },
-              take: 1,
-              select: {
-                createdAt: true,
-                followUpDate: true,
-              },
-            },
-            account: {
-              select: {
-                accountName: true,
-                businessName: true,
-                city: true,
-              },
-            },
-          },
-          orderBy: { creationDate: 'desc' },
-          take: 5000,
-        })
-
         const ownMonthlySummary = await this.buildMonthlyContactedOutcomeSummary([user.id])
-        const now = Date.now()
         const today = new Date()
         today.setHours(0, 0, 0, 0)
         const nextWeek = new Date(today)
         nextWeek.setDate(nextWeek.getDate() + 7)
-        const threeDaysMs = 3 * 24 * 60 * 60 * 1000
-
-        const delayedTasks = ownedOpenTasks.filter((task) => {
-          const latestActivityMs = new Date(task.logs?.[0]?.createdAt || task.creationDate || 0).getTime()
-          if (!latestActivityMs) return false
-          if (String(task.status || '').toUpperCase() === 'FOLLOWUP' && task.logs?.[0]?.followUpDate) return false
-          return now - latestActivityMs > threeDaysMs
-        })
-
-        const upcomingFollowups = ownedOpenTasks
-          .filter((task) => {
-            if (String(task.status || '').toUpperCase() !== 'FOLLOWUP') return false
-            const nextCall = new Date(task.logs?.[0]?.followUpDate || 0)
-            return !Number.isNaN(nextCall.getTime()) && nextCall >= today && nextCall <= nextWeek
-          })
-          .sort((a, b) => new Date(a.logs?.[0]?.followUpDate || 0).getTime() - new Date(b.logs?.[0]?.followUpDate || 0).getTime())
-          .map((task) => ({
-            taskId: task.id,
-            businessId: task.accountId,
-            businessName: task.account?.accountName || task.account?.businessName || 'Bilinmeyen İşletme',
-            city: task.account?.city || '-',
-            status: this.normalizeTaskStatusKey(task.status),
-            sourceType: String(task.source || ''),
-            mainCategory: String(task.mainCategory || ''),
-            subCategory: String(task.subCategory || ''),
-            nextCallDate: task.logs?.[0]?.followUpDate?.toISOString?.() || null,
-          }))
+        const threeDaysAgo = new Date(Date.now() - (3 * 24 * 60 * 60 * 1000))
+        const [delayedTaskCount, upcomingFollowups] = await Promise.all([
+          this.countSalespersonDelayedTasks(user.id, threeDaysAgo),
+          this.findSalespersonUpcomingFollowups(user.id, today, nextWeek),
+        ])
 
         const dueFollowupCount = upcomingFollowups.filter((item) => {
           const nextCall = new Date(item.nextCallDate || 0)
@@ -724,9 +904,9 @@ export class ReportsService {
             action: "switchPage('page-my-tasks')",
             icon: '📅',
           })
-        } else if (delayedTasks.length > 0) {
+        } else if (delayedTaskCount > 0) {
           focusItems.push({
-            text: `Dikkat: Üzerinde 3 günden uzun süredir işlem yapmadığınız ${delayedTasks.length} görev var!`,
+            text: `Dikkat: Üzerinde 3 günden uzun süredir işlem yapmadığınız ${delayedTaskCount} görev var!`,
             action: "switchPage('page-my-tasks')",
             icon: '⚠️',
           })
@@ -1459,48 +1639,10 @@ export class ReportsService {
     if (q.source) where.source = normalizeAccountSource(q.source) as any
     if (q.creationChannel) where.creationChannel = q.creationChannel as any
     this.applyTaskDateFilter(where, q)
-
-    const rows = await this.prisma.task.findMany({
-      where,
-      include: {
-        account: { select: { accountName: true } },
-        owner: { select: { email: true, name: true, firstName: true, lastName: true } },
-        logs: { select: { reason: true, createdAt: true }, orderBy: { createdAt: 'desc' }, take: 1 },
-      },
-      orderBy: { creationDate: 'desc' },
+    return this.collectTaskCsvRows(where, {
+      mainCategory: q.mainCategory,
+      subCategory: q.subCategory,
     })
-    const filteredRows = rows.filter((r: any) => {
-      if (!q.mainCategory && !q.subCategory) return true
-      const resolved = resolveCanonicalCategory(r.mainCategory, r.subCategory, r.account?.accountName ?? '')
-      if (q.mainCategory && resolved.mainCategory !== q.mainCategory) return false
-      if (q.subCategory && resolved.subCategory !== q.subCategory) return false
-      return true
-    })
-    const shaped = filteredRows.map((r: any) => ({
-      id: r.id,
-      account: r.account?.accountName ?? r.accountId,
-      assignee: r.historicalAssignee || r.owner?.name || `${r.owner?.firstName ?? ''} ${r.owner?.lastName ?? ''}`.trim() || r.owner?.email || '',
-      ownerEmail: (r as any).owner?.email ?? '',
-      historicalAssignee: r.historicalAssignee ?? '',
-      status: r.status,
-      generalStatus: r.generalStatus,
-      source: r.source,
-      creationChannel: r.creationChannel,
-      type: r.type,
-      projectId: r.projectId ?? '',
-      mainCategory: r.mainCategory ?? '',
-      subCategory: r.subCategory ?? '',
-      priority: r.priority,
-      ownerId: r.ownerId ?? '',
-      lastActivityReason: (r as any).logs?.[0]?.reason || '',
-      lastActivityAt: (r as any).logs?.[0]?.createdAt ? new Date((r as any).logs?.[0]?.createdAt).toISOString() : '',
-      creationDate: r.creationDate.toISOString(),
-      assignmentDate: r.assignmentDate?.toISOString() ?? '',
-      dueDate: r.dueDate?.toISOString() ?? '',
-      closedAt: (r as any).closedAt ? (r as any).closedAt.toISOString?.() || (r as any).closedAt : '',
-      closedReason: (r as any).closedReason || '',
-    }))
-    return toCsv(shaped)
   }
 
   async tasksReport(q: any, user?: { id: string; role: 'ADMIN'|'MANAGER'|'TEAM_LEADER'|'SALESPERSON' }) {
@@ -1523,6 +1665,7 @@ export class ReportsService {
       return {
         items,
         total,
+        businessTotal: this.countDistinctBusinessIds(rows),
         page,
         limit,
         stats: this.buildTaskReportStats(rows),
@@ -1536,7 +1679,7 @@ export class ReportsService {
     return this.withResponseCache(pagedCacheKey, 12000, async () => {
       const where = await this.buildTaskReportWhere(baseQuery, user)
       const openStatusWhere = { ...where, status: { in: ['NEW', 'HOT', 'NOT_HOT', 'FOLLOWUP'] } }
-      const [total, open, closed, deal, cold, itemRows, idleCandidates] = await Promise.all([
+      const [total, open, closed, deal, cold, itemRows, idleCandidates, businessGroups] = await Promise.all([
         this.prisma.task.count({ where }),
         this.prisma.task.count({ where: openStatusWhere }),
         this.prisma.task.count({ where: { ...where, status: { in: ['DEAL', 'COLD'] } } }),
@@ -1558,6 +1701,12 @@ export class ReportsService {
           },
           orderBy: { creationDate: 'desc' },
         }),
+        typeof this.prisma.task.groupBy === 'function'
+          ? this.prisma.task.groupBy({
+              by: ['accountId'],
+              where,
+            })
+          : Promise.resolve([]),
       ])
 
       const items = itemRows.map((task: any) => {
@@ -1579,6 +1728,9 @@ export class ReportsService {
       return {
         items,
         total,
+        businessTotal: Array.isArray(businessGroups) && businessGroups.length > 0
+          ? businessGroups.length
+          : this.countDistinctBusinessIds(items),
         page,
         limit,
         stats: {
@@ -1604,36 +1756,6 @@ export class ReportsService {
       if (q.from) where.creationDate.gte = new Date(q.from)
       if (q.to) { const toDate = new Date(q.to); toDate.setHours(23, 59, 59, 999); where.creationDate.lte = toDate }
     }
-    // When Salesperson/Manager, limit to accounts that have tasks in their scope (latest task owner)
-    const include: any = { tasks: { select: { status: true, creationDate: true, ownerId: true, owner: { select: { managerId: true, team: true, role: true } } }, orderBy: { creationDate: 'desc' }, take: 1 } }
-    let actorTeam = ''
-    if (user?.role === 'TEAM_LEADER') {
-      const actor = await this.prisma.user.findUnique({
-        where: { id: user.id },
-        select: { team: true },
-      })
-      actorTeam = String(actor?.team || '').trim()
-    }
-    const rows = await this.prisma.account.findMany({ where, orderBy: { creationDate: 'desc' }, include })
-    const scoped = rows.filter((r: any) => {
-      if (!user || user.role === 'ADMIN' || user.role === 'MANAGER') return true
-      const t = (r.tasks||[])[0]
-      if (!t) return false
-      if (user.role === 'SALESPERSON') return t.ownerId === user.id
-      if (user.role === 'TEAM_LEADER') return Boolean(actorTeam) && t.owner?.team === actorTeam && t.owner?.role === 'SALESPERSON'
-      return true
-    })
-    const shaped = scoped.map((r: any) => ({
-      id: r.id,
-      accountName: r.accountName,
-      businessName: r.businessName,
-      status: r.status,
-      source: r.source,
-      type: r.type,
-      category: r.category,
-      creationDate: r.creationDate.toISOString(),
-      lastTaskStatus: (r as any).tasks?.[0]?.status || '',
-    }))
-    return toCsv(shaped)
+    return this.collectAccountCsvRows(where, user)
   }
 }

@@ -821,11 +821,15 @@ const DataService = (() => {
     async function fetchTaskPage(query = {}) {
         const params = new URLSearchParams();
         Object.entries(query || {}).forEach(([key, value]) => {
+            if (String(key || '').startsWith('_')) return;
             if (value === undefined || value === null || value === '') return;
             params.set(key, String(value));
         });
-        const data = await apiRequest(`/tasks?${params.toString()}`);
-        const items = Array.isArray(data?.items) ? data.items.map(mapTask) : [];
+        const path = String(query?._path || '/tasks');
+        const data = await apiRequest(`${path}?${params.toString()}`);
+        const isReportEndpoint = path.includes('/reports/tasks');
+        const rawItems = Array.isArray(data?.items) ? data.items : [];
+        const items = isReportEndpoint ? normalizeReportTaskRows(data) : rawItems.map(mapTask);
         return {
             items,
             total: Number(data?.total || items.length || 0),

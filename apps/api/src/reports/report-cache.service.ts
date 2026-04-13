@@ -1,23 +1,19 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common'
-import { Socket, createConnection } from 'node:net'
+import Redis from 'ioredis'
 
 type MemoryCacheEntry = { expiresAt: number; value: any }
-type PendingRedisResponse = { resolve: (value: any) => void; reject: (error: Error) => void }
-type ParsedRespResult = { value: any; bytesConsumed: number }
 
 @Injectable()
 export class ReportCacheService implements OnModuleDestroy {
   private readonly memoryCache = new Map<string, MemoryCacheEntry>()
   private readonly memoryCap = 200
-  private readonly redisConfig = this.parseRedisUrl(process.env.REDIS_URL || '')
-  private socket: Socket | null = null
-  private connectPromise: Promise<void> | null = null
-  private pendingResponses: PendingRedisResponse[] = []
-  private buffer = Buffer.alloc(0)
+  private readonly redisUrl = String(process.env.REDIS_URL || '').trim()
+  private redisClient: Redis | null = null
+  private redisConnectPromise: Promise<Redis | null> | null = null
   private redisDisabledUntil = 0
 
   async onModuleDestroy() {
-    this.disposeSocket()
+    await this.disposeRedisClient()
   }
 
   async remember<T>(key: string, ttlMs: number, builder: () => Promise<T>) {
@@ -72,164 +68,83 @@ export class ReportCacheService implements OnModuleDestroy {
     await this.setRedisValue(key, value, ttlMs)
   }
 
-  private parseRedisUrl(rawUrl: string) {
-    if (!rawUrl) return null
-    try {
-      const parsed = new URL(rawUrl)
-      if (parsed.protocol !== 'redis:') return null
-      return {
-        host: parsed.hostname || '127.0.0.1',
-        port: Number(parsed.port || 6379),
-        password: parsed.password || '',
-        db: Number((parsed.pathname || '/0').replace('/', '') || 0),
-      }
-    } catch {
-      return null
-    }
-  }
-
   private shouldUseRedis() {
-    return Boolean(this.redisConfig) && Date.now() >= this.redisDisabledUntil
+    return Boolean(this.redisUrl) && Date.now() >= this.redisDisabledUntil
   }
 
-  private disableRedisTemporarily() {
-    this.redisDisabledUntil = Date.now() + 30_000
-    this.disposeSocket()
-  }
-
-  private disposeSocket() {
-    if (this.socket) {
+  private async disposeRedisClient() {
+    if (!this.redisClient) return
+    try {
+      await this.redisClient.quit()
+    } catch {
       try {
-        this.socket.destroy()
+        this.redisClient.disconnect(false)
       } catch {
-        // ignore destroy races
+        // ignore disconnect races
       }
     }
-    this.socket = null
-    this.connectPromise = null
-    while (this.pendingResponses.length > 0) {
-      const pending = this.pendingResponses.shift()
-      pending?.reject(new Error('Redis connection closed'))
-    }
-    this.buffer = Buffer.alloc(0)
+    this.redisClient = null
+    this.redisConnectPromise = null
   }
 
-  private async ensureRedisConnection() {
-    if (!this.redisConfig) throw new Error('Redis disabled')
-    if (this.socket && !this.socket.destroyed) return
-    if (this.connectPromise) return this.connectPromise
+  private async disableRedisTemporarily() {
+    this.redisDisabledUntil = Date.now() + 30_000
+    await this.disposeRedisClient()
+  }
 
-    this.connectPromise = new Promise<void>((resolve, reject) => {
-      const socket = createConnection({
-        host: this.redisConfig!.host,
-        port: this.redisConfig!.port,
-      })
+  private async ensureRedisClient() {
+    if (!this.shouldUseRedis()) return null
+    if (this.redisClient && this.redisClient.status !== 'end') return this.redisClient
+    if (this.redisConnectPromise) return this.redisConnectPromise
 
-      const failConnection = (error: Error) => {
-        this.disableRedisTemporarily()
-        reject(error)
-      }
-
-      socket.once('error', failConnection)
-      socket.once('connect', async () => {
-        socket.off('error', failConnection)
-        this.socket = socket
-        socket.on('data', (chunk) => this.handleSocketData(chunk))
-        socket.on('error', () => this.disableRedisTemporarily())
-        socket.on('close', () => this.disposeSocket())
-        try {
-          if (this.redisConfig?.password) {
-            await this.sendRedisCommand(['AUTH', this.redisConfig.password])
-          }
-          const dbIndex = this.redisConfig?.db || 0
-          if (dbIndex > 0) {
-            await this.sendRedisCommand(['SELECT', String(dbIndex)])
-          }
-          resolve()
-        } catch (error: any) {
-          this.disableRedisTemporarily()
-          reject(error)
-        }
-      })
-    }).finally(() => {
-      this.connectPromise = null
+    const client = new Redis(this.redisUrl, {
+      lazyConnect: true,
+      maxRetriesPerRequest: 1,
+      enableOfflineQueue: false,
+    })
+    client.on('error', () => {
+      this.disableRedisTemporarily().catch(() => {})
+    })
+    client.on('end', () => {
+      this.redisClient = null
     })
 
-    return this.connectPromise
-  }
+    this.redisConnectPromise = client.connect()
+      .then(() => {
+        this.redisClient = client
+        return client
+      })
+      .catch(async () => {
+        await this.disableRedisTemporarily()
+        return null
+      })
+      .finally(() => {
+        this.redisConnectPromise = null
+      })
 
-  private handleSocketData(chunk: Buffer) {
-    this.buffer = Buffer.concat([this.buffer, chunk])
-    while (this.pendingResponses.length > 0) {
-      const parsed = this.tryParseResp(this.buffer)
-      if (!parsed) return
-      this.buffer = this.buffer.subarray(parsed.bytesConsumed)
-      const next = this.pendingResponses.shift()
-      if (!next) return
-      if (parsed.value instanceof Error) next.reject(parsed.value)
-      else next.resolve(parsed.value)
-    }
-  }
-
-  private tryParseResp(buffer: Buffer): ParsedRespResult | null {
-    if (!buffer.length) return null
-    const prefix = String.fromCharCode(buffer[0])
-    const lineEnd = buffer.indexOf('\r\n')
-    if (lineEnd < 0) return null
-
-    if (prefix === '+' || prefix === '-' || prefix === ':') {
-      const raw = buffer.subarray(1, lineEnd).toString('utf8')
-      if (prefix === '+') return { value: raw, bytesConsumed: lineEnd + 2 }
-      if (prefix === '-') return { value: new Error(raw), bytesConsumed: lineEnd + 2 }
-      return { value: Number(raw), bytesConsumed: lineEnd + 2 }
-    }
-
-    if (prefix === '$') {
-      const size = Number(buffer.subarray(1, lineEnd).toString('utf8'))
-      if (size === -1) return { value: null, bytesConsumed: lineEnd + 2 }
-      const endIndex = lineEnd + 2 + size
-      if (buffer.length < endIndex + 2) return null
-      return {
-        value: buffer.subarray(lineEnd + 2, endIndex).toString('utf8'),
-        bytesConsumed: endIndex + 2,
-      }
-    }
-
-    return null
-  }
-
-  private async sendRedisCommand(args: string[]) {
-    await this.ensureRedisConnection()
-    if (!this.socket) throw new Error('Redis socket unavailable')
-
-    return new Promise<any>((resolve, reject) => {
-      this.pendingResponses.push({ resolve, reject })
-      const payload = `*${args.length}\r\n${args.map((arg) => {
-        const value = String(arg)
-        return `$${Buffer.byteLength(value)}\r\n${value}\r\n`
-      }).join('')}`
-      this.socket!.write(payload)
-    })
+    return this.redisConnectPromise
   }
 
   private async getRedisValue<T>(key: string) {
-    if (!this.shouldUseRedis()) return undefined
+    const client = await this.ensureRedisClient()
+    if (!client) return undefined
     try {
-      const raw = await this.sendRedisCommand(['GET', key])
+      const raw = await client.get(key)
       if (raw == null || raw === '') return undefined
       return JSON.parse(String(raw)) as T
     } catch {
-      this.disableRedisTemporarily()
+      await this.disableRedisTemporarily()
       return undefined
     }
   }
 
   private async setRedisValue(key: string, value: any, ttlMs: number) {
-    if (!this.shouldUseRedis()) return
+    const client = await this.ensureRedisClient()
+    if (!client) return
     try {
-      await this.sendRedisCommand(['SET', key, JSON.stringify(value), 'PX', String(ttlMs)])
+      await client.set(key, JSON.stringify(value), 'PX', ttlMs)
     } catch {
-      this.disableRedisTemporarily()
+      await this.disableRedisTemporarily()
     }
   }
 }

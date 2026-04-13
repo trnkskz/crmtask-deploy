@@ -7,6 +7,8 @@ const SyncService = (() => {
     const POLL_MS = 8000;
     const EVENT_STREAM_PATH = '/events/stream';
     const INVALIDATION_DEBOUNCE_MS = 1200;
+    const ENTITY_REFRESH_DEBOUNCE_MS = 180;
+    const MAX_DIRECT_ENTITY_REFRESHES = 3;
     const LAST_EVENT_ID_STORAGE_KEY = 'crm_last_realtime_event_id_v1';
 
     let _refreshTimeout = null;
@@ -16,6 +18,8 @@ const SyncService = (() => {
     let _syncPending = false;
     let _started = false;
     let _invalidateTimer = null;
+    let _taskRefreshTimer = null;
+    let _businessRefreshTimer = null;
     let _bootstrapPromise = null;
     let _deferredBootstrapPromise = null;
     let _suppressRefreshUntilSettled = false;
@@ -24,6 +28,8 @@ const SyncService = (() => {
 
     const _markedKeys = new Set();
     const _pendingCollections = new Set();
+    const _pendingTaskRefreshes = new Map();
+    const _pendingBusinessRefreshes = new Map();
     const CORE_BOOTSTRAP_COLLECTIONS = ['users', 'notifications', 'categories', 'pricing'];
 
     function _readStoredLastEventId() {
@@ -302,7 +308,7 @@ const SyncService = (() => {
         return document.getElementById('businessDetailModal')?.style?.display === 'flex';
     }
 
-    async function _refreshTaskEntity(taskId, options = {}) {
+    async function _refreshTaskEntityNow(taskId, options = {}) {
         if (!taskId || (!options.force && !_isTaskVisible(taskId))) return;
         let refreshedTask = null;
         try {
@@ -341,7 +347,7 @@ const SyncService = (() => {
         _debouncedRefresh();
     }
 
-    async function _refreshBusinessEntity(businessId, options = {}) {
+    async function _refreshBusinessEntityNow(businessId, options = {}) {
         if (!businessId || (!options.force && !_isBusinessVisible(businessId))) return;
         try {
             const business = await DataService.readPath(`accounts/${businessId}`, { force: true });
@@ -369,6 +375,90 @@ const SyncService = (() => {
         _debouncedRefresh();
     }
 
+    function _enqueueEntityRefresh(queue, key, timerRefName, flushFn, options = {}) {
+        if (!key) return;
+        const existing = queue.get(key) || {};
+        queue.set(key, { force: Boolean(existing.force || options.force) });
+        if (timerRefName === 'task' && _taskRefreshTimer) return;
+        if (timerRefName === 'business' && _businessRefreshTimer) return;
+        const timeoutId = setTimeout(() => {
+            if (timerRefName === 'task') _taskRefreshTimer = null;
+            if (timerRefName === 'business') _businessRefreshTimer = null;
+            flushFn().catch((err) => {
+                console.warn('Realtime entity queue flush failed:', err?.message || err);
+            });
+        }, ENTITY_REFRESH_DEBOUNCE_MS);
+        if (timerRefName === 'task') _taskRefreshTimer = timeoutId;
+        if (timerRefName === 'business') _businessRefreshTimer = timeoutId;
+    }
+
+    function _refreshOpenModalsOnce() {
+        const openTaskId = String(window?._openTaskModalId || '');
+        const openBusinessId = String(window?._openBusinessDetailId || '');
+        if (openTaskId) _pendingTaskRefreshes.set(openTaskId, { force: true });
+        if (openBusinessId) _pendingBusinessRefreshes.set(openBusinessId, { force: true });
+    }
+
+    async function _flushTaskRefreshQueue() {
+        const entries = Array.from(_pendingTaskRefreshes.entries());
+        _pendingTaskRefreshes.clear();
+        if (!entries.length) return;
+
+        const directIds = entries
+            .filter(([taskId, options]) => options?.force || _isTaskVisible(taskId))
+            .map(([taskId, options]) => ({ taskId, force: Boolean(options?.force) }));
+
+        if (directIds.length === 0) {
+            _debouncedRefresh();
+            return;
+        }
+
+        if (directIds.length > MAX_DIRECT_ENTITY_REFRESHES) {
+            const modalTaskId = String(window?._openTaskModalId || '');
+            if (modalTaskId && directIds.some((item) => item.taskId === modalTaskId)) {
+                await _refreshTaskEntityNow(modalTaskId, { force: true });
+            }
+            _debouncedRefresh();
+            return;
+        }
+
+        await Promise.all(directIds.map((item) => _refreshTaskEntityNow(item.taskId, { force: item.force })));
+    }
+
+    async function _flushBusinessRefreshQueue() {
+        const entries = Array.from(_pendingBusinessRefreshes.entries());
+        _pendingBusinessRefreshes.clear();
+        if (!entries.length) return;
+
+        const directIds = entries
+            .filter(([businessId, options]) => options?.force || _isBusinessVisible(businessId))
+            .map(([businessId, options]) => ({ businessId, force: Boolean(options?.force) }));
+
+        if (directIds.length === 0) {
+            _debouncedRefresh();
+            return;
+        }
+
+        if (directIds.length > MAX_DIRECT_ENTITY_REFRESHES) {
+            const modalBusinessId = String(window?._openBusinessDetailId || '');
+            if (modalBusinessId && directIds.some((item) => item.businessId === modalBusinessId)) {
+                await _refreshBusinessEntityNow(modalBusinessId, { force: true });
+            }
+            _debouncedRefresh();
+            return;
+        }
+
+        await Promise.all(directIds.map((item) => _refreshBusinessEntityNow(item.businessId, { force: item.force })));
+    }
+
+    async function _refreshTaskEntity(taskId, options = {}) {
+        _enqueueEntityRefresh(_pendingTaskRefreshes, taskId, 'task', _flushTaskRefreshQueue, options);
+    }
+
+    async function _refreshBusinessEntity(businessId, options = {}) {
+        _enqueueEntityRefresh(_pendingBusinessRefreshes, businessId, 'business', _flushBusinessRefreshQueue, options);
+    }
+
     async function _applyRealtimeDelta(payload = null) {
         const type = String(payload?.type || '').trim().toUpperCase();
         if (!type) return false;
@@ -382,6 +472,12 @@ const SyncService = (() => {
             return true;
         }
         if (type === 'TASK_UPDATED') {
+            if (payload?.task?.id) {
+                _mergeEntityIntoState('tasks', payload.task);
+                _refreshOpenModalsOnce();
+                _debouncedRefresh();
+                return true;
+            }
             await _refreshTaskEntity(String(payload?.taskId || ''));
             return true;
         }
@@ -391,6 +487,12 @@ const SyncService = (() => {
             return true;
         }
         if (type === 'ACCOUNT_UPDATED') {
+            if (payload?.account?.id) {
+                _mergeEntityIntoState('businesses', payload.account);
+                _refreshOpenModalsOnce();
+                _debouncedRefresh();
+                return true;
+            }
             await _refreshBusinessEntity(String(payload?.accountId || ''));
             return true;
         }

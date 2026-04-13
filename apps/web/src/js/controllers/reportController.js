@@ -10,6 +10,10 @@ const ReportController = (() => {
         filteredTasks: [],
         taskRows: [],
         businessRows: [],
+        taskStats: null,
+        taskTotal: 0,
+        businessTotal: 0,
+        pagedTaskMode: false,
     };
 
     function stripHtml(value) {
@@ -92,11 +96,13 @@ const ReportController = (() => {
     }
 
     function setDashboardMetrics(taskRows, businessRows) {
-        const openTaskCount = taskRows.filter(row => isOpenTaskStatus(row.statusKey)).length;
-        const dealCount = taskRows.filter(row => row.statusKey === 'deal').length;
-        const coldCount = taskRows.filter(row => row.statusKey === 'cold').length;
-        const followupCount = taskRows.filter(row => row.statusKey === 'followup').length;
+        const stats = reportUiState.taskStats || {};
+        const openTaskCount = Number.isFinite(Number(stats.open)) ? Number(stats.open) : taskRows.filter(row => isOpenTaskStatus(row.statusKey)).length;
+        const dealCount = Number.isFinite(Number(stats.deal)) ? Number(stats.deal) : taskRows.filter(row => row.statusKey === 'deal').length;
+        const coldCount = Number.isFinite(Number(stats.cold)) ? Number(stats.cold) : taskRows.filter(row => row.statusKey === 'cold').length;
         const contactedTaskCount = taskRows.filter(row => row.conversationHistoryCount > 0).length;
+        const totalTasks = Number(reportUiState.taskTotal || taskRows.length || 0);
+        const totalBusinesses = Number(reportUiState.businessTotal || businessRows.length || 0);
 
         if (reportUiState.activeTab === 'businesses') {
             const activeBusinessCount = businessRows.filter(row => row.openTaskCount > 0).length;
@@ -113,8 +119,8 @@ const ReportController = (() => {
             return;
         }
 
-        setMetric(1, 'Filtrelenen Görev', taskRows.length);
-        setMetric(2, 'İşletme', businessRows.length);
+        setMetric(1, 'Filtrelenen Görev', totalTasks);
+        setMetric(2, 'İşletme', totalBusinesses);
         setMetric(3, 'Açık Görev', openTaskCount, '#bfdbfe');
         setMetric(4, 'Deal', dealCount, '#a7f3d0');
         setMetric(5, 'Cold', coldCount, '#fecaca');
@@ -187,6 +193,10 @@ const ReportController = (() => {
         reportUiState.filteredTasks = [];
         reportUiState.taskRows = [];
         reportUiState.businessRows = [];
+        reportUiState.taskStats = null;
+        reportUiState.taskTotal = 0;
+        reportUiState.businessTotal = 0;
+        reportUiState.pagedTaskMode = false;
         syncTabButtons();
         setTableHead();
         setMetric(1, reportUiState.activeTab === 'businesses' ? 'Filtrelenen İşletme' : 'Filtrelenen Görev', 0);
@@ -399,11 +409,38 @@ const ReportController = (() => {
         const query = buildReportQuery();
         const dataService = getDataService();
         if (!dataService?.apiRequest && !dataService?.fetchAllReportTaskRows) {
-            return buildLocalFilterResults();
+            const local = buildLocalFilterResults();
+            return {
+                ...local,
+                taskStats: null,
+                taskTotal: local.taskRows.length,
+                businessTotal: local.businessRows.length,
+                pagedTaskMode: false,
+            };
         }
-        const response = typeof dataService.fetchAllReportTaskRows === 'function'
-            ? await dataService.fetchAllReportTaskRows(query)
-            : await dataService.apiRequest(`/reports/tasks${query ? `?${query}` : ''}`);
+        if (reportUiState.activeTab === 'businesses') {
+            const response = typeof dataService.fetchAllReportTaskRows === 'function'
+                ? await dataService.fetchAllReportTaskRows(query)
+                : await dataService.apiRequest(`/reports/tasks${query ? `?${query}` : ''}`);
+            const rawRows = typeof dataService.normalizeReportTaskRows === 'function'
+                ? dataService.normalizeReportTaskRows(response)
+                : (Array.isArray(response) ? response : (Array.isArray(response?.items) ? response.items : (Array.isArray(response?.rows) ? response.rows : [])));
+            const taskRows = rawRows.map(formatTaskReportRow);
+            const businessRows = getBusinessRowsFromTaskRows(taskRows);
+            return {
+                filteredTasks: [],
+                taskRows,
+                businessRows,
+                taskStats: response?.stats || null,
+                taskTotal: Number(response?.total || taskRows.length),
+                businessTotal: Number(response?.businessTotal || businessRows.length),
+                pagedTaskMode: false,
+            };
+        }
+
+        const page = Math.max(1, Number(AppState?.pagination?.reports || 1));
+        const pagedQuery = query ? `${query}&page=${page}&limit=${ITEMS_PER_PAGE}` : `page=${page}&limit=${ITEMS_PER_PAGE}`;
+        const response = await dataService.apiRequest(`/reports/tasks?${pagedQuery}`);
         const rawRows = typeof dataService.normalizeReportTaskRows === 'function'
             ? dataService.normalizeReportTaskRows(response)
             : (Array.isArray(response) ? response : (Array.isArray(response?.items) ? response.items : (Array.isArray(response?.rows) ? response.rows : [])));
@@ -413,6 +450,10 @@ const ReportController = (() => {
             filteredTasks: [],
             taskRows,
             businessRows,
+            taskStats: response?.stats || null,
+            taskTotal: Number(response?.total || taskRows.length),
+            businessTotal: Number(response?.businessTotal || businessRows.length),
+            pagedTaskMode: true,
         };
     }
 
@@ -439,6 +480,10 @@ const ReportController = (() => {
             reportUiState.filteredTasks = nextState.filteredTasks;
             reportUiState.taskRows = nextState.taskRows;
             reportUiState.businessRows = nextState.businessRows;
+            reportUiState.taskStats = nextState.taskStats || null;
+            reportUiState.taskTotal = Number(nextState.taskTotal || nextState.taskRows.length || 0);
+            reportUiState.businessTotal = Number(nextState.businessTotal || nextState.businessRows.length || 0);
+            reportUiState.pagedTaskMode = Boolean(nextState.pagedTaskMode);
             AppState.setFiltered('reports', nextState.filteredTasks);
             _displayReports();
             return;
@@ -452,6 +497,10 @@ const ReportController = (() => {
             reportUiState.filteredTasks = nextState.filteredTasks;
             reportUiState.taskRows = nextState.taskRows;
             reportUiState.businessRows = nextState.businessRows;
+            reportUiState.taskStats = nextState.taskStats || null;
+            reportUiState.taskTotal = Number(nextState.taskTotal || nextState.taskRows.length || 0);
+            reportUiState.businessTotal = Number(nextState.businessTotal || nextState.businessRows.length || 0);
+            reportUiState.pagedTaskMode = Boolean(nextState.pagedTaskMode);
             AppState.setFiltered('reports', nextState.filteredTasks);
             _displayReports();
         } catch (err) {
@@ -491,8 +540,9 @@ const ReportController = (() => {
             nothot: 'var(--warning-color)', followup: '#d97706', new: 'var(--info-color)'
         };
 
+        const useServerPagedTaskRows = reportUiState.activeTab === 'tasks' && reportUiState.pagedTaskMode;
         const start = (page - 1) * ITEMS_PER_PAGE;
-        const paginated = filtered.slice(start, start + ITEMS_PER_PAGE);
+        const paginated = useServerPagedTaskRows ? filtered : filtered.slice(start, start + ITEMS_PER_PAGE);
         const rows = paginated.map(row => {
             if (reportUiState.activeTab === 'businesses') {
                 return `<tr style="cursor:pointer;" onclick="${row.id ? `openBusinessDetailModal('${row.id}')` : `openTaskModal('${row.latestTaskId}')`}">
@@ -532,8 +582,15 @@ const ReportController = (() => {
 
         tbody.innerHTML = rows;
 
-        renderPagination(pagContainer, filtered.length, page, ITEMS_PER_PAGE, (i) => {
+        const totalCount = useServerPagedTaskRows
+            ? Number(reportUiState.taskTotal || filtered.length || 0)
+            : filtered.length;
+        renderPagination(pagContainer, totalCount, page, ITEMS_PER_PAGE, (i) => {
             AppState.setPage('reports', i);
+            if (useServerPagedTaskRows) {
+                renderReports(false, { silent: true });
+                return;
+            }
             _displayReports();
         }, { compact: true, resultLabel: 'kayıt' });
     }
@@ -547,7 +604,7 @@ const ReportController = (() => {
             clearFilters();
             return;
         }
-        _displayReports();
+        renderReports(false, { silent: true });
     }
 
     function _toApiTaskStatus(status) {
@@ -579,7 +636,16 @@ const ReportController = (() => {
                 showToast('Önce filtreleme yapıp raporu oluşturun.', 'warning');
                 return;
             }
-            const rows = reportUiState.taskRows.map((row) => ([
+            let exportRows = reportUiState.taskRows;
+            const dataService = getDataService();
+            if (typeof dataService?.fetchAllReportTaskRows === 'function') {
+                const response = await dataService.fetchAllReportTaskRows(buildReportQuery());
+                const rawRows = typeof dataService.normalizeReportTaskRows === 'function'
+                    ? dataService.normalizeReportTaskRows(response)
+                    : (Array.isArray(response) ? response : []);
+                exportRows = rawRows.map(formatTaskReportRow);
+            }
+            const rows = exportRows.map((row) => ([
                 row.createdAt,
                 row.businessName,
                 row.city,
@@ -615,7 +681,16 @@ const ReportController = (() => {
                 showToast('Önce filtreleme yapıp raporu oluşturun.', 'warning');
                 return;
             }
-            const rows = reportUiState.businessRows.map((row) => ([
+            let exportRows = reportUiState.businessRows;
+            const dataService = getDataService();
+            if (typeof dataService?.fetchAllReportTaskRows === 'function') {
+                const response = await dataService.fetchAllReportTaskRows(buildReportQuery());
+                const rawRows = typeof dataService.normalizeReportTaskRows === 'function'
+                    ? dataService.normalizeReportTaskRows(response)
+                    : (Array.isArray(response) ? response : []);
+                exportRows = getBusinessRowsFromTaskRows(rawRows.map(formatTaskReportRow));
+            }
+            const rows = exportRows.map((row) => ([
                 row.lastActionDate,
                 row.businessName,
                 row.city,
@@ -664,11 +739,14 @@ const ReportController = (() => {
 // ============================================================
 
 const ArchiveController = (() => {
+    const ARCHIVE_PAGE_LIMIT = 50;
     let _hasSearched = false;
 
     function buildArchiveQuery() {
         const getValue = id => document.getElementById(id)?.value || '';
-        const query = new URLSearchParams();
+        const query = {
+            generalStatus: 'CLOSED',
+        };
         const searchFilter = normalizeText(getValue('passiveSearchInput'));
         const statusFilter = getValue('passiveFilterStatus');
         const yearFilter = getValue('passiveFilterYear');
@@ -678,37 +756,57 @@ const ArchiveController = (() => {
         const subCategoryFilter = getValue('passiveFilterSubCategory');
         const districtFilter = getValue('passiveFilterDistrict');
 
-        if (searchFilter) query.set('q', searchFilter);
-        if (statusFilter) query.set('status', ReportController.toApiTaskStatus(statusFilter));
-        else query.set('generalStatus', 'CLOSED');
-        if (districtFilter) query.set('district', districtFilter);
-        if (categoryFilter) query.set('mainCategory', categoryFilter);
-        if (subCategoryFilter) query.set('subCategory', subCategoryFilter);
-        if (yearFilter) query.set('from', `${yearFilter}-01-01`);
+        if (searchFilter) query.q = searchFilter;
+        if (statusFilter) query.status = ReportController.toApiTaskStatus(statusFilter);
+        if (districtFilter) query.district = districtFilter;
+        if (categoryFilter) query.mainCategory = categoryFilter;
+        if (subCategoryFilter) query.subCategory = subCategoryFilter;
+        if (yearFilter) query.from = `${yearFilter}-01-01`;
         if (yearFilter) {
             if (monthFilter) {
                 const monthIndex = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'].indexOf(monthFilter);
                 if (monthIndex >= 0) {
                     const month = String(monthIndex + 1).padStart(2, '0');
-                    query.set('from', `${yearFilter}-${month}-01`);
-                    query.set('to', `${yearFilter}-${month}-31`);
+                    query.from = `${yearFilter}-${month}-01`;
+                    query.to = `${yearFilter}-${month}-31`;
                 } else {
-                    query.set('to', `${yearFilter}-12-31`);
+                    query.to = `${yearFilter}-12-31`;
                 }
             } else {
-                query.set('to', `${yearFilter}-12-31`);
+                query.to = `${yearFilter}-12-31`;
             }
         }
 
         if (assigneeFilter === 'Team 1' || assigneeFilter === 'Team 2') {
-            query.set('team', assigneeFilter);
+            query.team = assigneeFilter;
         } else {
             const assigneeScope = ReportController.resolveOwnerIdFromFilter(assigneeFilter);
-            if (assigneeScope?.ownerId) query.set('ownerId', assigneeScope.ownerId);
-            if (assigneeScope?.historicalAssignee) query.set('historicalAssignee', assigneeScope.historicalAssignee);
+            if (assigneeScope?.ownerId) query.ownerId = assigneeScope.ownerId;
+            if (assigneeScope?.historicalAssignee) query.historicalAssignee = assigneeScope.historicalAssignee;
         }
 
-        return query.toString();
+        return query;
+    }
+
+    function mapArchiveReportRowToCard(row) {
+        const formatted = ReportController.formatTaskReportRow(row);
+        return {
+            id: formatted.id,
+            businessId: formatted.businessId,
+            companyName: formatted.businessName,
+            city: formatted.city,
+            district: formatted.district,
+            assignee: formatted.assignee,
+            ownerId: row.ownerId || '',
+            status: formatted.statusKey,
+            sourceType: formatted.sourceLabel,
+            mainCategory: formatted.mainCategory,
+            subCategory: formatted.subCategory,
+            createdAt: row.createdAt || '',
+            logs: formatted.lastActionDate && formatted.lastActionDate !== '-'
+                ? [{ date: formatted.lastActionDate, text: formatted.logContent || formatted.latestLogLabel || '-' }]
+                : [],
+        };
     }
 
     function clearFilters() {
@@ -731,7 +829,10 @@ const ArchiveController = (() => {
 
     async function renderPassiveTasks(isExplicit = false, options = {}) {
         const silent = Boolean(options?.silent);
-        if (isExplicit === true) _hasSearched = true;
+        if (isExplicit === true) {
+            _hasSearched = true;
+            AppState.setPage('archive', 1);
+        }
         
         // Eğer hiçbir zaman arama yapılmadıysa ve sayfa 1 ise mesajı göster
         if (!_hasSearched && AppState.pagination.archive === 1) {
@@ -744,41 +845,23 @@ const ArchiveController = (() => {
         if (btnClear) btnClear.style.display = 'inline-block';
 
         const query = buildArchiveQuery();
-        let filtered = [];
+        let rows = [];
+        let totalCount = 0;
+        let page = Math.max(1, Number(AppState?.pagination?.archive || 1));
         try {
             const dataService = typeof DataService !== 'undefined' ? DataService : null;
-            const response = typeof dataService?.fetchAllReportTaskRows === 'function'
-                ? await dataService.fetchAllReportTaskRows(query)
-                : (typeof dataService?.apiRequest === 'function'
-                    ? await dataService.apiRequest(`/reports/tasks${query ? `?${query}` : ''}`)
-                    : buildLocalFilterResults().taskRows);
-            const rows = typeof dataService?.normalizeReportTaskRows === 'function'
-                ? dataService.normalizeReportTaskRows(response)
-                : (Array.isArray(response) ? response : (Array.isArray(response?.items) ? response.items : (Array.isArray(response?.rows) ? response.rows : [])));
-            filtered = rows
-                .map((row) => ReportController.formatTaskReportRow(row))
-                .filter((row) => ['deal', 'cold'].includes(String(row.statusKey || '').toLowerCase()))
-                .map((row) => ({
-                    id: row.id,
-                    businessId: row.businessId,
-                    companyName: row.businessName,
-                    city: row.city,
-                    district: row.district,
-                    assignee: row.assignee,
-                    status: row.statusKey,
-                    sourceType: row.sourceLabel,
-                    mainCategory: row.mainCategory,
-                    subCategory: row.subCategory,
-                    createdAt: row.createdAt,
-                    logs: row.lastActionDate && row.lastActionDate !== '-'
-                        ? [{ date: row.lastActionDate, text: row.logContent || row.latestLogLabel || '-' }]
-                        : [],
-                }))
-                .sort((a, b) => {
-                    const bTime = b.logs?.length > 0 ? parseLogDate(b.logs[0].date) : new Date(b.createdAt || 0).getTime();
-                    const aTime = a.logs?.length > 0 ? parseLogDate(a.logs[0].date) : new Date(a.createdAt || 0).getTime();
-                    return bTime - aTime;
-                });
+            const payload = typeof dataService?.fetchTaskPage === 'function'
+                ? await dataService.fetchTaskPage({
+                    _path: '/reports/tasks',
+                    ...query,
+                    page,
+                    limit: ARCHIVE_PAGE_LIMIT,
+                })
+                : { items: [], total: 0, page, limit: ARCHIVE_PAGE_LIMIT };
+
+            rows = Array.isArray(payload?.items) ? payload.items : [];
+            totalCount = Number(payload?.total || rows.length || 0);
+            page = Number(payload?.page || page || 1);
         } catch (err) {
             console.error('Archive report load failed:', err);
             if (!silent) {
@@ -790,13 +873,16 @@ const ArchiveController = (() => {
             return;
         }
 
-        AppState.setFiltered('archive', filtered);
-        
-        // EĞER YENİ BİR ARAMA/FİLTRELEME YAPILDIYSA SAYFAYI 1'E SIFIRLA
-        // SADECE SAYFA DEĞİŞTİRİLİYORSA MEVCUT SAYFAYI KORU
-        if (isExplicit) {
-            AppState.setPage('archive', 1);
+        if (!rows.length && totalCount > 0 && page > 1) {
+            const lastPage = Math.max(1, Math.ceil(totalCount / ARCHIVE_PAGE_LIMIT));
+            if (lastPage !== page) {
+                AppState.setPage('archive', lastPage);
+                return ArchiveController.renderPassiveTasks(false, options);
+            }
         }
+
+        const visibleRows = rows.map(mapArchiveReportRowToCard);
+        AppState.setFiltered('archive', visibleRows);
         
         const container = document.getElementById('passiveTasksContainer');
         if (!container) return;
@@ -805,25 +891,19 @@ const ArchiveController = (() => {
         const pagContainer = getOrCreatePaginationContainer('archivePagination');
         pagContainer.innerHTML = '';
 
-        if (filtered.length === 0) {
+        if (!visibleRows.length) {
             container.innerHTML = `<div style="grid-column:1/-1; padding:40px; text-align:center; color:var(--text-muted); background:#fff; border-radius:var(--radius-md); border:1px solid var(--border-light);">Kayıt bulunamadı.</div>`;
             return;
         }
 
         container.className = 'task-grid-2col';
-        const page = AppState.pagination.archive || 1; // Sabit 1 yerine State'ten dinamik al
-        const start = (page - 1) * 25;
-        const paginated = filtered.slice(start, start + 25);
-        
         const fragment = document.createDocumentFragment();
-        paginated.forEach(t => fragment.appendChild(TaskController.createMinimalCard(t)));
+        visibleRows.forEach(t => fragment.appendChild(TaskController.createMinimalCard(t)));
         container.appendChild(fragment);
 
-        // Parametreye sabit 1 yerine dinamik 'page' değişkenini yolluyoruz
-        renderPagination(pagContainer, filtered.length, page, 25, (i) => {
+        renderPagination(pagContainer, totalCount, page, ARCHIVE_PAGE_LIMIT, (i) => {
             AppState.setPage('archive', i);
-            // 'false' gönderiyoruz ki yukarıdaki if(isExplicit) bloğuna girmesin ve sayfayı 1'e sıfırlamasın
-            ArchiveController.renderPassiveTasks(false); 
+            ArchiveController.renderPassiveTasks(false, { silent: true });
         }, { compact: true, resultLabel: 'kayıt' });
     }
 

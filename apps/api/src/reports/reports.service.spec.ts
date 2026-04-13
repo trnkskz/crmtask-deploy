@@ -7,6 +7,7 @@ describe('ReportsService.tasksCsv', () => {
         findMany: jest.fn(),
         count: jest.fn(),
       },
+      $queryRaw: jest.fn(),
       user: {
         count: jest.fn().mockResolvedValue(0),
         findUnique: jest.fn(),
@@ -334,6 +335,7 @@ describe('ReportsService ratios', () => {
       activityLog: {
         findMany: jest.fn(),
       },
+      $queryRaw: jest.fn(),
       $transaction: jest.fn(),
     } as any
     return { service: new ReportsService(prisma), prisma }
@@ -356,6 +358,54 @@ describe('ReportsService ratios', () => {
     expect(snapshot.manager!.totalOpen).toBe(99)
     expect(snapshot.manager!.monthlyDeal).toBe(1)
     expect(snapshot.manager!.dealRatio).toBe(1)
+  })
+
+  it('builds salesperson dashboard focus data from database queries instead of loading all open tasks', async () => {
+    const { service, prisma } = buildRatioService()
+    jest.spyOn(service as any, 'taskStatus').mockResolvedValue({
+      total: 7,
+      byGeneralStatus: [],
+      byStatus: [{ status: 'FOLLOWUP', _count: { status: 2 } }],
+    })
+    jest.spyOn(service as any, 'performance').mockResolvedValue({ users: [] })
+    jest.spyOn(service as any, 'buildMonthlyContactedOutcomeSummary').mockResolvedValue({ deal: 2, cold: 1 })
+    prisma.$queryRaw
+      .mockResolvedValueOnce([{ count: 3 }])
+      .mockResolvedValueOnce([
+        {
+          taskId: 'task_1',
+          businessId: 'acc_1',
+          businessName: 'Acme',
+          city: 'Istanbul',
+          status: 'FOLLOWUP',
+          sourceType: 'OLD',
+          mainCategory: 'Yemek',
+          subCategory: 'Kahvalti',
+          nextCallDate: new Date('2026-04-15T09:00:00.000Z'),
+        },
+      ])
+
+    const snapshot: any = await service.dashboardSnapshot({ id: 'sales_1', role: 'SALESPERSON' })
+
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2)
+    expect(prisma.task.findMany).not.toHaveBeenCalled()
+    expect(snapshot.scope).toBe('user')
+    expect(snapshot.user).toEqual(expect.objectContaining({
+      openTasks: 7,
+      monthlyDeal: 2,
+      monthlyCold: 1,
+      upcomingFollowups: [
+        expect.objectContaining({
+          taskId: 'task_1',
+          businessId: 'acc_1',
+          businessName: 'Acme',
+          status: 'followup',
+        }),
+      ],
+    }))
+    expect(snapshot.user.focusItems[0]).toEqual(expect.objectContaining({
+      icon: '⚠️',
+    }))
   })
 
   it('counts only authored activity logs for monthly contacted summary', async () => {
