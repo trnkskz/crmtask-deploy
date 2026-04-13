@@ -8398,3 +8398,38 @@ html body .ubc-tag.status-none { background: #f8fafc !important; color: #64748b 
 /* Override #teamPulseModal generic paddings */
 #teamPulseModal #teamPulseModalBody { padding: 20px; background: #ffffff; border-radius: 20px; }
 
+
+/* --- REVISED SMART WIZARD HEADER & SUB-FILTERS --- */
+/* Override Close Button Visibility */
+#teamPulseModal .team-pulse-dialog-close {
+    width: 36px !important; height: 36px !important; background: #e2e8f0 !important; color: #475569 !important; border: 1px solid #cbd5e1 !important; box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important; right: -12px !important; top: -12px !important; padding: 0 !important;
+}
+#teamPulseModal .team-pulse-dialog-close:hover {
+    background: #ffffff !important; color: #0f172a !important; transform: rotate(90deg) scale(1.1); box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important;
+}
+
+/* Header Box */
+.tpsw-header-box {
+    background: linear-gradient(to right, #f8fafc, #ffffff); border-radius: 16px; border: 1px solid #e2e8f0; padding: 24px 20px 20px; text-align: center; position: relative;
+}
+.tpsw-header-top {
+    display: flex; justify-content: center; margin-bottom: 24px;
+}
+.tpsw-identity-stack {
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+.tpsw-avatar-ring {
+    width: 56px; height: 56px; border-radius: 50%; background: #ffffff; border: 2px solid #e2e8f0; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.03);
+}
+.tpsw-avatar {
+    width: 46px; height: 46px; border-radius: 50%; background: #0f766e; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 800;
+}
+.tpsw-identity-text h3 { margin: 0 0 4px 0; font-size: 22px; font-weight: 800; color: #0f172a; letter-spacing: -0.02em; }
+.tpsw-identity-text .tpsw-team { font-size: 12px; color: #64748b; font-weight: 600; background: #ffffff; padding: 4px 10px; border-radius: 12px; border: 1px solid #e2e8f0; }
+
+/* Sub Filters for Görüşülen */
+.tpsw-sub-filters { display: flex; justify-content: center; margin-top: -8px; margin-bottom: 8px; }
+.tpsw-sub-seg { display: inline-flex; align-items: center; background: #ffffff; padding: 4px; border-radius: 8px; border: 1px solid #e2e8f0; }
+.tpsw-sub-btn { width: auto !important; min-width: 0 !important; background: transparent !important; border: none !important; box-shadow: none !important; padding: 6px 14px !important; border-radius: 6px; color: #64748b !important; font-size: 12px !important; font-weight: 600 !important; cursor: pointer; transition: all 0.2s; }
+.tpsw-sub-btn:hover:not(.active) { color: #0f172a !important; background: #f8fafc !important; }
+.tpsw-sub-btn.active { background: #f1f5f9 !important; color: #0f766e !important; box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important; }

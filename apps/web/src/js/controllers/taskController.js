@@ -9,6 +9,7 @@ const TaskController = (() => {
         selectedUserKey: '',
         modalPeriod: 'daily',
         selectedMetric: 'open',
+        contactedPeriod: 'daily',
         currentPage: 1,
         recordsByKey: {},
     };
@@ -203,6 +204,17 @@ const TaskController = (() => {
     }
 
     function getTeamPulseMetricConfig(metricKey) {
+        const cPeriod = teamPulseUiState.contactedPeriod || 'daily';
+        let cLabel = 'Bugün Görüşülen';
+        let cEmpty = 'Bugün görüşülen işletme yok.';
+        if (cPeriod === 'weekly') {
+            cLabel = 'Bu Hafta Görüşülen';
+            cEmpty = 'Bu hafta görüşülen işletme yok.';
+        } else if (cPeriod === 'monthly') {
+            cLabel = 'Bu Ay Görüşülen';
+            cEmpty = 'Bu ay görüşülen işletme yok.';
+        }
+
         const configs = {
             open: {
                 label: 'Açık',
@@ -229,11 +241,11 @@ const TaskController = (() => {
                 icon: 'C',
             },
             contacted: {
-                label: 'Bugün Görüşülen',
+                label: cLabel,
                 tone: 'contacted',
-                period: 'daily',
-                helper: 'Bugün temas edilen işletmeler',
-                empty: 'Bugün görüşülen işletme yok.',
+                period: cPeriod,
+                helper: 'Temas edilen işletmeler',
+                empty: cEmpty,
                 icon: 'G',
             },
             opened: {
@@ -390,35 +402,49 @@ const TaskController = (() => {
 
         return `
             <div class="tp-smart-wizard">
-                <div class="tpsw-header">
-                    <div class="tpsw-avatar-ring">
-                        <div class="tpsw-avatar">${escapeHtml(String(record.user.name || '?').trim().charAt(0).toUpperCase())}</div>
+                <div class="tpsw-header-box">
+                    <div class="tpsw-header-top">
+                        <div class="tpsw-identity-stack">
+                            <div class="tpsw-avatar-ring">
+                                <div class="tpsw-avatar">${escapeHtml(String(record.user.name || '?').trim().charAt(0).toUpperCase())}</div>
+                            </div>
+                            <div class="tpsw-identity-text">
+                                <h3>${escapeHtml(record.user.name || '-')}</h3>
+                                <span class="tpsw-team">${escapeHtml(record.user.team || 'Takım Yok')}</span>
+                            </div>
+                        </div>
                     </div>
-                    <div class="tpsw-identity">
-                        <h3>${escapeHtml(record.user.name || '-')}</h3>
-                        <span class="tpsw-team">${escapeHtml(record.user.team || 'Takım Yok')}</span>
+                    
+                    <div class="tpsw-seg-wrap">
+                        <div class="tpsw-seg-control">
+                            <button type="button" class="tpsw-seg-btn ${teamPulseUiState.selectedMetric === 'open' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('open')">
+                                Açık <span class="tpsw-seg-badge">${openMetric.count}</span>
+                            </button>
+                            <button type="button" class="tpsw-seg-btn ${teamPulseUiState.selectedMetric === 'deal' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('deal')">
+                                Deal <span class="tpsw-seg-badge">${dealMetric.count}</span>
+                            </button>
+                            <button type="button" class="tpsw-seg-btn ${teamPulseUiState.selectedMetric === 'cold' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('cold')">
+                                Cold <span class="tpsw-seg-badge">${coldMetric.count}</span>
+                            </button>
+                            <button type="button" class="tpsw-seg-btn ${teamPulseUiState.selectedMetric === 'contacted' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('contacted')">
+                                Görüşülen <span class="tpsw-seg-badge">${contactedMetric.count}</span>
+                            </button>
+                            <button type="button" class="tpsw-seg-btn ${teamPulseUiState.selectedMetric === 'opened' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('opened')">
+                                Yeni <span class="tpsw-seg-badge">${openedMetric.count}</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
-                
-                <div class="tpsw-seg-wrap">
-                    <div class="tpsw-seg-control">
-                        <button type="button" class="tpsw-seg-btn ${teamPulseUiState.selectedMetric === 'open' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('open')">
-                            Açık <span class="tpsw-seg-badge">${openMetric.count}</span>
-                        </button>
-                        <button type="button" class="tpsw-seg-btn ${teamPulseUiState.selectedMetric === 'deal' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('deal')">
-                            Deal <span class="tpsw-seg-badge">${dealMetric.count}</span>
-                        </button>
-                        <button type="button" class="tpsw-seg-btn ${teamPulseUiState.selectedMetric === 'cold' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('cold')">
-                            Cold <span class="tpsw-seg-badge">${coldMetric.count}</span>
-                        </button>
-                        <button type="button" class="tpsw-seg-btn ${teamPulseUiState.selectedMetric === 'contacted' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('contacted')">
-                            Görüşülen <span class="tpsw-seg-badge">${contactedMetric.count}</span>
-                        </button>
-                        <button type="button" class="tpsw-seg-btn ${teamPulseUiState.selectedMetric === 'opened' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('opened')">
-                            Yeni <span class="tpsw-seg-badge">${openedMetric.count}</span>
-                        </button>
+
+                ${teamPulseUiState.selectedMetric === 'contacted' ? `
+                <div class="tpsw-sub-filters">
+                    <div class="tpsw-sub-seg">
+                        <button type="button" class="tpsw-sub-btn ${teamPulseUiState.contactedPeriod === 'daily' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseContactedPeriod('daily')">Bugün</button>
+                        <button type="button" class="tpsw-sub-btn ${teamPulseUiState.contactedPeriod === 'weekly' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseContactedPeriod('weekly')">Bu Hafta</button>
+                        <button type="button" class="tpsw-sub-btn ${teamPulseUiState.contactedPeriod === 'monthly' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseContactedPeriod('monthly')">Bu Ay</button>
                     </div>
                 </div>
+                ` : ''}
 
                 <div class="tpsw-body">
                     <div class="tpsw-list-grid">
@@ -958,6 +984,13 @@ const TaskController = (() => {
     function setTeamPulseModalPage(page) {
         if (!page) return;
         teamPulseUiState.currentPage = page;
+        renderTeamPulseModal();
+    }
+
+    function setTeamPulseContactedPeriod(period) {
+        if (!['daily', 'weekly', 'monthly'].includes(period)) return;
+        teamPulseUiState.contactedPeriod = period;
+        teamPulseUiState.currentPage = 1;
         renderTeamPulseModal();
     }
 
@@ -2743,6 +2776,7 @@ const TaskController = (() => {
         setTeamPulseModalPeriod,
         setTeamPulseModalMetric,
         setTeamPulseModalPage,
+        setTeamPulseContactedPeriod,
         setTeamPulseRecords,
         openTaskModal,
         renderTaskInline,
@@ -2792,6 +2826,7 @@ window.openTeamPulseModal = TaskController.openTeamPulseModal.bind(TaskControlle
 window.setTeamPulseModalPeriod = TaskController.setTeamPulseModalPeriod.bind(TaskController);
 window.setTeamPulseModalMetric = TaskController.setTeamPulseModalMetric.bind(TaskController);
 window.setTeamPulseModalPage = TaskController.setTeamPulseModalPage.bind(TaskController);
+window.setTeamPulseContactedPeriod = TaskController.setTeamPulseContactedPeriod.bind(TaskController);
 window.setTeamPulseRecords = TaskController.setTeamPulseRecords.bind(TaskController);
 window.openTaskModal = TaskController.openTaskModal.bind(TaskController);
 window.markActiveQuickFollowup = TaskController.markActiveQuickFollowup.bind(TaskController);
