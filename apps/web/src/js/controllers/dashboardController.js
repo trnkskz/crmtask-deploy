@@ -56,6 +56,7 @@ const DashboardController = {
         // SVG Ring calculation (Radius = 45, Circumference = ~282.74)
         const circumference = 282.74;
         const dashOffset = circumference - (circumference * dealRatio) / 100;
+        const progressStroke = dealRatio === 0 ? "transparent" : "#0f766e";
         
         const userKey = record?.key || '';
         const safeName = record?.user?.name || '-';
@@ -73,7 +74,7 @@ const DashboardController = {
                 <div class="perf-ring-modern-container">
                     <svg width="110" height="110" viewBox="0 0 100 100" class="perf-ring-svg">
                         <circle cx="50" cy="50" r="45" fill="none" stroke="#f1f5f9" stroke-width="6" />
-                        <circle cx="50" cy="50" r="45" fill="none" stroke="#0f766e" stroke-width="6" stroke-linecap="round"
+                        <circle cx="50" cy="50" r="45" fill="none" stroke="${progressStroke}" stroke-width="6" stroke-linecap="round"
                             stroke-dasharray="${circumference}" stroke-dashoffset="${dashOffset}" transform="rotate(-90 50 50)" />
                     </svg>
                     <div class="perf-ring-modern-inner">

@@ -8198,3 +8198,49 @@ html body .ubc-tag.status-none { background: #f8fafc !important; color: #64748b 
 .tp-page-info { font-size: 13px; color: #64748b; }
 .tp-page-info strong { color: #0f172a; font-weight: 700; }
 .tp-page-total { font-size: 12px; opacity: 0.7; margin-left: 4px; }
+
+/* --- UI OVERRIDE FIXES --- */
+/* Reset global button width and gradient conflicts */
+.tp-tab-btn {
+    width: auto !important;
+    min-width: 0 !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    color: #475569 !important;
+    padding: 10px 16px !important;
+}
+.tp-tab-btn.active {
+    background: #0f766e !important;
+    border-color: #0f766e !important;
+}
+.tp-tab-btn:hover:not(.active) {
+    background: #f8fafc !important;
+    border-color: #cbd5e1 !important;
+}
+.tp-page-btn {
+    width: 36px !important;
+    min-width: 36px !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    color: #0f172a !important;
+    padding: 0 !important;
+}
+.tp-page-btn:hover:not([disabled]) {
+    background: #f8fafc !important;
+    border-color: #cbd5e1 !important;
+    color: #0f766e !important;
+}
+.p-stat-modern {
+    width: auto !important;
+    min-width: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 8px 4px !important;
+    color: inherit !important;
+}
+.p-stat-modern:hover {
+    background: #f8fafc !important;
+}

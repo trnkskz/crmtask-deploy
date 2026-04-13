@@ -316,11 +316,11 @@ const TaskController = (() => {
         const paginationHtml = `
             <div class="tp-modal-pagination" style="grid-column: 1 / -1;">
                 <button type="button" class="tp-page-btn" ${prevDisabled} onclick="event.stopPropagation(); setTeamPulseModalPage(${page - 1})">
-                    <i class="fas fa-chevron-left"></i>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
                 </button>
                 <span class="tp-page-info">Sayfa <strong>${page}</strong> / ${totalPages} <span class="tp-page-total">(${items.length} Kayıt)</span></span>
                 <button type="button" class="tp-page-btn" ${nextDisabled} onclick="event.stopPropagation(); setTeamPulseModalPage(${page + 1})">
-                    <i class="fas fa-chevron-right"></i>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
                 </button>
             </div>
         `;
