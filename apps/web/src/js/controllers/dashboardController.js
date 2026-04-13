@@ -721,6 +721,7 @@ const DashboardController = {
 // window bindings (HTML onclick uyumluluğu)
 window.renderDashboard = DashboardController.render.bind(DashboardController);
 window.openSummaryModal = DashboardController.openSummaryModal.bind(DashboardController);
+window.filterSummaryModal = DashboardController.filterSummaryModal.bind(DashboardController);
 window.openTodayTasksModal = DashboardController.openTodayTasksModal.bind(DashboardController);
 window.refreshLiveFeed = () => { if (DashboardController && DashboardController._renderLiveFeed) DashboardController._renderLiveFeed(); };
 window.goToAllTasks = function(status) {
