@@ -3,16 +3,13 @@ ON "Account"
 USING GIN (
   to_tsvector(
     'simple',
-    concat_ws(
-      ' ',
-      COALESCE("accountName", ''),
-      COALESCE("businessName", ''),
-      COALESCE(city, ''),
-      COALESCE("mainCategory", ''),
-      COALESCE("subCategory", ''),
-      COALESCE("contactPerson", ''),
-      COALESCE("businessContact", '')
-    )
+    COALESCE("accountName", '') || ' ' ||
+    COALESCE("businessName", '') || ' ' ||
+    COALESCE(city, '') || ' ' ||
+    COALESCE("mainCategory", '') || ' ' ||
+    COALESCE("subCategory", '') || ' ' ||
+    COALESCE("contactPerson", '') || ' ' ||
+    COALESCE("businessContact", '')
   )
 );
 
@@ -21,12 +18,9 @@ ON "Task"
 USING GIN (
   to_tsvector(
     'simple',
-    concat_ws(
-      ' ',
-      COALESCE(id, ''),
-      COALESCE(details, ''),
-      COALESCE(contact, ''),
-      COALESCE("externalRef", '')
-    )
+    COALESCE(id, '') || ' ' ||
+    COALESCE(details, '') || ' ' ||
+    COALESCE(contact, '') || ' ' ||
+    COALESCE("externalRef", '')
   )
 );
