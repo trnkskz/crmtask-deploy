@@ -1466,6 +1466,83 @@ export class ReportsService {
     }
   }
 
+  private async collectOperationsRadarActivityLogs(scopedUserIds: string[], from: Date, to: Date) {
+    const rows: any[] = []
+    const take = 500
+    let skip = 0
+
+    while (true) {
+      const chunk = await this.prisma.activityLog.findMany({
+        where: {
+          createdAt: { gte: from, lte: to },
+          task: {
+            ownerId: { in: scopedUserIds },
+          },
+        },
+        select: {
+          id: true,
+          text: true,
+          createdAt: true,
+          author: { select: { name: true } },
+          task: {
+            select: {
+              id: true,
+              status: true,
+              details: true,
+              createdAt: true,
+              owner: { select: { id: true, name: true, team: true } },
+              account: { select: { accountName: true, businessName: true } },
+            },
+          },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip,
+        take,
+      })
+
+      if (!chunk.length) break
+      rows.push(...chunk)
+      if (chunk.length < take) break
+      skip += take
+    }
+
+    return rows
+  }
+
+  private async collectOperationsRadarFallbackTasks(scopedUserIds: string[], from: Date, to: Date) {
+    const rows: any[] = []
+    const take = 250
+    let skip = 0
+
+    while (true) {
+      const chunk = await this.prisma.task.findMany({
+        where: {
+          ownerId: { in: scopedUserIds },
+          creationDate: { gte: from, lte: to },
+          logs: { none: {} },
+        },
+        select: {
+          id: true,
+          status: true,
+          details: true,
+          createdAt: true,
+          owner: { select: { id: true, name: true, team: true } },
+          account: { select: { accountName: true, businessName: true } },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip,
+        take,
+      })
+
+      if (!chunk.length) break
+      rows.push(...chunk)
+      if (chunk.length < take) break
+      skip += take
+    }
+
+    return rows
+  }
+
   async taskStatus(
     user?: { id: string; role: 'ADMIN'|'MANAGER'|'TEAM_LEADER'|'SALESPERSON' },
     range?: { from?: string; to?: string },
@@ -1508,50 +1585,9 @@ export class ReportsService {
 
       const scopedUserNames = new Set(scopedUsers.map((item) => String(item.name || '').trim()).filter(Boolean))
 
-      const [activityLogs, fallbackTasks] = await this.prisma.$transaction([
-        this.prisma.activityLog.findMany({
-          where: {
-            createdAt: { gte: from, lte: to },
-            task: {
-              ownerId: { in: scopedUserIds },
-            },
-          },
-          select: {
-            id: true,
-            text: true,
-            createdAt: true,
-            author: { select: { name: true } },
-            task: {
-              select: {
-                id: true,
-                status: true,
-                details: true,
-                createdAt: true,
-                owner: { select: { id: true, name: true, team: true } },
-                account: { select: { accountName: true, businessName: true } },
-              },
-            },
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 5000,
-        }),
-        this.prisma.task.findMany({
-          where: {
-            ownerId: { in: scopedUserIds },
-            creationDate: { gte: from, lte: to },
-            logs: { none: {} },
-          },
-          select: {
-            id: true,
-            status: true,
-            details: true,
-            createdAt: true,
-            owner: { select: { id: true, name: true, team: true } },
-            account: { select: { accountName: true, businessName: true } },
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 1000,
-        }),
+      const [activityLogs, fallbackTasks] = await Promise.all([
+        this.collectOperationsRadarActivityLogs(scopedUserIds, from, to),
+        this.collectOperationsRadarFallbackTasks(scopedUserIds, from, to),
       ])
 
       const statusLabels: Record<string, string> = {
