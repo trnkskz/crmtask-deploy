@@ -35,8 +35,8 @@ export class ReportsController {
 
   @Get('dashboard-snapshot')
   @MinRole(Roles.SALESPERSON)
-  dashboardSnapshot(@Req() req: any) {
-    return this.svc.dashboardSnapshot(req.user)
+  dashboardSnapshot(@Req() req: any, @Query('_ts') cacheToken?: string) {
+    return this.svc.dashboardSnapshot(req.user, { cacheToken })
   }
 
   @Get('task-status')

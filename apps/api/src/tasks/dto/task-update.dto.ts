@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer'
-import { IsIn, IsOptional, IsString, ValidateNested } from 'class-validator'
+import { IsIn, IsISO8601, IsOptional, IsString, ValidateNested } from 'class-validator'
 import { ActivityLogDto } from './task-activity.dto'
 
 class UpdateTaskActivityDto extends ActivityLogDto {}
@@ -25,5 +25,7 @@ export class UpdateTaskDto {
   @IsOptional() offers?: any[]
   @IsOptional() @IsString() projectId?: string
   @IsOptional() @IsString() taskListId?: string
+  @IsOptional() @IsISO8601() expectedUpdatedAt?: string
+  @IsOptional() @IsString() mutationKey?: string
   @IsOptional() @ValidateNested() @Type(() => UpdateTaskActivityDto) activity?: UpdateTaskActivityDto
 }

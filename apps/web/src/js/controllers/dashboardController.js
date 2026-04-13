@@ -18,6 +18,7 @@ const DashboardController = {
 
     _normalizeDashboardRows(rows) {
         if (Array.isArray(rows)) return rows;
+        if (Array.isArray(rows?.items)) return rows.items;
         if (Array.isArray(rows?.rows)) return rows.rows;
         return [];
     },
@@ -569,6 +570,9 @@ const DashboardController = {
             params.set('to', todayEnd.toISOString());
         }
 
+        if (typeof DataService !== 'undefined' && typeof DataService.fetchAllReportTaskRows === 'function') {
+            return DataService.fetchAllReportTaskRows(params);
+        }
         return DataService.apiRequest(`/reports/tasks?${params.toString()}`);
     },
 

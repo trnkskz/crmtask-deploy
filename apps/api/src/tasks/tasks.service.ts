@@ -1,9 +1,9 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common'
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common'
 import { PrismaService } from '../infrastructure/prisma/prisma.service'
 import { AssignTaskDto, CreateTaskDto } from './dto/task-create.dto'
 import { ActivityLogDto } from './dto/task-activity.dto'
 import { TaskFocusContactDto } from './dto/task-focus-contact.dto'
-import { GeneralStatus, TaskListTag, Reason } from '@prisma/client'
+import { GeneralStatus, Prisma, TaskListTag, Reason } from '@prisma/client'
 import { NotificationsService } from '../notifications/notifications.service'
 import { AuditService } from '../audit/audit.service'
 import { normalizeAccountSource } from '../common/source-type'
@@ -59,9 +59,48 @@ function mergeEditedLogText(originalText: unknown, nextText: unknown) {
   return `${originalPrefix} ${trimmedNextText}`.trim()
 }
 
+function buildPrefixTsQuery(input: string) {
+  return String(input || '')
+    .trim()
+    .toLocaleLowerCase('tr-TR')
+    .match(/[\p{L}\p{N}]+/gu)?.map((token) => `${token}:*`).join(' & ') || ''
+}
+
 @Injectable()
 export class TasksService {
+  private readonly mutationResultCache = new Map<string, { promise: Promise<any>; createdAt: number }>()
+  private readonly mutationResultTtlMs = 60_000
+
   constructor(private prisma: PrismaService, @Optional() private notifications?: NotificationsService, @Optional() private audit?: AuditService) {}
+
+  private getMutationCacheKey(userId: string, taskId: string, mutationKey?: string) {
+    const normalizedKey = String(mutationKey || '').trim()
+    if (!normalizedKey) return ''
+    return `${userId}:${taskId}:${normalizedKey}`
+  }
+
+  private pruneMutationCache(now = Date.now()) {
+    for (const [cacheKey, entry] of this.mutationResultCache.entries()) {
+      if ((now - entry.createdAt) > this.mutationResultTtlMs) {
+        this.mutationResultCache.delete(cacheKey)
+      }
+    }
+  }
+
+  private runWithMutationCache(userId: string, taskId: string, mutationKey: string | undefined, action: () => Promise<any>) {
+    const cacheKey = this.getMutationCacheKey(userId, taskId, mutationKey)
+    if (!cacheKey) return action()
+    this.pruneMutationCache()
+    const cached = this.mutationResultCache.get(cacheKey)
+    if (cached) return cached.promise
+
+    const promise = action().catch((error) => {
+      this.mutationResultCache.delete(cacheKey)
+      throw error
+    })
+    this.mutationResultCache.set(cacheKey, { promise, createdAt: Date.now() })
+    return promise
+  }
 
   private mapTaskListItem(task: any) {
     const companyName = task.account?.accountName || task.account?.businessName || null
@@ -873,7 +912,15 @@ export class TasksService {
     if (filter.priority) where.priority = filter.priority
     if (filter.category) where.category = filter.category
     if (filter.accountType) where.accountType = filter.accountType
-    if (filter.source) where.source = normalizeAccountSource(filter.source)
+    if (filter.source) {
+      const sourceValues = String(filter.source)
+        .split(',')
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+        .map((value) => normalizeAccountSource(value))
+      if (sourceValues.length === 1) where.source = sourceValues[0]
+      else if (sourceValues.length > 1) where.source = { in: sourceValues as any }
+    }
     if (filter.historicalAssignee) where.historicalAssignee = { contains: String(filter.historicalAssignee), mode: 'insensitive' }
     if (filter.mainCategory) where.mainCategory = { contains: String(filter.mainCategory), mode: 'insensitive' }
     if (filter.subCategory) where.subCategory = { contains: String(filter.subCategory), mode: 'insensitive' }
@@ -1033,6 +1080,32 @@ export class TasksService {
   }
 
   async search(q: string, take = 10) {
+    const tsQuery = buildPrefixTsQuery(q)
+    const safeTake = Math.max(1, Math.min(Number(take) || 10, 25))
+    const likeQuery = `%${String(q || '').trim()}%`
+    if (tsQuery) {
+      try {
+        const items = await this.prisma.$queryRaw<Array<{ id: string; label: string }>>(Prisma.sql`
+          SELECT
+            t.id,
+            CONCAT(COALESCE(a."accountName", t."accountId"), ' • ', COALESCE(t."externalRef", t.id)) AS label
+          FROM "Task" t
+          JOIN "Account" a ON a.id = t."accountId"
+          WHERE
+            to_tsvector('simple', concat_ws(' ', COALESCE(t.id, ''), COALESCE(t.details, ''), COALESCE(t.contact, ''), COALESCE(t."externalRef", '')))
+              @@ to_tsquery('simple', ${tsQuery})
+            OR to_tsvector('simple', concat_ws(' ', COALESCE(a."accountName", ''), COALESCE(a."businessName", ''), COALESCE(a."contactPerson", ''), COALESCE(a."businessContact", '')))
+              @@ to_tsquery('simple', ${tsQuery})
+            OR t.id ILIKE ${likeQuery}
+          ORDER BY t."creationDate" DESC
+          LIMIT ${safeTake}
+        `)
+        if (items.length > 0) return items
+      } catch {
+        // Prisma fallback below keeps local/test environments working.
+      }
+    }
+
     const where: any = q ? {
       OR: [
         { id: { contains: q, mode: 'insensitive' } },
@@ -1040,7 +1113,7 @@ export class TasksService {
         { account: { accountName: { contains: q, mode: 'insensitive' } } },
       ],
     } : {}
-    const items = await this.prisma.task.findMany({ where, take, orderBy: { creationDate: 'desc' }, include: { account: { select: { accountName: true } } } })
+    const items = await this.prisma.task.findMany({ where, take: safeTake, orderBy: { creationDate: 'desc' }, include: { account: { select: { accountName: true } } } })
     return items.map((t: any) => ({ id: t.id, label: `${t.account?.accountName || t.accountId} • ${t.externalRef || t.id}` }))
   }
 
@@ -1405,154 +1478,175 @@ export class TasksService {
   }
 
   async update(user: { id: string; role: string }, id: string, body: any) {
-    const task = await this.prisma.task.findUnique({ where: { id } })
-    if (!task) throw new NotFoundException('Task not found')
-    this.ensureSalespersonOwns(user, task)
-    const list = await this.prisma.taskList.findUnique({ where: { id: task.taskListId } })
-    // If type change is requested, it must match the parent TaskList tag
-    if (body.type !== undefined) {
-      if (list && (list.tag as any) !== body.type) {
-        throw new BadRequestException('Task type must match the TaskList tag')
+    return this.runWithMutationCache(user.id, id, body?.mutationKey, async () => {
+      const task = await this.prisma.task.findUnique({ where: { id } })
+      if (!task) throw new NotFoundException('Task not found')
+      this.ensureSalespersonOwns(user, task)
+      const list = await this.prisma.taskList.findUnique({ where: { id: task.taskListId } })
+      // If type change is requested, it must match the parent TaskList tag
+      if (body.type !== undefined) {
+        if (list && (list.tag as any) !== body.type) {
+          throw new BadRequestException('Task type must match the TaskList tag')
+        }
+        // If switching to GENERAL and task is OPEN, enforce uniqueness across account
+        if (body.type === 'GENERAL' && task.generalStatus === ('OPEN' as any)) {
+          const existingOpen = await this.prisma.task.findFirst({ where: { accountId: task.accountId, type: 'GENERAL', generalStatus: 'OPEN', NOT: { id } } })
+          if (existingOpen) throw new BadRequestException('This account already has an OPEN General task')
+        }
       }
-      // If switching to GENERAL and task is OPEN, enforce uniqueness across account
-      if (body.type === 'GENERAL' && task.generalStatus === ('OPEN' as any)) {
-        const existingOpen = await this.prisma.task.findFirst({ where: { accountId: task.accountId, type: 'GENERAL', generalStatus: 'OPEN', NOT: { id } } })
-        if (existingOpen) throw new BadRequestException('This account already has an OPEN General task')
+      const data: any = {}
+      if (body.projectId !== undefined) {
+        if (body.projectId) {
+          const project = await this.prisma.project.findUnique({ where: { id: body.projectId }, select: { id: true } })
+          if (!project) throw new BadRequestException('Project not found for task update')
+          data.projectId = body.projectId
+        } else {
+          data.projectId = null
+        }
       }
-    }
-    const data: any = {}
-    if (body.projectId !== undefined) {
-      if (body.projectId) {
-        const project = await this.prisma.project.findUnique({ where: { id: body.projectId }, select: { id: true } })
-        if (!project) throw new BadRequestException('Project not found for task update')
-        data.projectId = body.projectId
-      } else {
-        data.projectId = null
-      }
-    }
-    if (body.taskListId !== undefined) data.taskListId = body.taskListId
-    if (body.campaignUrl !== undefined) data.campaignUrl = body.campaignUrl
+      if (body.taskListId !== undefined) data.taskListId = body.taskListId
+      if (body.campaignUrl !== undefined) data.campaignUrl = body.campaignUrl
 
-    const parseCategory = (c: any) => {
-      const s = String(c).toUpperCase()
-      if (s.includes('ANADOLU')) return 'ANADOLU_CORE'
-      if (s.includes('TRAVEL')) return 'TRAVEL'
-      return 'ISTANBUL_CORE'
-    }
-    const parseSource = (s: any) => {
-      return normalizeAccountSource(s)
-    }
-
-    const fields = ['category','type','priority','accountType','source','mainCategory','subCategory','city','district','contact','details']
-    for (const k of fields) {
-      if (body[k] !== undefined) {
-        if (k === 'category') data[k] = parseCategory(body[k])
-        else if (k === 'source') data[k] = parseSource(body[k])
-        else data[k] = body[k]
+      const parseCategory = (c: any) => {
+        const s = String(c).toUpperCase()
+        if (s.includes('ANADOLU')) return 'ANADOLU_CORE'
+        if (s.includes('TRAVEL')) return 'TRAVEL'
+        return 'ISTANBUL_CORE'
       }
-    }
-    if (body.status !== undefined) {
-      const rawStatus = this.parseTaskStatus(body.status)
-      data.status = rawStatus
-      if (rawStatus === 'DEAL' || rawStatus === 'COLD') {
-        data.generalStatus = 'CLOSED'
-        data.closedAt = new Date()
-      } else {
-        data.generalStatus = 'OPEN'
-        data.closedAt = null
-        data.closedReason = null
+      const parseSource = (s: any) => {
+        return normalizeAccountSource(s)
       }
-    }
-    
-    let updated = await this.prisma.$transaction(async (tx) => {
-      const updatedTask = await tx.task.update({ where: { id }, data })
 
-      if (body.nextCallDate && body.activity?.reason !== 'TEKRAR_ARANACAK') {
-        const latestFollowupLog = await tx.activityLog.findFirst({
-          where: { taskId: id, reason: 'TEKRAR_ARANACAK' },
-          orderBy: { createdAt: 'desc' },
-        })
-        if (latestFollowupLog) {
-          await tx.activityLog.update({
-            where: { id: latestFollowupLog.id },
-            data: { followUpDate: new Date(body.nextCallDate) },
-          })
+      const fields = ['category','type','priority','accountType','source','mainCategory','subCategory','city','district','contact','details']
+      for (const k of fields) {
+        if (body[k] !== undefined) {
+          if (k === 'category') data[k] = parseCategory(body[k])
+          else if (k === 'source') data[k] = parseSource(body[k])
+          else data[k] = body[k]
+        }
+      }
+      if (body.status !== undefined) {
+        const rawStatus = this.parseTaskStatus(body.status)
+        data.status = rawStatus
+        if (rawStatus === 'DEAL' || rawStatus === 'COLD') {
+          data.generalStatus = 'CLOSED'
+          data.closedAt = new Date()
+        } else {
+          data.generalStatus = 'OPEN'
+          data.closedAt = null
+          data.closedReason = null
         }
       }
 
-      if (body.dealDetails) {
-        const details = body.dealDetails || {}
-        const commission = details.commission != null && details.commission !== '' ? Number(details.commission) : null
-        const adFee = details.fee != null && String(details.fee).trim() !== '' && String(details.fee).toLowerCase() !== 'yok'
-          ? Number(details.fee)
-          : null
-        const joker = details.joker != null && String(details.joker).trim() !== '' && String(details.joker).toLowerCase() !== 'yok'
-          ? Number(details.joker)
-          : null
-
-        const dealLog = await tx.activityLog.create({
-          data: {
-            taskId: id,
-            authorId: user.id,
-            reason: 'GORUSME',
-            text: `[Deal Sonucu] Komisyon: ${details.commission || '-'} | Süre: ${this.formatDealDuration(details.duration)} | Yayın Bedeli: ${details.fee || 'Yok'} | Joker: ${details.joker || 'Yok'} | Kampanya: ${details.campCount || '-'}`,
-          },
-        })
-
-        if (commission != null || adFee != null || joker != null) {
-          await tx.offer.create({
-            data: {
-              taskId: id,
-              activityLogId: dealLog.id,
-              adFee,
-              commission,
-              joker,
-              type: 'OUR_OFFER',
-              status: 'ACCEPTED',
-              createdById: user.id,
-            },
-          })
-        }
+      const expectedUpdatedAt = body.expectedUpdatedAt ? new Date(body.expectedUpdatedAt) : null
+      if (expectedUpdatedAt && Number.isNaN(expectedUpdatedAt.getTime())) {
+        throw new BadRequestException('expectedUpdatedAt must be a valid ISO datetime')
       }
-      
-      if (body.offers && body.offers.length > 0) {
-        const userIds = [task.ownerId, task.createdById].filter(Boolean)
-        const actionUser = userIds.length > 0 ? userIds[0] : null
-        if (actionUser) {
-          for (const offer of body.offers) {
-            const offerLog = await tx.activityLog.create({
-              data: {
-                taskId: updatedTask.id,
-                authorId: actionUser,
-                reason: 'TEKLIF_VERILDI',
-                text: `<span class="manager-note">[Teklif]</span> Komisyon: ${offer.commission || '-'}, Hizmet Bedeli: ${offer.adFee || '-'}, Joker: ${offer.joker || '-'}`,
-              }
-            })
-            await tx.offer.create({
-              data: {
-                taskId: updatedTask.id,
-                activityLogId: offerLog.id,
-                adFee: offer.adFee != null ? Number(offer.adFee) : null,
-                commission: offer.commission != null ? Number(offer.commission) : null,
-                joker: offer.joker != null ? Number(offer.joker) : null,
-                type: 'OUR_OFFER',
-                status: 'PENDING',
-                createdById: actionUser,
-              }
+
+      const updated = await this.prisma.$transaction(async (tx) => {
+        let updatedTask: any
+        if (expectedUpdatedAt) {
+          const updateData = Object.keys(data).length > 0 ? data : { updatedAt: new Date() }
+          const updateResult = await tx.task.updateMany({
+            where: { id, updatedAt: expectedUpdatedAt },
+            data: updateData,
+          })
+          if (updateResult.count === 0) {
+            throw new ConflictException('Bu görev siz kaydetmeden hemen önce güncellendi. En güncel hali ekrana yüklendi; lütfen notunuzu tekrar kontrol edip yeniden kaydedin.')
+          }
+          updatedTask = await tx.task.findUnique({ where: { id } })
+        } else {
+          updatedTask = await tx.task.update({ where: { id }, data })
+        }
+        if (!updatedTask) throw new NotFoundException('Task not found')
+
+        if (body.nextCallDate && body.activity?.reason !== 'TEKRAR_ARANACAK') {
+          const latestFollowupLog = await tx.activityLog.findFirst({
+            where: { taskId: id, reason: 'TEKRAR_ARANACAK' },
+            orderBy: { createdAt: 'desc' },
+          })
+          if (latestFollowupLog) {
+            await tx.activityLog.update({
+              where: { id: latestFollowupLog.id },
+              data: { followUpDate: new Date(body.nextCallDate) },
             })
           }
         }
-      }
 
-      if (body.activity) {
-        await this.createActivityEntry(tx, user, task, id, body.activity)
-      }
+        if (body.dealDetails) {
+          const details = body.dealDetails || {}
+          const commission = details.commission != null && details.commission !== '' ? Number(details.commission) : null
+          const adFee = details.fee != null && String(details.fee).trim() !== '' && String(details.fee).toLowerCase() !== 'yok'
+            ? Number(details.fee)
+            : null
+          const joker = details.joker != null && String(details.joker).trim() !== '' && String(details.joker).toLowerCase() !== 'yok'
+            ? Number(details.joker)
+            : null
 
-      return updatedTask
+          const dealLog = await tx.activityLog.create({
+            data: {
+              taskId: id,
+              authorId: user.id,
+              reason: 'GORUSME',
+              text: `[Deal Sonucu] Komisyon: ${details.commission || '-'} | Süre: ${this.formatDealDuration(details.duration)} | Yayın Bedeli: ${details.fee || 'Yok'} | Joker: ${details.joker || 'Yok'} | Kampanya: ${details.campCount || '-'}`,
+            },
+          })
+
+          if (commission != null || adFee != null || joker != null) {
+            await tx.offer.create({
+              data: {
+                taskId: id,
+                activityLogId: dealLog.id,
+                adFee,
+                commission,
+                joker,
+                type: 'OUR_OFFER',
+                status: 'ACCEPTED',
+                createdById: user.id,
+              },
+            })
+          }
+        }
+
+        if (body.offers && body.offers.length > 0) {
+          const userIds = [task.ownerId, task.createdById].filter(Boolean)
+          const actionUser = userIds.length > 0 ? userIds[0] : null
+          if (actionUser) {
+            for (const offer of body.offers) {
+              const offerLog = await tx.activityLog.create({
+                data: {
+                  taskId: updatedTask.id,
+                  authorId: actionUser,
+                  reason: 'TEKLIF_VERILDI',
+                  text: `<span class="manager-note">[Teklif]</span> Komisyon: ${offer.commission || '-'}, Hizmet Bedeli: ${offer.adFee || '-'}, Joker: ${offer.joker || '-'}`,
+                }
+              })
+              await tx.offer.create({
+                data: {
+                  taskId: updatedTask.id,
+                  activityLogId: offerLog.id,
+                  adFee: offer.adFee != null ? Number(offer.adFee) : null,
+                  commission: offer.commission != null ? Number(offer.commission) : null,
+                  joker: offer.joker != null ? Number(offer.joker) : null,
+                  type: 'OUR_OFFER',
+                  status: 'PENDING',
+                  createdById: actionUser,
+                }
+              })
+            }
+          }
+        }
+
+        if (body.activity) {
+          await this.createActivityEntry(tx, user, task, id, body.activity)
+        }
+
+        return updatedTask
+      })
+
+      await this.audit?.log({ entityType: 'TASK', entityId: id, action: 'UPDATE', userId: user.id, previousData: task, newData: updated })
+      return updated
     })
-    
-    await this.audit?.log({ entityType: 'TASK', entityId: id, action: 'UPDATE', userId: user.id, previousData: task, newData: updated })
-    return updated
   }
 
   async deleteActivity(user: { id: string; role: string }, taskId: string, logId: string) {

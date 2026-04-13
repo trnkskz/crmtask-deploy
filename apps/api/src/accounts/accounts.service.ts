@@ -4,6 +4,13 @@ import { AccountListQueryDto, AccountTargetPreviewDto, CreateAccountDto, SortOpt
 import { Prisma } from '@prisma/client'
 import { normalizeAccountSource } from '../common/source-type'
 
+function buildPrefixTsQuery(input: string) {
+  return String(input || '')
+    .trim()
+    .toLocaleLowerCase('tr-TR')
+    .match(/[\p{L}\p{N}]+/gu)?.map((token) => `${token}:*`).join(' & ') || ''
+}
+
 @Injectable()
 export class AccountsService {
   constructor(private prisma: PrismaService) {}
@@ -1101,6 +1108,30 @@ export class AccountsService {
   }
 
   async search(q: string, take = 10) {
+    const tsQuery = buildPrefixTsQuery(q)
+    const safeTake = Math.max(1, Math.min(Number(take) || 10, 25))
+    const likeQuery = `%${String(q || '').trim()}%`
+    if (tsQuery) {
+      try {
+        const items = await this.prisma.$queryRaw<Array<{ id: string; label: string }>>(Prisma.sql`
+          SELECT
+            a.id,
+            CONCAT(a."accountName", CASE WHEN COALESCE(a.city, '') <> '' THEN CONCAT(' • ', a.city) ELSE '' END, ' • ', a.id) AS label
+          FROM "Account" a
+          WHERE
+            to_tsvector('simple', concat_ws(' ', COALESCE(a."accountName", ''), COALESCE(a."businessName", ''), COALESCE(a.city, ''), COALESCE(a."mainCategory", ''), COALESCE(a."subCategory", ''), COALESCE(a."contactPerson", ''), COALESCE(a."businessContact", '')))
+              @@ to_tsquery('simple', ${tsQuery})
+            OR a."accountName" ILIKE ${likeQuery}
+            OR a."businessName" ILIKE ${likeQuery}
+          ORDER BY a."accountName" ASC
+          LIMIT ${safeTake}
+        `)
+        if (items.length > 0) return items
+      } catch {
+        // Fallback below keeps tests and non-Postgres tooling safe.
+      }
+    }
+
     const where: any = q
       ? {
           OR: [
@@ -1113,7 +1144,7 @@ export class AccountsService {
         }
       : {}
 
-    const items = await this.prisma.account.findMany({ where, orderBy: { accountName: 'asc' }, take })
+    const items = await this.prisma.account.findMany({ where, orderBy: { accountName: 'asc' }, take: safeTake })
     return items.map((b: any) => ({ id: b.id, label: `${b.accountName}${b.city ? ` • ${b.city}` : ''} • ${b.id}` }))
   }
 

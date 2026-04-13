@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { PrismaService } from '../infrastructure/prisma/prisma.service'
 import { OperationsRadarQueryDto } from './dto/operations-radar.dto'
 import { getAccountSourceLabel, normalizeAccountSource } from '../common/source-type'
+import { ReportCacheService } from './report-cache.service'
 
 function toCsv(rows: any[]): string {
   if (!rows.length) return ''
@@ -87,35 +88,12 @@ function toTaskReportSourceLabel(value: unknown) {
 
 @Injectable()
 export class ReportsService {
-  private readonly responseCache = new Map<string, { expiresAt: number; value: any }>()
   private static readonly ISTANBUL_OFFSET_MS = 3 * 60 * 60 * 1000
 
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private reportCache: ReportCacheService = new ReportCacheService()) {}
 
   private async withResponseCache<T>(key: string, ttlMs: number, builder: () => Promise<T>) {
-    const now = Date.now()
-    const cached = this.responseCache.get(key)
-    if (cached && cached.expiresAt > now) return cached.value as T
-
-    const value = await builder()
-    this.responseCache.set(key, { value, expiresAt: now + ttlMs })
-
-    if (this.responseCache.size > 200) {
-      for (const [cacheKey, entry] of this.responseCache.entries()) {
-        if (entry.expiresAt <= now) this.responseCache.delete(cacheKey)
-      }
-      if (this.responseCache.size > 200) {
-        const overflow = this.responseCache.size - 200
-        let removed = 0
-        for (const cacheKey of this.responseCache.keys()) {
-          this.responseCache.delete(cacheKey)
-          removed += 1
-          if (removed >= overflow) break
-        }
-      }
-    }
-
-    return value
+    return this.reportCache.remember(`reports:${key}`, ttlMs, builder)
   }
 
   private cacheIdentity(scope: string, user?: { id: string; role: string }, query?: Record<string, unknown> | null) {
@@ -621,7 +599,6 @@ export class ReportsService {
     const where = await this.buildTaskReportWhere(q, user)
     const rows = await this.prisma.task.findMany({
       ...this.taskReportFindManyArgs(where),
-      take: 50000,
     })
 
     return this.applyDerivedTaskReportFilters(
@@ -635,13 +612,17 @@ export class ReportsService {
     )
   }
 
-  async dashboardSnapshot(user?: { id: string; role: 'ADMIN'|'MANAGER'|'TEAM_LEADER'|'SALESPERSON' }) {
-    const cacheKey = this.cacheIdentity('dashboardSnapshot', user, {})
+  async dashboardSnapshot(
+    user?: { id: string; role: 'ADMIN'|'MANAGER'|'TEAM_LEADER'|'SALESPERSON' },
+    options?: { cacheToken?: string },
+  ) {
+    const cacheContext = options?.cacheToken ? { cacheToken: options.cacheToken } : {}
+    const cacheKey = this.cacheIdentity('dashboardSnapshot', user, cacheContext)
     return this.withResponseCache(cacheKey, 12000, async () => {
       const monthRange = this.getCurrentMonthRange()
       const [taskStatus, performance] = await Promise.all([
-        this.taskStatus(user),
-        this.performance(user, monthRange),
+        this.taskStatus(user, undefined, options),
+        this.performance(user, monthRange, options),
       ])
 
       const generalStatusRows = Array.isArray(taskStatus?.byGeneralStatus) ? taskStatus.byGeneralStatus as any[] : []
@@ -899,8 +880,8 @@ export class ReportsService {
       const endAt = range?.to ? new Date(range.to) : new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
       const startDay = new Date(Date.UTC(startAt.getUTCFullYear(), startAt.getUTCMonth(), startAt.getUTCDate()))
       const endDay = new Date(Date.UTC(endAt.getUTCFullYear(), endAt.getUTCMonth(), endAt.getUTCDate()))
-      const leadRows = await this.prisma.lead.findMany({ where: { createdAt: { gte: startDay, lte: new Date(endDay.getTime() + 86400000 - 1) } }, select: { createdAt: true }, take: 50000 })
-      const taskRows = await this.prisma.task.findMany({ where: { creationDate: { gte: startDay, lte: new Date(endDay.getTime() + 86400000 - 1) }, ...taskScope }, select: { creationDate: true }, take: 50000 })
+      const leadRows = await this.prisma.lead.findMany({ where: { createdAt: { gte: startDay, lte: new Date(endDay.getTime() + 86400000 - 1) } }, select: { createdAt: true } })
+      const taskRows = await this.prisma.task.findMany({ where: { creationDate: { gte: startDay, lte: new Date(endDay.getTime() + 86400000 - 1) }, ...taskScope }, select: { creationDate: true } })
       const days: string[] = []
       const leadsPer: Record<string, number> = {}
       const tasksPer: Record<string, number> = {}
@@ -928,8 +909,12 @@ export class ReportsService {
     })
   }
 
-  async performance(user?: { id: string; role: 'ADMIN'|'MANAGER'|'TEAM_LEADER'|'SALESPERSON' }, range?: { from?: string; to?: string }) {
-    const cacheKey = this.cacheIdentity('performance', user, range || {})
+  async performance(
+    user?: { id: string; role: 'ADMIN'|'MANAGER'|'TEAM_LEADER'|'SALESPERSON' },
+    range?: { from?: string; to?: string },
+    options?: { cacheToken?: string },
+  ) {
+    const cacheKey = this.cacheIdentity('performance', user, { ...(range || {}), ...(options?.cacheToken ? { cacheToken: options.cacheToken } : {}) })
     return this.withResponseCache(cacheKey, 15000, async () => {
       const taskScope = await this.taskScope(user)
       const taskDateWhere = this.dateWhere('creationDate', range)
@@ -1301,8 +1286,12 @@ export class ReportsService {
     }
   }
 
-  async taskStatus(user?: { id: string; role: 'ADMIN'|'MANAGER'|'TEAM_LEADER'|'SALESPERSON' }, range?: { from?: string; to?: string }) {
-    const cacheKey = this.cacheIdentity('taskStatus', user, range || {})
+  async taskStatus(
+    user?: { id: string; role: 'ADMIN'|'MANAGER'|'TEAM_LEADER'|'SALESPERSON' },
+    range?: { from?: string; to?: string },
+    options?: { cacheToken?: string },
+  ) {
+    const cacheKey = this.cacheIdentity('taskStatus', user, { ...(range || {}), ...(options?.cacheToken ? { cacheToken: options.cacheToken } : {}) })
     return this.withResponseCache(cacheKey, 15000, async () => {
       const taskScope = await this.taskScope(user)
       const taskDateWhere = this.dateWhere('creationDate', range)
@@ -1479,7 +1468,6 @@ export class ReportsService {
         logs: { select: { reason: true, createdAt: true }, orderBy: { createdAt: 'desc' }, take: 1 },
       },
       orderBy: { creationDate: 'desc' },
-      take: 1000,
     })
     const filteredRows = rows.filter((r: any) => {
       if (!q.mainCategory && !q.subCategory) return true
@@ -1569,7 +1557,6 @@ export class ReportsService {
             },
           },
           orderBy: { creationDate: 'desc' },
-          take: 50000,
         }),
       ])
 
@@ -1627,7 +1614,7 @@ export class ReportsService {
       })
       actorTeam = String(actor?.team || '').trim()
     }
-    const rows = await this.prisma.account.findMany({ where, orderBy: { creationDate: 'desc' }, take: 1000, include })
+    const rows = await this.prisma.account.findMany({ where, orderBy: { creationDate: 'desc' }, include })
     const scoped = rows.filter((r: any) => {
       if (!user || user.role === 'ADMIN' || user.role === 'MANAGER') return true
       const t = (r.tasks||[])[0]

@@ -367,14 +367,16 @@ const AppController = (() => {
         }
 
         const requestId = ++dynamicNotificationsRequestId;
-        const canQueryDynamicNotifications = typeof DataService !== 'undefined' && typeof DataService?.apiRequest === 'function';
+        const canQueryDynamicNotifications = typeof DataService !== 'undefined' && typeof DataService.apiRequest === 'function';
         if (user?.id && canQueryDynamicNotifications) {
             try {
                 const response = await DataService.apiRequest(`/reports/tasks?ownerId=${encodeURIComponent(user.id)}&generalStatus=OPEN`);
                 if (requestId !== dynamicNotificationsRequestId) {
                     return dynamicNotificationsCache;
                 }
-                const rows = Array.isArray(response?.rows) ? response.rows : [];
+                const rows = typeof DataService.normalizeReportTaskRows === 'function'
+                    ? DataService.normalizeReportTaskRows(response)
+                    : (Array.isArray(response) ? response : (Array.isArray(response?.items) ? response.items : (Array.isArray(response?.rows) ? response.rows : [])));
                 const nowTime = Date.now();
                 const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
                 dynamicNotificationsCache = rows.filter((task) => {

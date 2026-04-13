@@ -7,6 +7,7 @@ const SyncService = (() => {
     const POLL_MS = 8000;
     const EVENT_STREAM_PATH = '/events/stream';
     const INVALIDATION_DEBOUNCE_MS = 1200;
+    const LAST_EVENT_ID_STORAGE_KEY = 'crm_last_realtime_event_id_v1';
 
     let _refreshTimeout = null;
     let _pollTimer = null;
@@ -19,10 +20,33 @@ const SyncService = (() => {
     let _deferredBootstrapPromise = null;
     let _suppressRefreshUntilSettled = false;
     let _refreshQueuedDuringBootstrap = false;
+    let _lastRealtimeEventId = 0;
 
     const _markedKeys = new Set();
     const _pendingCollections = new Set();
     const CORE_BOOTSTRAP_COLLECTIONS = ['users', 'notifications', 'categories', 'pricing'];
+
+    function _readStoredLastEventId() {
+        try {
+            const raw = window?.localStorage?.getItem(LAST_EVENT_ID_STORAGE_KEY) || '';
+            const numeric = Number(raw);
+            return Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
+        } catch (_) {
+            return 0;
+        }
+    }
+
+    function _persistLastEventId(nextId) {
+        const numeric = Number(nextId);
+        if (!Number.isFinite(numeric) || numeric <= 0) return _lastRealtimeEventId;
+        _lastRealtimeEventId = Math.max(_lastRealtimeEventId, numeric);
+        try {
+            window?.localStorage?.setItem(LAST_EVENT_ID_STORAGE_KEY, String(_lastRealtimeEventId));
+        } catch (_) {
+            // ignore storage failures
+        }
+        return _lastRealtimeEventId;
+    }
 
     async function restoreCachedShell() {
         return false;
@@ -348,6 +372,15 @@ const SyncService = (() => {
     async function _applyRealtimeDelta(payload = null) {
         const type = String(payload?.type || '').trim().toUpperCase();
         if (!type) return false;
+        if (type === 'SYNC_REQUIRED') {
+            _queueSync(_defaultCollections());
+            const openTaskId = String(window?._openTaskModalId || '');
+            const openBusinessId = String(window?._openBusinessDetailId || '');
+            if (openTaskId) _refreshTaskEntity(openTaskId, { force: true }).catch(() => {});
+            if (openBusinessId) _refreshBusinessEntity(openBusinessId, { force: true }).catch(() => {});
+            _debouncedRefresh();
+            return true;
+        }
         if (type === 'TASK_UPDATED') {
             await _refreshTaskEntity(String(payload?.taskId || ''));
             return true;
@@ -422,11 +455,15 @@ const SyncService = (() => {
         }
 
         try {
+            _lastRealtimeEventId = _readStoredLastEventId();
             const url = new URL(`${DataService.getApiBase()}${EVENT_STREAM_PATH}`);
             const identity = _getRealtimeIdentity();
             if (identity) {
                 url.searchParams.set('u', identity.id);
                 url.searchParams.set('role', identity.role);
+            }
+            if (_lastRealtimeEventId > 0) {
+                url.searchParams.set('lastEventId', String(_lastRealtimeEventId));
             }
 
             _eventSource = new EventSource(url.toString());
@@ -436,6 +473,13 @@ const SyncService = (() => {
             _eventSource.onmessage = (evt) => {
                 const raw = String(evt?.data || '');
                 if (!raw || raw.startsWith(':')) return;
+                const incomingEventId = Number(evt?.lastEventId || 0);
+                if (Number.isFinite(incomingEventId) && incomingEventId > 0) {
+                    if (_lastRealtimeEventId > 0 && incomingEventId <= _lastRealtimeEventId) {
+                        return;
+                    }
+                    _persistLastEventId(incomingEventId);
+                }
                 let payload = null;
                 try { payload = JSON.parse(raw); } catch { payload = null; }
                 _applyRealtimeDelta(payload).then((handled) => {

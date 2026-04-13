@@ -71,7 +71,7 @@ const ProjectController = {
         }
 
         let matchedUser = this._findAssignableUser(raw);
-        if (!matchedUser && typeof DataService?.fetchOnce === 'function') {
+        if (!matchedUser && typeof DataService !== 'undefined' && typeof DataService.fetchOnce === 'function') {
             try {
                 const usersRaw = await DataService.fetchOnce('users');
                 const users = Array.isArray(usersRaw) ? usersRaw : Object.values(usersRaw || {});
@@ -150,6 +150,21 @@ const ProjectController = {
         if (raw.includes('OLD')) return 'OLD';
         if (raw.includes('FRESH')) return 'FRESH';
         return raw;
+    },
+
+    _createQueryParams() {
+        if (typeof URLSearchParams !== 'undefined') return new URLSearchParams();
+        const entries = [];
+        return {
+            set(key, value) {
+                const idx = entries.findIndex((entry) => entry[0] === key);
+                if (idx >= 0) entries[idx] = [key, String(value)];
+                else entries.push([key, String(value)]);
+            },
+            toString() {
+                return entries.map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`).join('&');
+            },
+        };
     },
 
     _matchesTargetAudienceSourceFilter(biz, bizTasks, selectedSources) {
@@ -904,17 +919,55 @@ const ProjectController = {
 
     async _fetchProjectTaskReportRows(projectId, extraQuery = {}) {
         if (!projectId) return { rows: [], total: 0 };
-        const params = new URLSearchParams();
+        const params = this._createQueryParams();
         params.set('projectId', projectId);
         Object.entries(extraQuery || {}).forEach(([key, value]) => {
             if (value === undefined || value === null || value === '') return;
             params.set(key, String(value));
         });
-        const response = await DataService.apiRequest(`/reports/tasks?${params.toString()}`);
-        const rows = Array.isArray(response?.rows) ? response.rows : [];
+        let rows = [];
+        if (typeof DataService !== 'undefined' && typeof DataService.fetchAllReportTaskRows === 'function') {
+            rows = await DataService.fetchAllReportTaskRows(params);
+        } else if (typeof DataService !== 'undefined' && typeof DataService.apiRequest === 'function') {
+            const response = await DataService.apiRequest(`/reports/tasks?${params.toString()}`);
+            rows = Array.isArray(response) ? response : (Array.isArray(response?.items) ? response.items : (Array.isArray(response?.rows) ? response.rows : []));
+        }
         return {
             rows,
-            total: Number(response?.total || rows.length || 0),
+            total: rows.length,
+        };
+    },
+
+    _summarizeProject(project) {
+        const projectId = project?.id;
+        const tasks = (Array.isArray(AppState?.tasks) ? AppState.tasks : [])
+            .filter((task) => String(task?.projectId || '') === String(projectId || ''));
+        const poolTasks = tasks.filter((task) => {
+            const assignee = String(task?.historicalAssignee || task?.assignee || '').trim();
+            const isOpen = String(task?.generalStatus || '').toUpperCase() === 'OPEN'
+                || !['deal', 'cold'].includes(String(task?.status || '').toLowerCase());
+            return isOpen && assignee === 'TARGET_POOL';
+        });
+        const activeTasks = tasks.filter((task) => {
+            const assignee = String(task?.historicalAssignee || task?.assignee || '').trim();
+            const isOpen = String(task?.generalStatus || '').toUpperCase() === 'OPEN'
+                || !['deal', 'cold'].includes(String(task?.status || '').toLowerCase());
+            return isOpen && assignee !== 'TARGET_POOL';
+        });
+        const dealCount = tasks.filter((task) => String(task?.status || '').toLowerCase() === 'deal').length;
+        const coldCount = tasks.filter((task) => String(task?.status || '').toLowerCase() === 'cold').length;
+        return {
+            project,
+            allTasks: tasks,
+            poolTasks,
+            activeTasks,
+            total: tasks.length,
+            dealCount,
+            coldCount,
+            openCount: activeTasks.length,
+            isUndistributed: poolTasks.length > 0 || tasks.length === 0,
+            isActiveDistributed: poolTasks.length === 0 && activeTasks.length > 0,
+            isArchived: tasks.length > 0 && poolTasks.length === 0 && activeTasks.length === 0,
         };
     },
 
@@ -1134,6 +1187,17 @@ const ProjectController = {
 
         const sourceFilter = sourceSelect.value;
         countEl.innerText = '...';
+
+        if (typeof DataService === 'undefined' || typeof DataService.apiRequest !== 'function') {
+            const selectedSource = sourceFilter !== 'Tüm Kaynaklar' ? this._normalizeSourceKey(sourceFilter) : '';
+            const summary = this._summarizeProject({ id: projectId });
+            const count = summary.poolTasks.filter((task) => {
+                if (!selectedSource) return true;
+                return this._normalizeSourceKey(task.sourceType || task.source || task.sourceKey || '') === selectedSource;
+            }).length;
+            countEl.innerText = count;
+            return;
+        }
 
         try {
             const extraQuery = {

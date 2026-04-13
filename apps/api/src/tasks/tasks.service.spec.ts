@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import { TasksService } from './tasks.service'
 
 describe('TasksService.create', () => {
@@ -656,7 +656,7 @@ describe('TasksService.update', () => {
   function buildService(overrides: Record<string, any> = {}) {
     const prisma = {
       $transaction: jest.fn().mockImplementation((cb) => cb(prisma)),
-      task: { findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
+      task: { findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
       taskList: { findUnique: jest.fn() },
       activityLog: { findFirst: jest.fn(), update: jest.fn(), create: jest.fn() },
       offer: { create: jest.fn(), updateMany: jest.fn() },
@@ -786,6 +786,85 @@ describe('TasksService.update', () => {
         summary: 'Account marked PASSIVE because task task_1 logged ISLETME_KAPANMIS',
       },
     })
+  })
+
+  it('rejects stale task updates when expectedUpdatedAt no longer matches', async () => {
+    const { service, prisma } = buildService()
+    prisma.task.findUnique.mockResolvedValue({
+      id: 'task_1',
+      accountId: 'acc_1',
+      ownerId: 'sales_1',
+      createdById: 'manager_1',
+      taskListId: 'list_1',
+      generalStatus: 'OPEN',
+      updatedAt: new Date('2026-04-14T08:00:00.000Z'),
+    })
+    prisma.taskList.findUnique.mockResolvedValue({ id: 'list_1', tag: 'GENERAL' })
+    prisma.task.updateMany.mockResolvedValue({ count: 0 })
+
+    await expect(
+      service.update(
+        { id: 'sales_1', role: 'SALESPERSON' },
+        'task_1',
+        {
+          status: 'hot',
+          expectedUpdatedAt: '2026-04-14T07:59:00.000Z',
+        },
+      ),
+    ).rejects.toBeInstanceOf(ConflictException)
+
+    expect(prisma.task.updateMany).toHaveBeenCalledWith({
+      where: { id: 'task_1', updatedAt: new Date('2026-04-14T07:59:00.000Z') },
+      data: {
+        status: 'HOT',
+        generalStatus: 'OPEN',
+        closedAt: null,
+        closedReason: null,
+      },
+    })
+    expect(prisma.activityLog.create).not.toHaveBeenCalled()
+  })
+
+  it('deduplicates repeated updates that reuse the same mutationKey', async () => {
+    const { service, prisma } = buildService()
+    prisma.task.findUnique.mockResolvedValue({
+      id: 'task_1',
+      accountId: 'acc_1',
+      ownerId: 'sales_1',
+      createdById: 'manager_1',
+      taskListId: 'list_1',
+      generalStatus: 'OPEN',
+    })
+    prisma.taskList.findUnique.mockResolvedValue({ id: 'list_1', tag: 'GENERAL' })
+    prisma.task.update.mockResolvedValue({ id: 'task_1', status: 'HOT' })
+
+    const body = {
+      status: 'hot',
+      mutationKey: 'save-task-1-123',
+    }
+
+    const first = await service.update({ id: 'sales_1', role: 'SALESPERSON' }, 'task_1', body)
+    const second = await service.update({ id: 'sales_1', role: 'SALESPERSON' }, 'task_1', body)
+
+    expect(first).toEqual({ id: 'task_1', status: 'HOT' })
+    expect(second).toEqual({ id: 'task_1', status: 'HOT' })
+    expect(prisma.task.update).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('TasksService.search', () => {
+  it('uses FTS-backed raw search when postgres search query is available', async () => {
+    const prisma = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'task_1', label: 'Acme • task_1' }]),
+      task: { findMany: jest.fn() },
+    } as any
+
+    const service = new TasksService(prisma)
+    const result = await service.search('acme', 10)
+
+    expect(result).toEqual([{ id: 'task_1', label: 'Acme • task_1' }])
+    expect(prisma.$queryRaw).toHaveBeenCalled()
+    expect(prisma.task.findMany).not.toHaveBeenCalled()
   })
 })
 

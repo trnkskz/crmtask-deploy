@@ -292,7 +292,10 @@ const AdminController = (() => {
         if (!dataService || typeof dataService.apiRequest !== 'function') return [];
         try {
             const response = await dataService.apiRequest(`/reports/tasks?ownerId=${encodeURIComponent(user.id)}`);
-            return Array.isArray(response) ? response : [];
+            if (typeof dataService.normalizeReportTaskRows === 'function') {
+                return dataService.normalizeReportTaskRows(response);
+            }
+            return Array.isArray(response) ? response : (Array.isArray(response?.items) ? response.items : (Array.isArray(response?.rows) ? response.rows : []));
         } catch (err) {
             console.warn('Scoped user task rows load failed:', err);
             return [];

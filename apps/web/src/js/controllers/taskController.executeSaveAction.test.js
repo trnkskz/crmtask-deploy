@@ -13,7 +13,7 @@ describe('TaskController.executeSaveAction', () => {
         };
         const document = createDocument(elements);
 
-        const tasks = [{ id: 'task-1', status: 'hot' }];
+        const tasks = [{ id: 'task-1', status: 'hot', updatedAt: '2026-04-14T08:00:00.000Z' }];
         const { controller, context } = loadController('controllers/taskController.js', 'TaskController', {
             document,
             AppState: {
@@ -28,6 +28,7 @@ describe('TaskController.executeSaveAction', () => {
             },
             TASK_STATUS_LABELS: {},
             PASSIVE_STATUSES: [],
+            ITEMS_PER_PAGE_TASKS: 25,
             showToast,
             esc: (value) => value,
             TaskSavePayload,
@@ -59,7 +60,7 @@ describe('TaskController.executeSaveAction', () => {
                 body: expect.any(String),
             }),
         );
-        expect(JSON.parse(apiRequest.mock.calls[0][1].body)).toEqual({
+        expect(JSON.parse(apiRequest.mock.calls[0][1].body)).toEqual(expect.objectContaining({
             status: 'deal',
             dealDetails: {
                 commission: '10',
@@ -72,9 +73,11 @@ describe('TaskController.executeSaveAction', () => {
                 text: '[Deal Notu] Manuel kapanis notu',
                 reason: 'GORUSME',
             },
-        });
-        expect(readPath).toHaveBeenCalledWith('tasks/task-1');
-        expect(tasks[0]).toEqual({ id: 'task-1', status: 'deal' });
+            expectedUpdatedAt: '2026-04-14T08:00:00.000Z',
+            mutationKey: expect.stringMatching(/^task-save-task-1-/),
+        }));
+        expect(readPath).toHaveBeenCalledWith('tasks/task-1', { force: true });
+        expect(context.AppState.tasks[0]).toEqual(expect.objectContaining({ id: 'task-1', status: 'deal' }));
         expect(showToast).toHaveBeenCalledWith('İşlem başarıyla kaydedildi!', 'success');
         expect(elements.btnSaveModalLog.disabled).toBe(false);
         expect(elements.btnSaveModalLog.innerText).toBe('Kaydet 🚀');

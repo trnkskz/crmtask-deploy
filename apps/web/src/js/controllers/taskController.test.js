@@ -44,12 +44,14 @@ describe('TaskController.executeSaveAction', () => {
             return 0;
         });
         global.clearTimeout = jest.fn();
+        global.ITEMS_PER_PAGE_TASKS = 25;
 
         global.AppState = {
             tasks: [
                 {
                     id: 'task_1',
                     status: 'hot',
+                    updatedAt: '2026-04-14T08:00:00.000Z',
                 },
             ],
             invalidateTaskMapCache: jest.fn(),
@@ -85,6 +87,7 @@ describe('TaskController.executeSaveAction', () => {
         delete global.renderTaskInline;
         delete global.setTimeout;
         delete global.clearTimeout;
+        delete global.ITEMS_PER_PAGE_TASKS;
         delete global.AppState;
         delete global.DataService;
     });
@@ -97,7 +100,7 @@ describe('TaskController.executeSaveAction', () => {
         const [path, request] = DataService.apiRequest.mock.calls[0];
         expect(path).toBe('/tasks/task_1');
         expect(request.method).toBe('PATCH');
-        expect(JSON.parse(request.body)).toEqual({
+        expect(JSON.parse(request.body)).toEqual(expect.objectContaining({
             dealDetails: {
                 commission: '10',
                 duration: '6',
@@ -110,7 +113,9 @@ describe('TaskController.executeSaveAction', () => {
                 text: '[Deal Notu] Elden kapatildi',
                 reason: 'GORUSME',
             },
-        });
+            expectedUpdatedAt: '2026-04-14T08:00:00.000Z',
+            mutationKey: expect.stringMatching(/^task-save-task_1-/),
+        }));
         expect(DataService.readPath).toHaveBeenCalledWith('tasks/task_1', { force: true });
         expect(AppState.tasks[0].status).toBe('deal');
         expect(window._dealDetails).toBeNull();
@@ -143,7 +148,7 @@ describe('TaskController.executeSaveAction', () => {
 describe('TaskController.renderAllTasks', () => {
     const { loadController, createDocument, createElement } = require('../testUtils/controllerTestUtils');
 
-    it('uses the derived task index for counts and list rendering', () => {
+    it('uses the backend summary payload for counts and list rendering', async () => {
         const allActiveTaskList = createElement({ appendChild: jest.fn() });
         const allActiveCount = createElement();
         const btnTodayDealCount = createElement();
@@ -175,7 +180,14 @@ describe('TaskController.renderAllTasks', () => {
             subCategory: 'Iftar',
             logs: [{ date: '06.04.2026 10:00' }],
             createdAt: '2026-04-06T10:00:00.000Z',
+            companyName: 'Acme',
+            city: 'Istanbul',
         };
+        const fetchTaskPage = jest.fn().mockImplementation((query) => {
+            if (query?.status === 'DEAL') return Promise.resolve({ items: [], total: 4, page: 1, limit: 1 });
+            if (query?.status === 'COLD') return Promise.resolve({ items: [], total: 2, page: 1, limit: 1 });
+            return Promise.resolve({ items: [derivedTask], total: 1, page: 1, limit: 25 });
+        });
 
         const { controller } = loadController('controllers/taskController.js', 'TaskController', {
             document,
@@ -195,10 +207,32 @@ describe('TaskController.renderAllTasks', () => {
                     todayColdCount: 2,
                 }),
             },
+            DataService: {
+                fetchTaskPage,
+                apiRequest: jest.fn().mockResolvedValue({
+                    records: [{
+                        key: 'Ayse',
+                        user: { name: 'Ayse', team: 'Team 1' },
+                        metrics: {
+                            daily: {
+                                contacted: { count: 1 },
+                                idle: { count: 0 },
+                                opened: { count: 1 },
+                                open: { count: 1 },
+                            },
+                        },
+                    }],
+                }),
+            },
             TASK_STATUS_LABELS: { hot: 'Hot' },
             POOL_ASSIGNEES: ['UNASSIGNED', 'Team 1', 'Team 2', 'TARGET_POOL'],
             PASSIVE_STATUSES: ['deal', 'cold'],
             ITEMS_PER_PAGE_TASKS: 25,
+            requestAnimationFrame: (fn) => {
+                if (typeof fn === 'function') fn();
+                return 0;
+            },
+            addEventListener: jest.fn(),
             isToday: () => true,
             isActiveTask: (status) => ['new', 'hot', 'nothot', 'followup'].includes(status),
             matchesAssigneeFilter: () => true,
@@ -210,13 +244,14 @@ describe('TaskController.renderAllTasks', () => {
             formatDate: () => '06.04.2026 10:00',
         });
 
-        controller.renderAllTasks();
+        await controller.renderAllTasks();
 
         expect(btnTodayDealCount.innerText).toBe(4);
         expect(btnTodayColdCount.innerText).toBe(2);
         expect(allActiveCount.innerText).toBe(1);
         expect(allActiveTaskList.appendChild).toHaveBeenCalledTimes(1);
         expect(teamPulseContainer.innerHTML).toContain('Ayse');
+        expect(fetchTaskPage).toHaveBeenCalled();
     });
 });
 
@@ -243,6 +278,7 @@ describe('TaskController._buildActionBarHTML', () => {
                 SALES_REP: 'Satış Temsilcisi',
             },
             PASSIVE_STATUSES: ['deal', 'cold'],
+            ITEMS_PER_PAGE_TASKS: 25,
             TASK_STATUS_LABELS: { hot: 'Hot' },
             isActiveTask: (status) => ['new', 'hot', 'nothot', 'followup'].includes(status),
             hasPermission: () => true,
@@ -282,6 +318,7 @@ describe('TaskController._buildActionBarHTML', () => {
                 SALES_REP: 'Satış Temsilcisi',
             },
             PASSIVE_STATUSES: ['deal', 'cold'],
+            ITEMS_PER_PAGE_TASKS: 25,
             TASK_STATUS_LABELS: { hot: 'Hot' },
             isActiveTask: (status) => ['new', 'hot', 'nothot', 'followup'].includes(status),
             hasPermission: () => true,

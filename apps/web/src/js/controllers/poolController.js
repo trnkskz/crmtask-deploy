@@ -29,15 +29,12 @@ const PoolController = (() => {
             query.poolTeam = 'TEAM_2';
         }
 
-        if (selectedSources.length === 1) {
-            query.source = selectedSources[0];
+        if (selectedSources.length > 0) {
+            query.source = selectedSources.join(',');
         }
 
         const payload = await DataService.fetchTaskPage(query);
-        let items = Array.isArray(payload?.items) ? payload.items : [];
-        if (selectedSources.length > 1) {
-            items = items.filter((task) => selectedSources.includes(normalizeSourceKey(task.sourceType)));
-        }
+        const items = Array.isArray(payload?.items) ? payload.items : [];
         return {
             items,
             total: Number(payload?.total || items.length || 0),

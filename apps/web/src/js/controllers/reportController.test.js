@@ -493,6 +493,6 @@ describe('ReportController.renderReports', () => {
         expect(elements.reportsTbody.innerHTML).toContain('Acme Old Query');
         expect(elements.reportsTbody.innerHTML).not.toContain('Acme Query');
         expect(elements.reportsTbody.innerHTML).not.toContain('Acme Lead');
-        expect(elements.reportsTbody.innerHTML).not.toContain('Acme Old');
+        expect(elements.reportsTbody.innerHTML).not.toContain('<strong>Acme Old</strong>');
     });
 });

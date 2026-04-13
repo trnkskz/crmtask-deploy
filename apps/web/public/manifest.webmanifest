@@ -1,0 +1,22 @@
+{
+  "name": "Grupanya CRM",
+  "short_name": "Grupanya CRM",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f7f6",
+  "theme_color": "#0f6b5b",
+  "lang": "tr",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48",
+      "type": "image/x-icon"
+    }
+  ]
+}

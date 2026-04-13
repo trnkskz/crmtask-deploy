@@ -391,6 +391,7 @@ const DataService = (() => {
             offers,
             dealDetails: parseDealDetails(t.logs, offers),
             createdAt: t.creationDate || t.createdAt || new Date().toISOString(),
+            updatedAt: t.updatedAt || t.createdAt || t.creationDate || new Date().toISOString(),
             companyName,
             businessName,
             city,
@@ -764,6 +765,51 @@ const DataService = (() => {
             } else if (items.length < responseLimit) {
                 break;
             }
+
+            page += 1;
+            safety += 1;
+            if (safety > 2000) break;
+        }
+        return all;
+    }
+
+    function normalizeReportTaskRows(response) {
+        if (Array.isArray(response)) return response;
+        if (Array.isArray(response?.items)) return response.items;
+        if (Array.isArray(response?.rows)) return response.rows;
+        return [];
+    }
+
+    async function fetchAllReportTaskRows(query = {}, options = {}) {
+        const pageSize = Math.min(Math.max(Number(options.limit || 200), 1), 200);
+        const params = new URLSearchParams();
+        if (typeof query === 'string') {
+            new URLSearchParams(query).forEach((value, key) => params.set(key, value));
+        } else if (query instanceof URLSearchParams) {
+            query.forEach((value, key) => params.set(key, value));
+        } else {
+            Object.entries(query || {}).forEach(([key, value]) => {
+                if (value === undefined || value === null || value === '') return;
+                params.set(key, String(value));
+            });
+        }
+
+        params.set('limit', String(pageSize));
+        const all = [];
+        let page = 1;
+        let safety = 0;
+        while (true) {
+            params.set('page', String(page));
+            const response = await apiRequest(`/reports/tasks?${params.toString()}`);
+            const rows = normalizeReportTaskRows(response);
+            all.push(...rows);
+
+            if (Array.isArray(response)) break;
+            const responseLimit = Number(response?.limit || pageSize);
+            const responsePage = Number(response?.page || page);
+            const responseTotal = Number(response?.total || all.length);
+            if ((responsePage * responseLimit) >= responseTotal) break;
+            if (rows.length < responseLimit) break;
 
             page += 1;
             safety += 1;
@@ -1935,6 +1981,8 @@ const DataService = (() => {
         fetchTaskPage,
         fetchBusinessPage,
         fetchAccountTargetPreview,
+        normalizeReportTaskRows,
+        fetchAllReportTaskRows,
         readPath,
         deleteTask,
         deleteBusiness,

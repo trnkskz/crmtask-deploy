@@ -40,6 +40,25 @@ const ReportController = (() => {
         return document.getElementById(id)?.value || '';
     }
 
+    function getDataService() {
+        return typeof DataService !== 'undefined' ? DataService : null;
+    }
+
+    function createQueryParams() {
+        if (typeof URLSearchParams !== 'undefined') return new URLSearchParams();
+        const entries = [];
+        return {
+            set(key, value) {
+                const idx = entries.findIndex((entry) => entry[0] === key);
+                if (idx >= 0) entries[idx] = [key, String(value)];
+                else entries.push([key, String(value)]);
+            },
+            toString() {
+                return entries.map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`).join('&');
+            },
+        };
+    }
+
     function getStatusLabel(status) {
         return TASK_STATUS_LABELS?.[status] || String(status || '-');
     }
@@ -207,6 +226,68 @@ const ReportController = (() => {
         };
     }
 
+    function getLatestLogTag(text) {
+        const match = String(text || '').match(/^\s*\[([^\]]+)\]/);
+        return match ? match[1] : '';
+    }
+
+    function formatLocalTaskReportRow(task) {
+        const bizMap = typeof AppState?.getBizMap === 'function' ? AppState.getBizMap() : new Map();
+        const metaMap = typeof AppState?.getReportTaskMetaMap === 'function' ? AppState.getReportTaskMetaMap() : new Map();
+        const biz = bizMap.get(task.businessId) || {};
+        const meta = metaMap.get(task.id) || {};
+        const latestLog = Array.isArray(task.logs) ? task.logs[0] : null;
+        const latestLogText = meta.latestLogText || latestLog?.text || '';
+        const sourceKey = typeof normalizeTaskSourceKey === 'function'
+            ? normalizeTaskSourceKey(task.sourceType || task.source || '')
+            : String(task.sourceType || task.source || '').trim();
+        const statusKey = typeof normalizeTaskStatusKey === 'function'
+            ? normalizeTaskStatusKey(task.status || '')
+            : String(task.status || '').toLowerCase();
+        return {
+            id: task.id,
+            businessId: task.businessId || '',
+            statusKey,
+            createdAt: meta.lastActionDate || meta.createdDateOnly || (task.createdAt ? formatDate(task.createdAt).split(' ')[0] : '-'),
+            businessName: biz.companyName || biz.businessName || task.companyName || task.businessName || '-',
+            city: biz.city || task.city || '-',
+            district: biz.district || task.district || '-',
+            assignee: task.assignee || '-',
+            statusLabel: typeof getTaskStatusLabel === 'function' ? getTaskStatusLabel(statusKey) : getStatusLabel(statusKey),
+            sourceLabel: typeof getTaskSourceLabel === 'function' ? getTaskSourceLabel(sourceKey) : (task.sourceType || sourceKey || '-'),
+            sourceKey,
+            mainCategory: task.mainCategory || '-',
+            subCategory: task.subCategory || '-',
+            publishedFeeText: meta.feeVal && meta.feeVal !== 'yok' ? meta.feeVal : '-',
+            latestLogLabel: meta.latestLogTag || getLatestLogTag(latestLogText) || '-',
+            conversationHistoryLabel: `${meta.latestLogText || latestLogText ? 1 : (Array.isArray(task.logs) ? task.logs.length : 0)} kayıt`,
+            conversationHistoryCount: meta.latestLogText || latestLogText ? 1 : (Array.isArray(task.logs) ? task.logs.length : 0),
+            logContent: latestLogText || '-',
+            lastActionDate: meta.lastActionDate || (task.createdAt ? formatDate(task.createdAt).split(' ')[0] : '-'),
+        };
+    }
+
+    function buildLocalFilterResults() {
+        const selectedStatus = _toApiTaskStatus(getValue('repFilterStatus')).toLowerCase();
+        const selectedSource = typeof normalizeTaskSourceKey === 'function'
+            ? normalizeTaskSourceKey(getValue('repFilterSource'))
+            : String(getValue('repFilterSource') || '').trim();
+        const selectedLogType = getValue('repFilterLogType');
+        const rows = (Array.isArray(AppState?.tasks) ? AppState.tasks : [])
+            .map(formatLocalTaskReportRow)
+            .filter((row) => {
+                if (selectedStatus && String(row.statusKey || '').toLowerCase() !== selectedStatus) return false;
+                if (selectedSource && String(row.sourceKey || '') !== selectedSource) return false;
+                if (selectedLogType && row.latestLogLabel !== selectedLogType) return false;
+                return true;
+            });
+        return {
+            filteredTasks: [],
+            taskRows: rows,
+            businessRows: getBusinessRowsFromTaskRows(rows),
+        };
+    }
+
     function getBusinessRowsFromTaskRows(taskRows) {
         const grouped = new Map();
         taskRows.forEach((task) => {
@@ -293,7 +374,7 @@ const ReportController = (() => {
         const normalizedSourceFilter = typeof normalizeTaskSourceKey === 'function'
             ? normalizeTaskSourceKey(fSource)
             : String(fSource || '').trim();
-        const query = new URLSearchParams();
+        const query = createQueryParams();
         if (fStatus) query.set('status', _toApiTaskStatus(fStatus));
         if (normalizedSourceFilter) query.set('source', normalizedSourceFilter);
         if (fCat) query.set('mainCategory', fCat);
@@ -316,8 +397,17 @@ const ReportController = (() => {
 
     async function buildFilterResults() {
         const query = buildReportQuery();
-        const response = await DataService.apiRequest(`/reports/tasks${query ? `?${query}` : ''}`);
-        const taskRows = (Array.isArray(response) ? response : []).map(formatTaskReportRow);
+        const dataService = getDataService();
+        if (!dataService?.apiRequest && !dataService?.fetchAllReportTaskRows) {
+            return buildLocalFilterResults();
+        }
+        const response = typeof dataService.fetchAllReportTaskRows === 'function'
+            ? await dataService.fetchAllReportTaskRows(query)
+            : await dataService.apiRequest(`/reports/tasks${query ? `?${query}` : ''}`);
+        const rawRows = typeof dataService.normalizeReportTaskRows === 'function'
+            ? dataService.normalizeReportTaskRows(response)
+            : (Array.isArray(response) ? response : (Array.isArray(response?.items) ? response.items : (Array.isArray(response?.rows) ? response.rows : [])));
+        const taskRows = rawRows.map(formatTaskReportRow);
         const businessRows = getBusinessRowsFromTaskRows(taskRows);
         return {
             filteredTasks: [],
@@ -340,6 +430,17 @@ const ReportController = (() => {
             renderEmptyState('Rapor Bekleniyor');
             const pagEl = document.getElementById('reportsPagination');
             if (pagEl) pagEl.innerHTML = '';
+            return;
+        }
+
+        const dataService = getDataService();
+        if (!dataService?.apiRequest && !dataService?.fetchAllReportTaskRows) {
+            const nextState = buildLocalFilterResults();
+            reportUiState.filteredTasks = nextState.filteredTasks;
+            reportUiState.taskRows = nextState.taskRows;
+            reportUiState.businessRows = nextState.businessRows;
+            AppState.setFiltered('reports', nextState.filteredTasks);
+            _displayReports();
             return;
         }
 
@@ -645,8 +746,16 @@ const ArchiveController = (() => {
         const query = buildArchiveQuery();
         let filtered = [];
         try {
-            const response = await DataService.apiRequest(`/reports/tasks${query ? `?${query}` : ''}`);
-            filtered = (Array.isArray(response) ? response : [])
+            const dataService = typeof DataService !== 'undefined' ? DataService : null;
+            const response = typeof dataService?.fetchAllReportTaskRows === 'function'
+                ? await dataService.fetchAllReportTaskRows(query)
+                : (typeof dataService?.apiRequest === 'function'
+                    ? await dataService.apiRequest(`/reports/tasks${query ? `?${query}` : ''}`)
+                    : buildLocalFilterResults().taskRows);
+            const rows = typeof dataService?.normalizeReportTaskRows === 'function'
+                ? dataService.normalizeReportTaskRows(response)
+                : (Array.isArray(response) ? response : (Array.isArray(response?.items) ? response.items : (Array.isArray(response?.rows) ? response.rows : [])));
+            filtered = rows
                 .map((row) => ReportController.formatTaskReportRow(row))
                 .filter((row) => ['deal', 'cold'].includes(String(row.statusKey || '').toLowerCase()))
                 .map((row) => ({

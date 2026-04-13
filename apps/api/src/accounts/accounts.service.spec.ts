@@ -1205,3 +1205,19 @@ describe('AccountsService.targetPreview', () => {
     expect(result.ids).toEqual([])
   })
 })
+
+describe('AccountsService.search', () => {
+  it('uses FTS-backed raw search when postgres search query is available', async () => {
+    const prisma = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'acc_1', label: 'Acme • Istanbul • acc_1' }]),
+      account: { findMany: jest.fn() },
+    } as any
+
+    const service = new AccountsService(prisma)
+    const result = await service.search('acme', 10)
+
+    expect(result).toEqual([{ id: 'acc_1', label: 'Acme • Istanbul • acc_1' }])
+    expect(prisma.$queryRaw).toHaveBeenCalled()
+    expect(prisma.account.findMany).not.toHaveBeenCalled()
+  })
+})

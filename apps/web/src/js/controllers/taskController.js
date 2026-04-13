@@ -2491,6 +2491,8 @@ const TaskController = (() => {
             }
 
             const { patchPayload } = payloadResult;
+            patchPayload.expectedUpdatedAt = task.updatedAt || task.createdAt || new Date().toISOString();
+            patchPayload.mutationKey = createTaskMutationKey(taskId);
 
             if (patchPayload.status || patchPayload.nextCallDate || patchPayload.activity) {
                 const optimisticTask = {
@@ -2585,6 +2587,11 @@ const TaskController = (() => {
     function _paginate(arr, page, perPage) {
         const start = (page - 1) * perPage;
         return arr.slice(start, start + perPage);
+    }
+
+    function createTaskMutationKey(taskId) {
+        const randomPart = Math.random().toString(36).slice(2, 10);
+        return `task-save-${taskId}-${Date.now()}-${randomPart}`;
     }
 
     function _updateTaskInState(refreshedTask) {
