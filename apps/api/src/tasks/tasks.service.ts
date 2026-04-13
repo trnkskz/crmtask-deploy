@@ -14,6 +14,16 @@ const AUTO_SYSTEM_NOTE_TEXTS = new Set([
   'yeni işletme oluşturuldu ve görev başlatıldı',
 ])
 
+const IMMUTABLE_ACTIVITY_REASONS = new Set([
+  'TEKLIF_VERILDI',
+  'KARSITEKLIF',
+  'TEKLIF_KABUL',
+  'TEKLIF_RED',
+  'ISLETME_KAPANMIS',
+])
+
+const IMMUTABLE_ACTIVITY_TEXT_MARKERS = ['[Sistem]', '[Devir]', '[Klonlanmış Kampanya]', '[Deal Sonucu]']
+
 function normalizeComparableText(value: unknown) {
   return String(value || '')
     .trim()
@@ -1129,6 +1139,19 @@ export class TasksService {
     }
   }
 
+  private ensureActivityAuthorOrPrivileged(user: { id: string; role: string }, log: { authorId: string | null }) {
+    if (user.role === 'SALESPERSON' && log.authorId !== user.id) {
+      throw new ForbiddenException('Only author can modify this log')
+    }
+  }
+
+  private isEditableActivityLog(log: { reason?: string | null; text?: string | null }) {
+    const reason = String(log?.reason || '').trim().toUpperCase()
+    if (IMMUTABLE_ACTIVITY_REASONS.has(reason)) return false
+    const text = String(log?.text || '')
+    return !IMMUTABLE_ACTIVITY_TEXT_MARKERS.some((marker) => text.includes(marker))
+  }
+
   async upsertFocusContact(user: { id: string; role: string }, id: string, dto: TaskFocusContactDto) {
     const normalizedPhone = dto.phone ? this.splitContactValues(dto.phone, 'phone')[0] || null : null
     const normalizedEmail = dto.email ? this.splitContactValues(dto.email, 'email')[0] || null : null
@@ -1517,16 +1540,58 @@ export class TasksService {
   async deleteActivity(user: { id: string; role: string }, taskId: string, logId: string) {
     const log = await this.prisma.activityLog.findUnique({ where: { id: logId } })
     if (!log || log.taskId !== taskId) throw new NotFoundException('Activity log not found')
-    // Permission: Salesperson can delete only own logs; higher roles can delete any
-    if (user.role === 'SALESPERSON' && log.authorId !== user.id) {
-      throw new ForbiddenException('Only author can delete this log')
-    }
+    this.ensureActivityAuthorOrPrivileged(user, log)
     await this.prisma.$transaction([
       this.prisma.offer.deleteMany({ where: { activityLogId: logId } }),
       this.prisma.activityLog.delete({ where: { id: logId } }),
     ])
     await this.audit?.log({ entityType: 'TASK', entityId: taskId, action: 'UPDATE', userId: user.id, previousData: { deletedActivityLogId: logId } })
     return { ok: true }
+  }
+
+  async updateActivity(
+    user: { id: string; role: string },
+    taskId: string,
+    logId: string,
+    body: { text?: string; followUpDate?: string },
+  ) {
+    const log = await this.prisma.activityLog.findUnique({ where: { id: logId } })
+    if (!log || log.taskId !== taskId) throw new NotFoundException('Activity log not found')
+    this.ensureActivityAuthorOrPrivileged(user, log)
+    if (!this.isEditableActivityLog(log)) {
+      throw new BadRequestException('This activity log cannot be edited')
+    }
+
+    const data: Record<string, any> = {}
+    if (body.text !== undefined) {
+      const trimmedText = String(body.text || '').trim()
+      if (!trimmedText) throw new BadRequestException('text is required')
+      data.text = trimmedText
+    }
+    if (body.followUpDate !== undefined) {
+      if (String(log.reason || '').toUpperCase() !== 'TEKRAR_ARANACAK') {
+        throw new BadRequestException('followUpDate can only be changed for TEKRAR_ARANACAK logs')
+      }
+      data.followUpDate = body.followUpDate ? new Date(body.followUpDate) : null
+    }
+    if (Object.keys(data).length === 0) {
+      throw new BadRequestException('No editable fields were provided')
+    }
+
+    const updated = await this.prisma.activityLog.update({
+      where: { id: logId },
+      data,
+      include: { author: { select: { id: true, name: true, role: true } } },
+    })
+    await this.audit?.log({
+      entityType: 'TASK',
+      entityId: taskId,
+      action: 'UPDATE',
+      userId: user.id,
+      previousData: { activityLogId: logId, text: log.text, followUpDate: log.followUpDate },
+      newData: { activityLogId: logId, text: updated.text, followUpDate: updated.followUpDate },
+    })
+    return updated
   }
 
   async remove(id: string) {

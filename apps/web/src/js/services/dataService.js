@@ -250,6 +250,7 @@ const DataService = (() => {
         const when = log.createdAt ? new Date(log.createdAt) : new Date();
         return {
             id: log.id || `${Date.now()}`,
+            authorId: log.author?.id || '',
             date: when.toLocaleString('tr-TR'),
             user: log.author?.name || log.author?.email || 'Sistem',
             text: log.text || `[${log.reason || 'Kayıt'}]`,

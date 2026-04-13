@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@nestjs/common'
 import { TasksService } from './tasks.service'
 import { AssignTaskDto, CreateTaskDto, SetTaskPoolDto } from './dto/task-create.dto'
-import { ActivityLogDto, TaskStatusDto } from './dto/task-activity.dto'
+import { ActivityLogDto, TaskStatusDto, UpdateActivityLogDto } from './dto/task-activity.dto'
 import { TaskFocusContactDto } from './dto/task-focus-contact.dto'
 import { UpdateTaskDto } from './dto/task-update.dto'
 import { MinRole } from '../security/roles.decorator'
@@ -83,6 +83,13 @@ export class TasksController {
   removeActivity(@Req() req: Request, @Param('id') id: string, @Param('logId') logId: string) {
     const user = (req as any).user
     return this.svc.deleteActivity(user, id, logId)
+  }
+
+  @Patch(':id/activity/:logId')
+  @MinRole(Roles.SALESPERSON)
+  updateActivity(@Req() req: Request, @Param('id') id: string, @Param('logId') logId: string, @Body() body: UpdateActivityLogDto) {
+    const user = (req as any).user
+    return this.svc.updateActivity(user, id, logId, body)
   }
 
   @Patch(':id/status')

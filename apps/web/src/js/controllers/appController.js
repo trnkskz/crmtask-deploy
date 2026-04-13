@@ -413,6 +413,61 @@ const AppController = (() => {
         if (nd && nd.style.display === 'block') nd.style.display = 'none';
     }
 
+    function openChangePasswordModal() {
+        const dropdown = document.getElementById('userDropdown');
+        if (dropdown) dropdown.style.display = 'none';
+        const modal = document.getElementById('changePasswordModal');
+        if (!modal) return;
+
+        ['currentPasswordInput', 'newPasswordInput', 'confirmPasswordInput'].forEach((id) => {
+            const input = document.getElementById(id);
+            if (input) input.value = '';
+        });
+        modal.style.display = 'flex';
+    }
+
+    async function submitChangePassword() {
+        const currentPassword = document.getElementById('currentPasswordInput')?.value || '';
+        const newPassword = document.getElementById('newPasswordInput')?.value || '';
+        const confirmPassword = document.getElementById('confirmPasswordInput')?.value || '';
+        const submitBtn = document.getElementById('changePasswordSubmitBtn');
+
+        if (!currentPassword || !newPassword || !confirmPassword) {
+            showToast('Tum sifre alanlarini doldurun.', 'warning');
+            return;
+        }
+        if (newPassword.length < 6) {
+            showToast('Yeni sifre en az 6 karakter olmalidir.', 'warning');
+            return;
+        }
+        if (newPassword !== confirmPassword) {
+            showToast('Yeni sifre tekrari eslesmiyor.', 'warning');
+            return;
+        }
+
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.innerText = '⏳ Güncelleniyor...';
+        }
+
+        try {
+            await DataService.apiRequest('/auth/change-password', {
+                method: 'PATCH',
+                body: JSON.stringify({ currentPassword, newPassword }),
+            });
+            closeModal('changePasswordModal');
+            showToast('Sifreniz guncellendi.', 'success');
+        } catch (err) {
+            console.error('Password change failed:', err);
+            showToast(err?.message || 'Sifre guncellenemedi.', 'error');
+        } finally {
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerText = 'Şifreyi Güncelle';
+            }
+        }
+    }
+
     function formatCalculatorCurrency(amount) {
         const value = Number(amount || 0);
         return `${value.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`;
@@ -641,6 +696,8 @@ const AppController = (() => {
         updateNotificationsUI,
         toggleNotif,
         toggleUserMenu,
+        openChangePasswordModal,
+        submitChangePassword,
         openRevenueCalculatorModal,
         updateRevenueCalculator,
         toggleRevenueVatFields,
@@ -661,6 +718,8 @@ window.switchPage = AppController.switchPage.bind(AppController);
 window.toggleMobileMenu = AppController.toggleMobileMenu;
 window.toggleNotif = AppController.toggleNotif;
 window.toggleUserMenu = AppController.toggleUserMenu;
+window.openChangePasswordModal = AppController.openChangePasswordModal;
+window.submitChangePassword = AppController.submitChangePassword;
 window.openRevenueCalculatorModal = AppController.openRevenueCalculatorModal;
 window.updateRevenueCalculator = AppController.updateRevenueCalculator;
 window.toggleRevenueVatFields = AppController.toggleRevenueVatFields;

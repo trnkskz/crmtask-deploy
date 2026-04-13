@@ -445,7 +445,12 @@ export class ReportsService {
     const where: any = await this.taskScope(user)
     const isSalesperson = user?.role === 'SALESPERSON'
     if (isSalesperson && this.isClosedTaskQuery(q)) {
-      delete where.ownerId
+      const requestedOwnerId = String(q.ownerId || '').trim()
+      if (!requestedOwnerId) {
+        delete where.ownerId
+      } else {
+        where.ownerId = user.id
+      }
     }
     if (q.businessId) where.accountId = q.businessId
     if (q.projectId) where.projectId = q.projectId
@@ -1127,25 +1132,6 @@ export class ReportsService {
               })
             })
 
-            if (period === 'monthly') {
-              ownedTasks.forEach((task) => {
-                const createdAtMs = new Date(task.creationDate || 0).getTime()
-                if (!createdAtMs || createdAtMs < rangeStartMs) return
-                const taskId = String(task.id || '')
-                if (!taskId || contactedMap.has(taskId)) return
-                const normalizedStatus = this.normalizeTaskStatusKey(task.status)
-                if (!this.isOpenWorkflowStatus(normalizedStatus)) return
-                contactedMap.set(taskId, {
-                  createdAt: task.creationDate,
-                  taskId: task.id,
-                  businessName: task.account?.accountName || task.account?.businessName || 'Bilinmeyen İşletme',
-                  city: task.account?.city || '-',
-                  status: normalizedStatus,
-                  meta: this.formatIstanbulDate(task.creationDate),
-                })
-              })
-            }
-
             const contactedItems = Array.from(contactedMap.values())
               .filter((item) => this.isOpenWorkflowStatus(item.status))
               .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
@@ -1266,7 +1252,7 @@ export class ReportsService {
     }
 
     const monthStart = new Date(this.getIstanbulRangeStarts().monthly)
-    const [activityLogs, monthlyTasks] = await this.prisma.$transaction([
+    const [activityLogs] = await this.prisma.$transaction([
       this.prisma.activityLog.findMany({
         where: {
           authorId: { in: scopedUserIds },
@@ -1287,17 +1273,6 @@ export class ReportsService {
           },
         },
       }),
-      this.prisma.task.findMany({
-        where: {
-          ownerId: { in: scopedUserIds },
-          creationDate: { gte: monthStart },
-        },
-        select: {
-          id: true,
-          status: true,
-          creationDate: true,
-        },
-      }),
     ])
 
     const contactedMap = new Map<string, string>()
@@ -1306,14 +1281,6 @@ export class ReportsService {
       const taskId = String(log.task?.id || '')
       if (!taskId || contactedMap.has(taskId)) return
       const normalizedStatus = String(log.task?.status || '').trim().toUpperCase()
-      if (!this.isOpenWorkflowStatus(normalizedStatus)) return
-      contactedMap.set(taskId, normalizedStatus)
-    })
-
-    monthlyTasks.forEach((task) => {
-      const taskId = String(task.id || '')
-      if (!taskId || contactedMap.has(taskId)) return
-      const normalizedStatus = String(task.status || '').trim().toUpperCase()
       if (!this.isOpenWorkflowStatus(normalizedStatus)) return
       contactedMap.set(taskId, normalizedStatus)
     })

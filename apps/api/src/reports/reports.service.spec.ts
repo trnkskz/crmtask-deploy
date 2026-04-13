@@ -185,6 +185,25 @@ describe('ReportsService.tasksCsv', () => {
     expect(prisma.task.findMany.mock.calls[0][0].where.ownerId).toBeUndefined()
   })
 
+  it('keeps sales reps scoped to themselves for closed reports when ownerId is explicitly requested', async () => {
+    const { service, prisma } = buildService()
+    prisma.task.findMany.mockResolvedValue([])
+
+    await service.tasksReport(
+      { status: 'deal', ownerId: 'sales_2' },
+      { id: 'sales_1', role: 'SALESPERSON' },
+    )
+
+    expect(prisma.task.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          ownerId: 'sales_1',
+          status: 'DEAL',
+        }),
+      }),
+    )
+  })
+
   it('filters closed deal reports by closedAt instead of creationDate', async () => {
     const { service, prisma } = buildService()
     prisma.task.findMany.mockResolvedValue([])
@@ -262,7 +281,7 @@ describe('ReportsService.tasksCsv', () => {
       .mockResolvedValueOnce([taskRows[0]])
       .mockResolvedValueOnce(taskRows)
 
-    const result = await service.tasksReport(
+    const result: any = await service.tasksReport(
       { page: '1', limit: '1' },
       { id: 'manager_1', role: 'MANAGER' },
     )
@@ -337,6 +356,33 @@ describe('ReportsService ratios', () => {
     expect(snapshot.manager!.totalOpen).toBe(99)
     expect(snapshot.manager!.monthlyDeal).toBe(1)
     expect(snapshot.manager!.dealRatio).toBe(1)
+  })
+
+  it('counts only authored activity logs for monthly contacted summary', async () => {
+    const { service, prisma } = buildRatioService()
+    jest.spyOn(service as any, 'getIstanbulRangeStarts').mockReturnValue({
+      daily: Date.UTC(2026, 3, 10),
+      weekly: Date.UTC(2026, 3, 7),
+      monthly: Date.UTC(2026, 3, 1),
+    })
+    prisma.$transaction.mockResolvedValue([[
+      {
+        authorId: 'sales_1',
+        createdAt: new Date('2026-04-10T12:00:00.000Z'),
+        text: 'Gorusme yapildi',
+        task: { id: 'task_1', status: 'DEAL' },
+      },
+      {
+        authorId: 'sales_1',
+        createdAt: new Date('2026-04-10T13:00:00.000Z'),
+        text: '[Sistem] Otomatik not',
+        task: { id: 'task_2', status: 'HOT' },
+      },
+    ]])
+
+    const summary = await (service as any).buildMonthlyContactedOutcomeSummary(['sales_1'])
+
+    expect(summary).toEqual({ contacted: 1, deal: 1, cold: 0 })
   })
 
   it('calculates team pulse deal ratio against open plus closed outcomes', async () => {

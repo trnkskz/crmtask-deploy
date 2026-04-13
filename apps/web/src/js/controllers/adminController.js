@@ -234,6 +234,15 @@ const AdminController = (() => {
         return typeof DataService !== 'undefined' ? DataService : null;
     }
 
+    async function syncUsersStateFromServer() {
+        const dataService = getDataService();
+        if (!dataService || typeof dataService.fetchOnce !== 'function') return AppState.users || [];
+        const usersRaw = await dataService.fetchOnce('users');
+        const normalizedUsers = Array.isArray(usersRaw) ? usersRaw : Object.values(usersRaw || {});
+        if (Array.isArray(normalizedUsers)) AppState.users = normalizedUsers;
+        return AppState.users || [];
+    }
+
     async function loadUserPulseMap(force = false) {
         const now = Date.now();
         if (!force && _userPulseCache.loadedAt && (now - _userPulseCache.loadedAt) < 30000) {
@@ -548,7 +557,8 @@ const AdminController = (() => {
                 createBiz: canCreate,
                 deleteArchive: canDelArch,
             }),
-        }).then(() => {
+        }).then(async () => {
+            await syncUsersStateFromServer();
             if (btn) { btn.disabled = false; btn.innerText = '🚀 Yeni Kullanıcıyı Sisteme Ekle'; }
             addSystemLog(`YENİ KULLANICI eklendi: ${name}`);
             showToast('Kullanıcı eklendi!', 'success');
@@ -645,10 +655,8 @@ const AdminController = (() => {
         const settings = u.settings || { permissions: {} };
         toggleUserRoleFields('edit');
         applyPermissionSettings('edit', settings.permissions || {});
-        if (u.managerId) {
-            const mSel = document.getElementById('editUserManager');
-            if (mSel) mSel.value = u.managerId;
-        }
+        const mSel = document.getElementById('editUserManager');
+        if (mSel) mSel.value = u.managerId || '';
 
         const m = document.getElementById('editUserModal');
         if (m) m.style.display = 'flex';
@@ -724,17 +732,32 @@ const AdminController = (() => {
                 );
                 postSavePromises.push(Promise.all(promises));
             }
-            return Promise.all(postSavePromises);
+            await Promise.all(postSavePromises);
+            await syncUsersStateFromServer();
         }).then(() => {
+            const refreshedFromState = getUserEmailMap().get(newEmail) || getUserEmailMap().get(origEmail) || null;
+            const refreshedUser = refreshedFromState && refreshedFromState.email === newEmail
+                ? { ...refreshedFromState, ...uObj }
+                : uObj;
             if (AppState.loggedInUser?.email === origEmail) {
-                AppState.loggedInUser = uObj;
-                sessionStorage.setItem('logged_user', JSON.stringify(uObj));
+                AppState.loggedInUser = refreshedUser;
+                sessionStorage.setItem('logged_user', JSON.stringify(refreshedUser));
+                const nameEl = document.getElementById('currentUserName');
+                if (nameEl) nameEl.innerText = refreshedUser.name || '';
+                const avatarEl = document.getElementById('userAvatarInitials');
+                if (avatarEl) {
+                    const parts = String(refreshedUser.name || 'U').split(' ');
+                    avatarEl.innerText = ((parts[0]?.[0] || 'U') + (parts[1]?.[0] || '')).toUpperCase();
+                }
             }
             if (btn) { btn.disabled = false; btn.innerText = '💾 Değişiklikleri Kaydet'; }
             addSystemLog(`KULLANICI DÜZENLENDİ: ${oldName} → ${newName}`);
             showToast('Güncellendi!', 'success');
             closeModal('editUserModal');
             renderUsers();
+            if (AppState.loggedInUser?.id === refreshedUser?.id && typeof AppController !== 'undefined' && typeof AppController.refreshCurrentView === 'function') {
+                AppController.refreshCurrentView({ silent: true });
+            }
             if (oldName !== newName && typeof DropdownController !== 'undefined') DropdownController.updateAssigneeDropdowns();
         }).catch(err => {
             console.error(err);
@@ -764,9 +787,11 @@ const AdminController = (() => {
         } else {
             askConfirm(`${u.name} adlı kullanıcıyı pasife çekmek istiyor musunuz?`, res => {
                 if (res) {
-                    DataService.updateUserStatus(u.id, 'Pasif').then(() => {
+                    DataService.updateUserStatus(u.id, 'Pasif').then(async () => {
+                        await syncUsersStateFromServer();
                         addSystemLog(`KULLANICI PASİFE ÇEKİLDİ: ${u.name}`);
                         showToast('Kullanıcı pasife alındı.', 'success');
+                        renderUsers();
                     });
                 }
             });
@@ -794,9 +819,11 @@ const AdminController = (() => {
         } else {
             askConfirm(`${u.name} adlı kullanıcıyı SİLMEK istiyor musunuz?`, res => {
                 if (res) {
-                    DataService.deleteUser(u.id).then(() => {
+                    DataService.deleteUser(u.id).then(async () => {
+                        await syncUsersStateFromServer();
                         addSystemLog(`KULLANICI SİLİNDİ: ${u.name}`);
                         showToast('Kullanıcı silindi.', 'success');
+                        renderUsers();
                     });
                 }
             });
@@ -845,9 +872,11 @@ const AdminController = (() => {
             showToast('Kullanici aktiflestirme yetkiniz bulunmuyor.', 'warning');
             return;
         }
-        DataService.updateUserStatus(u.id, 'Aktif').then(() => {
+        DataService.updateUserStatus(u.id, 'Aktif').then(async () => {
+            await syncUsersStateFromServer();
             addSystemLog(`KULLANICI AKTİFLEŞTİRİLDİ: ${u.name}`);
             showToast('Kullanıcı aktif edildi.', 'success');
+            renderUsers();
         });
     }
 

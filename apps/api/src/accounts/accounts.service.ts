@@ -534,6 +534,11 @@ export class AccountsService {
     return rows.map((row) => ({ ...row, isPrimary: false }))
   }
 
+  private hasMeaningfulContact(row?: { name?: string | null; phone?: string | null; email?: string | null } | null) {
+    if (!row) return false
+    return Boolean(String(row.name || '').trim() || String(row.phone || '').trim() || String(row.email || '').trim())
+  }
+
   async list(q: AccountListQueryDto) {
     const where: any = {}
     const sourceValues = String(q.sourceType || '')
@@ -924,7 +929,15 @@ export class AccountsService {
 
     const finalContactEmail = body.email !== undefined ? body.email : (body.contactEmail !== undefined ? body.contactEmail : undefined)
     const primary = await this.prisma.accountContact.findFirst({ where: { accountId: id, isPrimary: true } })
-    const primaryRows = this.expandContactRows(
+    const existingExtras = body.extraContacts !== undefined
+      ? await this.prisma.accountContact.findMany({
+          where: { accountId: id, isPrimary: false, type: 'PERSON' },
+          include: { taskLinks: { select: { id: true } } },
+          orderBy: { createdAt: 'asc' },
+        })
+      : []
+
+    let primaryRows = this.expandContactRows(
       {
         name: finalContactPerson !== undefined ? finalContactPerson : (primary?.name || updated.businessName),
         phone: requestedPrimaryPhone !== undefined ? requestedPrimaryPhone : (primary?.phone || ''),
@@ -933,7 +946,44 @@ export class AccountsService {
       [],
       updated.businessName,
     )
-    const emailToCheck = finalContactEmail !== undefined || body.contactPhone !== undefined || finalContactPerson !== undefined || body.address !== undefined
+    const currentPrimaryRow = primaryRows[0] || { name: updated.businessName, phone: null, email: null, isPrimary: true }
+    let expandedExtras = body.extraContacts !== undefined
+      ? this.expandExtraContactRows(
+          [...primaryRows.slice(1).map((row) => ({ name: row.name, phone: row.phone, email: row.email })), ...(body.extraContacts || [])],
+          updated.businessName,
+        )
+      : []
+
+    if (body.extraContacts !== undefined && expandedExtras.length > 0) {
+      const existingExtraKeys = new Set(existingExtras.map((contact) => this.contactRowKey(contact)))
+      const currentPrimaryKey = this.contactRowKey(currentPrimaryRow)
+      const newlyAddedRows = expandedExtras.filter((row) => {
+        const rowKey = this.contactRowKey(row)
+        return rowKey !== currentPrimaryKey && !existingExtraKeys.has(rowKey)
+      })
+      const promotedPrimary = newlyAddedRows[newlyAddedRows.length - 1]
+
+      if (promotedPrimary) {
+        const promotedKey = this.contactRowKey(promotedPrimary)
+        expandedExtras = expandedExtras.filter((row) => this.contactRowKey(row) !== promotedKey)
+        if (this.hasMeaningfulContact(currentPrimaryRow) && currentPrimaryKey !== promotedKey) {
+          expandedExtras.unshift({
+            name: currentPrimaryRow.name,
+            phone: currentPrimaryRow.phone,
+            email: currentPrimaryRow.email,
+            isPrimary: false,
+          })
+        }
+        primaryRows = [{ ...promotedPrimary, isPrimary: true }]
+      }
+    }
+
+    const emailToCheck =
+      finalContactEmail !== undefined ||
+      body.contactPhone !== undefined ||
+      finalContactPerson !== undefined ||
+      body.address !== undefined ||
+      body.extraContacts !== undefined
     if (emailToCheck) {
       const firstPrimaryRow = primaryRows[0] || { name: updated.businessName, phone: null, email: null, isPrimary: true }
       if (primary) {
@@ -962,17 +1012,6 @@ export class AccountsService {
     }
 
     if (body.extraContacts !== undefined) {
-      const overflowRows = primaryRows.slice(1).map((row) => ({ name: row.name, phone: row.phone, email: row.email }))
-      const expandedExtras = this.expandExtraContactRows(
-        [...overflowRows, ...body.extraContacts],
-        updated.businessName,
-      )
-      const existingExtras = await this.prisma.accountContact.findMany({
-        where: { accountId: id, isPrimary: false, type: 'PERSON' },
-        include: { taskLinks: { select: { id: true } } },
-        orderBy: { createdAt: 'asc' },
-      })
-
       const unusedExisting = [...existingExtras]
       const consumedExistingIds = new Set<string>()
       const keeperByKey = new Map<string, string>()

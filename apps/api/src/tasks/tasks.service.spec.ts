@@ -547,6 +547,70 @@ describe('TasksService.upsertFocusContact', () => {
   })
 })
 
+describe('TasksService.updateActivity', () => {
+  function buildService(overrides: Record<string, any> = {}) {
+    const prisma = {
+      activityLog: {
+        findUnique: jest.fn(),
+        update: jest.fn(),
+      },
+      ...overrides,
+    } as any
+    const service = new TasksService(prisma)
+    return { service, prisma }
+  }
+
+  it('lets sales reps edit their own plain activity logs', async () => {
+    const { service, prisma } = buildService()
+    prisma.activityLog.findUnique.mockResolvedValue({
+      id: 'log_1',
+      taskId: 'task_1',
+      authorId: 'sales_1',
+      reason: 'GORUSME',
+      text: 'Eski not',
+      followUpDate: null,
+    })
+    prisma.activityLog.update.mockResolvedValue({
+      id: 'log_1',
+      taskId: 'task_1',
+      author: { id: 'sales_1', name: 'Ayse', role: 'SALESPERSON' },
+      text: 'Yeni not',
+      followUpDate: null,
+    })
+
+    const result = await service.updateActivity(
+      { id: 'sales_1', role: 'SALESPERSON' },
+      'task_1',
+      'log_1',
+      { text: 'Yeni not' },
+    )
+
+    expect(prisma.activityLog.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'log_1' },
+        data: { text: 'Yeni not' },
+      }),
+    )
+    expect(result.text).toBe('Yeni not')
+  })
+
+  it('rejects editing immutable system logs', async () => {
+    const { service, prisma } = buildService()
+    prisma.activityLog.findUnique.mockResolvedValue({
+      id: 'log_1',
+      taskId: 'task_1',
+      authorId: 'sales_1',
+      reason: 'GORUSME',
+      text: '[Sistem] Otomatik not',
+      followUpDate: null,
+    })
+
+    await expect(
+      service.updateActivity({ id: 'sales_1', role: 'SALESPERSON' }, 'task_1', 'log_1', { text: 'Yeni not' }),
+    ).rejects.toBeInstanceOf(BadRequestException)
+  })
+})
+
 describe('TasksService.update', () => {
   function buildService(overrides: Record<string, any> = {}) {
     const prisma = {

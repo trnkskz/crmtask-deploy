@@ -161,6 +161,28 @@ export class AuthService {
     return { ok: true }
   }
 
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    if (!currentPassword || !newPassword) {
+      throw new BadRequestException('Current password and new password are required')
+    }
+    if (newPassword.length < 6) {
+      throw new BadRequestException('New password must be at least 6 characters')
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } })
+    if (!user || !user.isActive) throw new UnauthorizedException('Invalid user')
+
+    const ok = await comparePassword(currentPassword, (user as any).password)
+    if (!ok) throw new UnauthorizedException('Current password is incorrect')
+
+    const hashed = await hashPassword(newPassword)
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: userId }, data: { password: hashed } as any }),
+      this.prisma.refreshToken.deleteMany({ where: { userId } }),
+    ])
+    return { ok: true }
+  }
+
   async me(userId: string) {
     const user = await this.getProfileUserById(userId)
     if (!user || !user.isActive) throw new UnauthorizedException('Invalid user')

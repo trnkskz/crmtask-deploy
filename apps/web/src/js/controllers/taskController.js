@@ -1199,6 +1199,7 @@ const TaskController = (() => {
                 ownerId: me.id || '',
                 q: String(document.getElementById('myFilterBizName')?.value || '').trim(),
                 status: getSelectedTaskStatuses('.my-status-filter').join(','),
+                source: document.getElementById('myTaskSourceFilter')?.value || '',
                 sort: document.getElementById('myTaskSort')?.value || 'newest',
                 page: AppState.pagination.myTasks || 1,
                 limit: ITEMS_PER_PAGE_TASKS,
@@ -1533,8 +1534,8 @@ const TaskController = (() => {
             return `<div style="color:var(--text-muted); font-size:13px; font-style:italic;">${emptyMsg}</div>`;
         }
         
-        // Sadece admin yetkisi olanlar silme butonunu görebilir
-        const isAdmin = AppState.loggedInUser && (AppState.loggedInUser.role === 'Yönetici' || AppState.loggedInUser.role === 'Sistem Yöneticisi' || AppState.loggedInUser.username === 'admin');
+        const currentUser = AppState.loggedInUser || {};
+        const canManageAnyLog = ['Yönetici', 'Takım Lideri', 'Sistem Yöneticisi'].includes(currentUser.role);
 
         const groupedLogs = {};
 
@@ -1573,6 +1574,7 @@ const TaskController = (() => {
 
             groupedLogs[groupKey].entries.push({
                 id: log.id,
+                authorId: log.authorId || '',
                 time: timePart,
                 tagSpan: tagSpanText,
                 text: cleanText,
@@ -1583,17 +1585,24 @@ const TaskController = (() => {
         const items = Object.values(groupedLogs).map(group => {
             let entriesHtml = group.entries.map((entry, index) => {
                 const logIdArg = entry.id ? `'${entry.id}'` : `'${entry.fullDateOriginal}'`;
-                const deleteBtnHtml = (isAdmin && taskId) ? `<button class="log-delete-btn" style="position:absolute; right:0; top:0;" onclick="deleteTaskLog('${taskId}', ${logIdArg})" title="Bu Logu Sil">🗑️</button>` : '';
+                const canManageEntry = Boolean(taskId) && (canManageAnyLog || (currentUser?.id && entry.authorId === currentUser.id));
+                const encodedText = encodeURIComponent(entry.text || '');
+                const actionButtonsHtml = canManageEntry
+                    ? `<div style="position:absolute; right:0; top:0; display:flex; gap:6px;">
+                            <button class="log-delete-btn" style="position:static;" onclick="editTaskLog('${taskId}', ${logIdArg}, '${encodedText}')" title="Bu Logu Düzenle">✏️</button>
+                            <button class="log-delete-btn" style="position:static;" onclick="deleteTaskLog('${taskId}', ${logIdArg})" title="Bu Logu Sil">🗑️</button>
+                       </div>`
+                    : '';
                 const boStyle = index !== group.entries.length - 1 ? 'border-bottom:1px dashed #e2e8f0; padding-bottom:10px; margin-bottom:10px;' : '';
 
                 return `
-                <div style="position:relative; display:block; width:100%; clear:both; padding-right:30px; ${boStyle}">
+                <div style="position:relative; display:block; width:100%; clear:both; padding-right:86px; ${boStyle}">
                     <div style="display:block; word-wrap:break-word; color:var(--text-color); font-size:14px; line-height:1.6;">
                         <span style="font-size:13px; font-weight:bold; color:var(--text-muted); opacity:0.8;">${entry.time}</span>
                         ${entry.tagSpan ? `<span style="color:#cbd5e1; margin:0 5px;">-</span> ${entry.tagSpan} <span style="color:#cbd5e1; margin:0 5px;">-</span>` : `<span style="color:#cbd5e1; margin:0 6px;">-</span>`}
                         <span style="color:var(--text-color); font-weight:500;">${entry.text}</span>
                     </div>
-                    ${deleteBtnHtml}
+                    ${actionButtonsHtml}
                 </div>`;
             }).join('');
 
@@ -2745,6 +2754,33 @@ window.deleteTaskLog = async function(taskId, logId) {
         } catch (err) {
             console.error("Log silme hatası:", err);
             showToast(`Log silinirken hata oluştu: ${err.message}`, "error");
+        }
+    });
+};
+
+window.editTaskLog = function(taskId, logId, encodedText) {
+    const currentText = decodeURIComponent(String(encodedText || ''));
+    askPrompt("Log metnini güncelleyin", String(currentText || '').trim(), async (value) => {
+        if (value === null) return;
+        const nextText = String(value || '').trim();
+        if (!nextText) {
+            showToast("Log metni boş bırakılamaz.", "warning");
+            return;
+        }
+
+        try {
+            await DataService.apiRequest(`/tasks/${taskId}/activity/${logId}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ text: nextText }),
+            });
+
+            showToast("Log başarıyla güncellendi.", "success");
+            const refreshedTask = await DataService.readPath(`tasks/${taskId}`, { force: true });
+            TaskController.updateTaskInState(refreshedTask);
+            TaskController.refreshTaskViews(taskId);
+        } catch (err) {
+            console.error("Log güncelleme hatası:", err);
+            showToast(`Log güncellenirken hata oluştu: ${err.message}`, "error");
         }
     });
 };

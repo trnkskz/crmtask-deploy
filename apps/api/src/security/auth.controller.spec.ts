@@ -27,4 +27,19 @@ describe('AuthController.me', () => {
     const controller = new AuthController({} as any)
     await expect(controller.me({} as any)).rejects.toThrow(UnauthorizedException)
   })
+
+  it('delegates password changes for authenticated jwt users', async () => {
+    const svc = {
+      changePassword: jest.fn().mockResolvedValue({ ok: true }),
+    }
+    const controller = new AuthController(svc as any)
+
+    const result = await controller.changePassword(
+      { user: { id: 'user_1', role: 'SALESPERSON' }, authMode: 'jwt' } as any,
+      { currentPassword: 'oldpass', newPassword: 'newpass123' },
+    )
+
+    expect(svc.changePassword).toHaveBeenCalledWith('user_1', 'oldpass', 'newpass123')
+    expect(result).toEqual({ ok: true })
+  })
 })

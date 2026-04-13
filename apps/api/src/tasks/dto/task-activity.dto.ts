@@ -34,3 +34,13 @@ export class TaskStatusDto {
   @IsIn(['NEW','HOT','NOT_HOT','FOLLOWUP','DEAL','COLD'])
   status!: 'NEW' | 'HOT' | 'NOT_HOT' | 'FOLLOWUP' | 'DEAL' | 'COLD'
 }
+
+export class UpdateActivityLogDto {
+  @IsOptional()
+  @IsString()
+  text?: string
+
+  @IsOptional()
+  @IsDateString()
+  followUpDate?: string
+}

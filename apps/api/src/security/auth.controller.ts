@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, Res, UnauthorizedException } from '@nestjs/common'
+import { Body, Controller, Get, Patch, Post, Req, Res, UnauthorizedException } from '@nestjs/common'
 import type { Request, Response } from 'express'
 import { AuthService } from './auth.service'
 
@@ -100,6 +100,14 @@ export class AuthController {
     const authMode = (req as any).authMode
     if (!user || authMode !== 'jwt') throw new UnauthorizedException('Authentication required')
     return { user: await this.svc.me(user.id) }
+  }
+
+  @Patch('change-password')
+  async changePassword(@Req() req: Request, @Body() body: { currentPassword?: string; newPassword?: string }) {
+    const user = (req as any).user
+    const authMode = (req as any).authMode
+    if (!user || authMode !== 'jwt') throw new UnauthorizedException('Authentication required')
+    return this.svc.changePassword(user.id, body?.currentPassword || '', body?.newPassword || '')
   }
 
   // --- 2FA Endpoints ---

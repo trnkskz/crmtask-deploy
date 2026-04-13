@@ -99,7 +99,7 @@ const ReportController = (() => {
         setMetric(3, 'Açık Görev', openTaskCount, '#bfdbfe');
         setMetric(4, 'Deal', dealCount, '#a7f3d0');
         setMetric(5, 'Cold', coldCount, '#fecaca');
-        setMetric(6, 'Görüşülen', contactedTaskCount || followupCount);
+        setMetric(6, 'Görüşülen', contactedTaskCount);
     }
 
     function syncTabButtons() {
