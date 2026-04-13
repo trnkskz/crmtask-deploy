@@ -8292,3 +8292,109 @@ html body .ubc-tag.status-none { background: #f8fafc !important; color: #64748b 
 .p-stat-modern:hover {
     background: #f8fafc !important;
 }
+
+/* ============================================================
+   MICRO DASHBOARD & SMART WIZARD REDESIGN
+   ============================================================ */
+
+/* --- 1. Micro Dashboard Cards --- */
+.perf-card-micro {
+    background: #ffffff;
+    border-radius: 12px;
+    padding: 16px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 4px 6px rgba(15, 23, 42, 0.02);
+    border: 1px solid #e2e8f0;
+    display: flex;
+    flex-direction: column;
+}
+.perf-card-micro:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 15px -3px rgba(15, 118, 110, 0.05), 0 4px 6px -4px rgba(15, 118, 110, 0.05);
+    border-color: #cbd5e1;
+}
+.pcm-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+}
+.pcm-info { text-align: left; }
+.pcm-name { color: #0f172a; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; margin-bottom: 4px; }
+.pcm-team { display: inline-block; background: #f1f5f9; color: #64748b; font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 6px; }
+.pcm-ring-wrap { position: relative; width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; }
+.pcm-ring-svg circle { transition: stroke-dashoffset 0.8s ease-in-out; }
+.pcm-ring-val { position: absolute; font-size: 14px; font-weight: 800; color: #0f172a; letter-spacing: -0.02em; }
+.pcm-ring-pct { font-size: 10px; color: #94a3b8; font-weight: 600; margin-left: 1px; }
+.pcm-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    padding-top: 12px;
+    border-top: 1px solid #f1f5f9;
+}
+.pcm-stat-btn {
+    width: 100% !important; min-width: 0 !important; background: transparent !important; border: none !important; box-shadow: none !important; padding: 6px !important; display: flex; flex-direction: column; align-items: center; gap: 2px; border-radius: 6px; cursor: pointer; transition: background 0.2s;
+}
+.pcm-stat-btn:hover { background: #f8fafc !important; }
+.pcm-stat-lbl { font-size: 10px; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+.pcm-stat-val { font-size: 15px; color: #0f172a; font-weight: 800; }
+.pcm-stat-val.is-deal { color: #0f766e; }
+.pcm-stat-val.is-cold { color: #e11d48; }
+
+/* --- 2. Smart Wizard Modal --- */
+.tp-smart-wizard {
+    display: flex; flex-direction: column; gap: 20px;
+}
+.tpsw-header {
+    display: flex; align-items: center; gap: 16px; background: linear-gradient(to right, #f8fafc, #ffffff); padding: 16px 24px; border-radius: 12px; border: 1px solid #e2e8f0;
+}
+.tpsw-avatar-ring {
+    width: 48px; height: 48px; border-radius: 50%; background: #ffffff; border: 2px solid #e2e8f0; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+}
+.tpsw-avatar {
+    width: 38px; height: 38px; border-radius: 50%; background: #0f766e; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 800;
+}
+.tpsw-identity h3 { margin: 0 0 4px 0; font-size: 20px; font-weight: 800; color: #0f172a; letter-spacing: -0.02em; }
+.tpsw-team { font-size: 12px; color: #64748b; font-weight: 600; }
+
+/* Segmented Control */
+.tpsw-seg-wrap {
+    display: flex; justify-content: center; padding: 0 10px;
+}
+.tpsw-seg-control {
+    display: inline-flex; align-items: center; background: #f1f5f9; padding: 4px; border-radius: 12px; overflow-x: auto; max-width: 100%; scrollbar-width: none; box-shadow: inset 0 1px 2px rgba(0,0,0,0.02);
+}
+.tpsw-seg-control::-webkit-scrollbar { display: none; }
+.tpsw-seg-btn {
+    width: auto !important; min-width: 0 !important; background: transparent !important; border: none !important; box-shadow: none !important; padding: 8px 16px !important; border-radius: 8px; color: #64748b !important; font-size: 13px !important; font-weight: 600 !important; display: flex; align-items: center; gap: 6px; cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); white-space: nowrap;
+}
+.tpsw-seg-btn:hover:not(.active) { color: #0f172a !important; }
+.tpsw-seg-btn.active {
+    background: #ffffff !important; color: #0f172a !important; box-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06) !important;
+}
+.tpsw-seg-badge {
+    background: #e2e8f0; color: #475569; font-size: 11px; font-weight: 800; padding: 2px 6px; border-radius: 10px;
+}
+.tpsw-seg-btn.active .tpsw-seg-badge { background: #0f766e; color: #ffffff; }
+
+/* List Grid */
+.tpsw-list-grid {
+    display: grid; grid-template-columns: 1fr; gap: 8px;
+}
+.tpsw-list-item {
+    width: 100% !important; background: #ffffff !important; border: 1px solid #f1f5f9 !important; border-radius: 10px; padding: 12px 16px !important; display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: all 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.01) !important;
+}
+.tpsw-list-item:hover { border-color: #cbd5e1 !important; transform: translateY(-1px); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.03) !important; }
+.tpi-left { display: flex; align-items: center; gap: 12px; }
+.tpi-avatar { width: 32px; height: 32px; border-radius: 8px; background: #f8fafc; border: 1px solid #e2e8f0; color: #64748b; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.tpi-info { text-align: left; }
+.tpi-info strong { display: block; color: #0f172a; font-size: 14px; font-weight: 700; margin-bottom: 2px; }
+.tpi-info span { color: #94a3b8; font-size: 12px; font-weight: 500; }
+.tpi-right svg { transition: transform 0.2s; }
+.tpsw-list-item:hover .tpi-right svg { stroke: #0f766e; transform: translateX(2px); }
+
+/* Override #teamPulseModal generic paddings */
+#teamPulseModal #teamPulseModalBody { padding: 20px; background: #ffffff; border-radius: 20px; }
+

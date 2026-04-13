@@ -299,14 +299,23 @@ const TaskController = (() => {
         const startIndex = (page - 1) * limit;
         const currentItems = items.slice(startIndex, startIndex + limit);
 
-        const listHtml = currentItems.map((item) => `
+        const listHtml = currentItems.map((item) => {
+            const initial = String(item.businessName || '?').trim().charAt(0).toUpperCase();
+            return `
             <button type="button" class="${itemClass}" onclick="event.stopPropagation(); openTaskModal('${escapeHtml(item.taskId)}')">
-                <span class="team-pulse-detail-main team-pulse-detail-main-rich">
-                    <strong>${escapeHtml(item.businessName)}</strong>
-                </span>
-                <span class="team-pulse-detail-assignee">${escapeHtml(ownerName || '-')}</span>
+                <div class="tpi-left">
+                    <div class="tpi-avatar">${escapeHtml(initial)}</div>
+                    <div class="tpi-info">
+                        <strong>${escapeHtml(item.businessName)}</strong>
+                        <span>${escapeHtml(ownerName || '-')}</span>
+                    </div>
+                </div>
+                <div class="tpi-right">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                </div>
             </button>
-        `).join('');
+            `;
+        }).join('');
 
         if (totalPages <= 1) return listHtml;
 
@@ -380,42 +389,40 @@ const TaskController = (() => {
         const openedMetric = getTeamPulseMetric(record, 'opened');
 
         return `
-            <div class="team-pulse-modal-shell">
-                <div class="tp-minimal-header">
-                    <div class="tp-minimal-identity">
+            <div class="tp-smart-wizard">
+                <div class="tpsw-header">
+                    <div class="tpsw-avatar-ring">
+                        <div class="tpsw-avatar">${escapeHtml(String(record.user.name || '?').trim().charAt(0).toUpperCase())}</div>
+                    </div>
+                    <div class="tpsw-identity">
                         <h3>${escapeHtml(record.user.name || '-')}</h3>
-                        <span class="tp-minimal-team">${escapeHtml(record.user.team || 'Takım atanmadı')}</span>
+                        <span class="tpsw-team">${escapeHtml(record.user.team || 'Takım Yok')}</span>
                     </div>
                 </div>
                 
-                <div class="tp-minimal-tabs">
-                    <button type="button" class="tp-tab-btn ${teamPulseUiState.selectedMetric === 'open' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('open')">
-                        <span class="tp-tab-label">Açık</span>
-                        <span class="tp-tab-count">${openMetric.count}</span>
-                    </button>
-                    <button type="button" class="tp-tab-btn ${teamPulseUiState.selectedMetric === 'deal' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('deal')">
-                        <span class="tp-tab-label">Deal</span>
-                        <span class="tp-tab-count">${dealMetric.count}</span>
-                    </button>
-                    <button type="button" class="tp-tab-btn ${teamPulseUiState.selectedMetric === 'cold' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('cold')">
-                        <span class="tp-tab-label">Cold</span>
-                        <span class="tp-tab-count">${coldMetric.count}</span>
-                    </button>
-                    <button type="button" class="tp-tab-btn ${teamPulseUiState.selectedMetric === 'contacted' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('contacted')">
-                        <span class="tp-tab-label">Bugün Görüşülen</span>
-                        <span class="tp-tab-count">${contactedMetric.count}</span>
-                    </button>
-                    <button type="button" class="tp-tab-btn ${teamPulseUiState.selectedMetric === 'opened' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('opened')">
-                        <span class="tp-tab-label">Aylık Create Task</span>
-                        <span class="tp-tab-count">${openedMetric.count}</span>
-                    </button>
+                <div class="tpsw-seg-wrap">
+                    <div class="tpsw-seg-control">
+                        <button type="button" class="tpsw-seg-btn ${teamPulseUiState.selectedMetric === 'open' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('open')">
+                            Açık <span class="tpsw-seg-badge">${openMetric.count}</span>
+                        </button>
+                        <button type="button" class="tpsw-seg-btn ${teamPulseUiState.selectedMetric === 'deal' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('deal')">
+                            Deal <span class="tpsw-seg-badge">${dealMetric.count}</span>
+                        </button>
+                        <button type="button" class="tpsw-seg-btn ${teamPulseUiState.selectedMetric === 'cold' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('cold')">
+                            Cold <span class="tpsw-seg-badge">${coldMetric.count}</span>
+                        </button>
+                        <button type="button" class="tpsw-seg-btn ${teamPulseUiState.selectedMetric === 'contacted' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('contacted')">
+                            Görüşülen <span class="tpsw-seg-badge">${contactedMetric.count}</span>
+                        </button>
+                        <button type="button" class="tpsw-seg-btn ${teamPulseUiState.selectedMetric === 'opened' ? 'active' : ''}" onclick="event.stopPropagation(); setTeamPulseModalMetric('opened')">
+                            Yeni <span class="tpsw-seg-badge">${openedMetric.count}</span>
+                        </button>
+                    </div>
                 </div>
 
-                <div class="team-pulse-modal-layout single">
-                    <div class="tp-minimal-panel">
-                        <div class="team-pulse-modal-grid">
-                            ${buildTeamPulseDetailList(selectedMetric.items, selectedMetric.empty, { itemClass: 'team-pulse-modal-item', limit: 12, page: teamPulseUiState.currentPage, ownerName: record.user?.name || '-' })}
-                        </div>
+                <div class="tpsw-body">
+                    <div class="tpsw-list-grid">
+                        ${buildTeamPulseDetailList(selectedMetric.items, selectedMetric.empty, { itemClass: 'tpsw-list-item', limit: 8, page: teamPulseUiState.currentPage, ownerName: record.user?.name || '-' })}
                     </div>
                 </div>
             </div>

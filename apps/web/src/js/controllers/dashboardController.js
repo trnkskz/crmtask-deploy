@@ -53,8 +53,8 @@ const DashboardController = {
         const coldCount = this._getPulseMetric(record, 'cold', 'monthly');
         const dealRatio = Math.max(0, Math.min(100, Math.round(Number(record?.dealRatio || 0))));
         
-        // SVG Ring calculation (Radius = 45, Circumference = ~282.74)
-        const circumference = 282.74;
+        // SVG Ring calculation (Radius = 26, Circumference = ~163.36) for smaller visual footprint
+        const circumference = 163.36;
         const dashOffset = circumference - (circumference * dealRatio) / 100;
         const progressStroke = dealRatio === 0 ? "transparent" : "#0f766e";
         
@@ -63,38 +63,34 @@ const DashboardController = {
         const safeTeam = record?.user?.team || '-';
 
         return `
-            <div class="perf-card perf-card-modern" onclick="openTeamPulseModal('${userKey}', 'open')">
-                <div class="perf-card-header">
-                    <div class="perf-card-title-block">
-                        <div class="perf-card-name">${safeName}</div>
-                        <span class="perf-team-badge">${safeTeam}</span>
+            <div class="perf-card-micro" onclick="openTeamPulseModal('${userKey}', 'open')">
+                <div class="pcm-header">
+                    <div class="pcm-info">
+                        <div class="pcm-name">${safeName}</div>
+                        <div class="pcm-team">${safeTeam}</div>
+                    </div>
+                    <div class="pcm-ring-wrap">
+                        <svg width="60" height="60" viewBox="0 0 60 60" class="pcm-ring-svg">
+                            <circle cx="30" cy="30" r="26" fill="none" stroke="#f1f5f9" stroke-width="4" />
+                            <circle cx="30" cy="30" r="26" fill="none" stroke="${progressStroke}" stroke-width="4" stroke-linecap="round"
+                                stroke-dasharray="${circumference}" stroke-dashoffset="${dashOffset}" transform="rotate(-90 30 30)" />
+                        </svg>
+                        <div class="pcm-ring-val">${dealRatio}<span class="pcm-ring-pct">%</span></div>
                     </div>
                 </div>
                 
-                <div class="perf-ring-modern-container">
-                    <svg width="110" height="110" viewBox="0 0 100 100" class="perf-ring-svg">
-                        <circle cx="50" cy="50" r="45" fill="none" stroke="#f1f5f9" stroke-width="6" />
-                        <circle cx="50" cy="50" r="45" fill="none" stroke="${progressStroke}" stroke-width="6" stroke-linecap="round"
-                            stroke-dasharray="${circumference}" stroke-dashoffset="${dashOffset}" transform="rotate(-90 50 50)" />
-                    </svg>
-                    <div class="perf-ring-modern-inner">
-                        <span class="perf-ring-modern-value">${dealRatio}%</span>
-                        <span class="perf-ring-modern-label">Deal</span>
-                    </div>
-                </div>
-                
-                <div class="perf-stats-modern">
-                    <button type="button" class="p-stat-modern" onclick="event.stopPropagation(); openTeamPulseModal('${userKey}', 'open')">
-                        <span>Açık</span>
-                        <strong>${openCount}</strong>
+                <div class="pcm-stats">
+                    <button type="button" class="pcm-stat-btn" onclick="event.stopPropagation(); openTeamPulseModal('${userKey}', 'open')">
+                        <span class="pcm-stat-lbl">Açık</span>
+                        <strong class="pcm-stat-val">${openCount}</strong>
                     </button>
-                    <button type="button" class="p-stat-modern" onclick="event.stopPropagation(); openTeamPulseModal('${userKey}', 'deal')">
-                        <span>Deal</span>
-                        <strong class="is-deal">${dealCount}</strong>
+                    <button type="button" class="pcm-stat-btn" onclick="event.stopPropagation(); openTeamPulseModal('${userKey}', 'deal')">
+                        <span class="pcm-stat-lbl">Deal</span>
+                        <strong class="pcm-stat-val is-deal">${dealCount}</strong>
                     </button>
-                    <button type="button" class="p-stat-modern" onclick="event.stopPropagation(); openTeamPulseModal('${userKey}', 'cold')">
-                        <span>Cold</span>
-                        <strong class="is-cold">${coldCount}</strong>
+                    <button type="button" class="pcm-stat-btn" onclick="event.stopPropagation(); openTeamPulseModal('${userKey}', 'cold')">
+                        <span class="pcm-stat-lbl">Cold</span>
+                        <strong class="pcm-stat-val is-cold">${coldCount}</strong>
                     </button>
                 </div>
             </div>
