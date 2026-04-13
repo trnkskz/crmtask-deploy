@@ -41,6 +41,14 @@ const TaskController = (() => {
             .replace(/'/g, '&#39;');
     }
 
+    function normalizeLogTimeLabel(value) {
+        const raw = String(value || '').trim();
+        const match = raw.match(/^(\d{2}:\d{2})(?::\d{2})?$/);
+        if (match) return match[1];
+        if (raw.includes(':')) return raw.slice(0, 5);
+        return raw;
+    }
+
     function getTeamPulseDateRanges() {
         const now = new Date();
         const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -1555,11 +1563,11 @@ const TaskController = (() => {
             if (log.date.includes(' ')) {
                 const parts = log.date.split(' ');
                 datePart = parts[0];
-                timePart = parts.slice(1).join(' ');
+                timePart = normalizeLogTimeLabel(parts.slice(1).join(' '));
             } else if (log.date.includes('T')) {
                 const parts = log.date.split('T');
                 datePart = parts[0];
-                timePart = parts[1].substring(0, 5); 
+                timePart = normalizeLogTimeLabel(parts[1]);
             }
 
             const groupKey = `${datePart}___${log.user}`;
@@ -1598,7 +1606,7 @@ const TaskController = (() => {
                 const canManageEntry = Boolean(taskId) && (canManageAnyLog || (currentUser?.id && entry.authorId === currentUser.id));
                 const encodedText = encodeURIComponent(entry.text || '');
                 const actionButtonsHtml = canManageEntry
-                    ? `<div style="position:absolute; right:0; top:0; display:flex; gap:6px;">
+                    ? `<div style="position:absolute; right:0; top:50%; transform:translateY(-50%); display:flex; flex-direction:column; gap:6px; align-items:center;">
                             <button class="log-delete-btn" style="position:static;" onclick="editTaskLog('${taskId}', ${logIdArg}, '${encodedText}')" title="Bu Logu Düzenle">✏️</button>
                             <button class="log-delete-btn" style="position:static;" onclick="deleteTaskLog('${taskId}', ${logIdArg})" title="Bu Logu Sil">🗑️</button>
                        </div>`
@@ -1882,7 +1890,7 @@ const TaskController = (() => {
             </div>
 
             <div class="floating-input-wrapper">
-                <input type="text" id="modalLogInput" placeholder="Görüşme notlarınızı buraya yazın...">
+                <input type="text" id="modalLogInput" placeholder="Görüşme notunuzu yazmak için tıklayın..." readonly onclick="openTaskNoteComposer()">
             </div>
             
             <button id="btnSaveModalLog" onclick="triggerSaveAction('${task.id}')">Kaydet 🚀</button>
@@ -1993,6 +2001,19 @@ const TaskController = (() => {
                     <button onclick="closeMiniModal()" style="background:#e2e8f0; color:#475569; flex:1; border:none; padding:12px; border-radius:10px; font-weight:700; cursor:pointer;">İptal</button>
                 </div>
             </div>
+
+            <div id="miniModalComposer" style="display:none; background:#fff; border-radius:20px; padding:26px; box-shadow:0 24px 70px rgba(15,23,42,0.24); width:min(92vw, 760px); border:1px solid rgba(148,163,184,0.24);">
+                <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:18px;">
+                    <span style="font-size:11px; font-weight:800; letter-spacing:0.08em; text-transform:uppercase; color:#0f766e;">Görüşme Notu</span>
+                    <h3 style="margin:0; color:#0f172a; font-size:24px; font-weight:800; letter-spacing:-0.02em;">Mesaj kutusunda rahatça yazın</h3>
+                    <p style="margin:0; color:#64748b; font-size:14px; line-height:1.6;">Uzun görüşme notlarını tek satır yerine geniş bir yazım alanında hazırlayın. İsterseniz kutuyu daha da büyütebilirsiniz.</p>
+                </div>
+                <textarea id="modalLogComposerTextarea" placeholder="Görüşme notlarınızı detaylı şekilde buraya yazın..." style="width:100%; min-height:220px; resize:vertical; box-sizing:border-box; padding:18px 20px; border-radius:16px; border:1px solid #cbd5e1; background:linear-gradient(180deg, #f8fafc 0%, #ffffff 100%); font-size:15px; line-height:1.7; color:#0f172a; outline:none; box-shadow:inset 0 1px 2px rgba(15,23,42,0.05);" oninput="syncTaskComposerValue(this.value)"></textarea>
+                <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:18px;">
+                    <button type="button" onclick="closeTaskNoteComposer(false)" style="background:#e2e8f0; color:#475569; border:none; padding:12px 18px; border-radius:10px; font-weight:700; cursor:pointer;">İptal</button>
+                    <button type="button" onclick="closeTaskNoteComposer(true)" style="background:linear-gradient(135deg, #0f766e 0%, #115e59 100%); color:#fff; border:none; padding:12px 18px; border-radius:10px; font-weight:700; cursor:pointer;">Tamam</button>
+                </div>
+            </div>
         </div>
         `;
     }
@@ -2008,6 +2029,51 @@ const TaskController = (() => {
         if (e) e.stopPropagation();
         const menu = document.getElementById('customLogTypeMenu');
         if (menu) menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
+    }
+
+    function syncTaskComposerValue(value = '') {
+        const normalized = String(value || '');
+        const inlineInput = document.getElementById('modalLogInput');
+        const composerTextarea = document.getElementById('modalLogComposerTextarea');
+        if (inlineInput) {
+            inlineInput.value = normalized;
+            inlineInput.setAttribute('data-has-value', normalized.trim() ? '1' : '0');
+        }
+        if (composerTextarea && composerTextarea.value !== normalized) {
+            composerTextarea.value = normalized;
+        }
+    }
+
+    function openTaskNoteComposer() {
+        const overlay = document.getElementById('miniModalOverlay');
+        const composer = document.getElementById('miniModalComposer');
+        const inlineInput = document.getElementById('modalLogInput');
+        const composerTextarea = document.getElementById('modalLogComposerTextarea');
+        if (!overlay || !composer || !composerTextarea) return;
+
+        if (document.getElementById('miniModalDeal')) document.getElementById('miniModalDeal').style.display = 'none';
+        if (document.getElementById('miniModalDate')) document.getElementById('miniModalDate').style.display = 'none';
+        if (document.getElementById('miniModalContact')) document.getElementById('miniModalContact').style.display = 'none';
+        if (document.getElementById('miniModalTransfer')) document.getElementById('miniModalTransfer').style.display = 'none';
+
+        composerTextarea.value = inlineInput?.value || '';
+        overlay.style.display = 'flex';
+        composer.style.display = 'block';
+
+        setTimeout(() => {
+            composerTextarea.focus();
+            composerTextarea.setSelectionRange(composerTextarea.value.length, composerTextarea.value.length);
+        }, 0);
+    }
+
+    function closeTaskNoteComposer(applyValue = false) {
+        const composer = document.getElementById('miniModalComposer');
+        const composerTextarea = document.getElementById('modalLogComposerTextarea');
+        if (applyValue && composerTextarea) {
+            syncTaskComposerValue(composerTextarea.value);
+        }
+        if (composer) composer.style.display = 'none';
+        closeMiniModal();
     }
 
     function refreshFollowupSummary(dateStr = '') {
@@ -2062,6 +2128,7 @@ const TaskController = (() => {
             // Diğer tüm modalları kapat (Garanti Kuralı)
             if (document.getElementById('miniModalDeal')) document.getElementById('miniModalDeal').style.display = 'none';
             if (document.getElementById('miniModalContact')) document.getElementById('miniModalContact').style.display = 'none';
+            if (document.getElementById('miniModalComposer')) document.getElementById('miniModalComposer').style.display = 'none';
             
             document.getElementById('miniModalDate').style.display = 'block';
             markActiveQuickFollowup(null);
@@ -2136,6 +2203,7 @@ const TaskController = (() => {
         document.getElementById('miniModalContact').style.display = 'block';
         if(document.getElementById('miniModalDeal')) document.getElementById('miniModalDeal').style.display = 'none';
         if(document.getElementById('miniModalDate')) document.getElementById('miniModalDate').style.display = 'none';
+        if(document.getElementById('miniModalComposer')) document.getElementById('miniModalComposer').style.display = 'none';
     }
 
     function refreshTaskTransferSummary() {
@@ -2170,6 +2238,7 @@ const TaskController = (() => {
         if (document.getElementById('miniModalDeal')) document.getElementById('miniModalDeal').style.display = 'none';
         if (document.getElementById('miniModalDate')) document.getElementById('miniModalDate').style.display = 'none';
         if (document.getElementById('miniModalContact')) document.getElementById('miniModalContact').style.display = 'none';
+        if (document.getElementById('miniModalComposer')) document.getElementById('miniModalComposer').style.display = 'none';
         if (document.getElementById('miniModalTransfer')) document.getElementById('miniModalTransfer').style.display = 'block';
         refreshTaskTransferSummary();
     }
@@ -2286,6 +2355,7 @@ const TaskController = (() => {
         if (document.getElementById('miniModalDate')) document.getElementById('miniModalDate').style.display = 'none';
         if (document.getElementById('miniModalContact')) document.getElementById('miniModalContact').style.display = 'none';
         if (document.getElementById('miniModalTransfer')) document.getElementById('miniModalTransfer').style.display = 'none';
+        if (document.getElementById('miniModalComposer')) document.getElementById('miniModalComposer').style.display = 'none';
         const noteEl = document.getElementById('followupReasonNote');
         if (noteEl) noteEl.value = '';
         const transferNoteEl = document.getElementById('taskTransferNote');
@@ -2694,6 +2764,9 @@ const TaskController = (() => {
         markActiveQuickFollowup,
         pickQuickFollowup,
         refreshFollowupSummary,
+        syncTaskComposerValue,
+        openTaskNoteComposer,
+        closeTaskNoteComposer,
         resetAllTasksFilters,
     };
 })();
@@ -2734,6 +2807,9 @@ window.executeContactUpdate = TaskController.executeContactUpdate.bind(TaskContr
 window.openTaskTransferModal = TaskController.openTaskTransferModal.bind(TaskController);
 window.executeTaskTransfer = TaskController.executeTaskTransfer.bind(TaskController);
 window.refreshTaskTransferSummary = TaskController.refreshTaskTransferSummary.bind(TaskController);
+window.syncTaskComposerValue = TaskController.syncTaskComposerValue.bind(TaskController);
+window.openTaskNoteComposer = TaskController.openTaskNoteComposer.bind(TaskController);
+window.closeTaskNoteComposer = TaskController.closeTaskNoteComposer.bind(TaskController);
 
 function addSystemLog(action) {
     if (!AppState.loggedInUser) return Promise.resolve();

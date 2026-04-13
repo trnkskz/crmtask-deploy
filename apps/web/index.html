@@ -398,7 +398,7 @@
                     <div class="hero-watermark">📈</div>
                 </div>
 
-                <div class="manager-asymmetric-layout">
+                <div class="manager-asymmetric-layout" style="align-items:stretch;">
                     <div class="manager-primary-stack">
                         <div class="manager-kpi-strip">
                             <div class="kpi-card kpi-blue" onclick="openSummaryModal('active')">
@@ -448,8 +448,8 @@
                         </div>
                     </div>
 
-                    <div class="manager-secondary-stack manager-radar-column">
-                        <div class="radar-module manager-radar-module">
+                    <div class="manager-secondary-stack manager-radar-column" style="display:flex; min-height:0;">
+                        <div class="radar-module manager-radar-module" style="display:flex; flex-direction:column; flex:1; min-height:0; max-height:100%;">
                             <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #e2e8f0; padding-bottom:12px; margin-bottom:12px; flex-wrap:wrap; gap:10px;">
                                 <h3 style="margin:0; display:flex; align-items:center; gap:8px; font-size:15px; color:var(--secondary-color); font-weight:800;">
                                     📡 Canlı Operasyon Radarı
@@ -461,7 +461,7 @@
                                     <option value="">Tüm Ekip</option>
                                 </select>
                             </div>
-                            <div id="mgrLiveFeed" class="radar-scroll-area"></div>
+                            <div id="mgrLiveFeed" class="radar-scroll-area" style="flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; padding-right:6px;"></div>
                         </div>
                     </div>
                 </div>
