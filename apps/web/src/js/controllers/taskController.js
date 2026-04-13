@@ -1671,8 +1671,8 @@ const TaskController = (() => {
                 const encodedText = encodeURIComponent(entry.rawText || entry.text || '');
                 const actionButtonsHtml = canManageEntry
                     ? `<div class="log-entry-actions">
-                            <button class="log-delete-btn" onclick="editTaskLog('${taskId}', ${logIdArg}, '${encodedText}')" title="Bu Logu Düzenle">✏️</button>
-                            <button class="log-delete-btn" onclick="deleteTaskLog('${taskId}', ${logIdArg})" title="Bu Logu Sil">🗑️</button>
+                            <button class="log-entry-action-btn log-entry-edit-btn" onclick="editTaskLog('${taskId}', ${logIdArg}, '${encodedText}')" title="Bu Logu Düzenle" aria-label="Bu Logu Düzenle">✏️</button>
+                            <button class="log-entry-action-btn log-entry-delete-btn" onclick="deleteTaskLog('${taskId}', ${logIdArg})" title="Bu Logu Sil" aria-label="Bu Logu Sil">🗑️</button>
                        </div>`
                     : '';
                 const boStyle = index !== group.entries.length - 1 ? 'border-bottom:1px dashed #e2e8f0; padding-bottom:10px; margin-bottom:10px;' : '';

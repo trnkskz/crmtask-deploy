@@ -947,6 +947,72 @@ describe('AccountsService.update', () => {
     expect(prisma.accountContact.delete).toHaveBeenCalledWith({ where: { id: 'extra_dup' } })
   })
 
+  it('promotes a newly added extra contact to primary and moves the old primary to other contacts', async () => {
+    const { service, prisma } = buildUpdateService()
+    prisma.account.update.mockResolvedValue({
+      id: 'acc_1',
+      businessName: 'Demo Biz',
+      address: null,
+    })
+    prisma.account.findUnique.mockResolvedValue({
+      id: 'acc_1',
+      businessName: 'Demo Biz',
+      accountName: 'Demo Biz',
+      mainCategory: null,
+      subCategory: null,
+      source: 'FRESH',
+      type: 'KEY',
+      status: 'ACTIVE',
+    })
+    prisma.accountContact.findFirst.mockResolvedValue({
+      id: 'primary_1',
+      accountId: 'acc_1',
+      name: 'Eski Yetkili',
+      phone: '05320000000',
+      email: 'eski@example.com',
+      address: null,
+      isPrimary: true,
+    })
+    prisma.accountContact.findMany.mockResolvedValue([])
+    prisma.accountContact.update.mockResolvedValue({
+      id: 'primary_1',
+      name: 'Yeni Yetkili',
+      phone: '05321111111',
+      email: 'yeni@example.com',
+      isPrimary: true,
+    })
+    prisma.accountContact.create.mockResolvedValue({
+      id: 'extra_old_primary',
+      name: 'Eski Yetkili',
+      phone: '05320000000',
+      email: 'eski@example.com',
+      isPrimary: false,
+    })
+
+    await service.update('acc_1', {
+      extraContacts: [{ name: 'Yeni Yetkili', phone: '05321111111', email: 'yeni@example.com' }],
+    } as any)
+
+    expect(prisma.accountContact.update).toHaveBeenCalledWith({
+      where: { id: 'primary_1' },
+      data: expect.objectContaining({
+        name: 'Yeni Yetkili',
+        phone: '05321111111',
+        email: 'yeni@example.com',
+      }),
+    })
+    expect(prisma.accountContact.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        accountId: 'acc_1',
+        type: 'PERSON',
+        name: 'Eski Yetkili',
+        phone: '05320000000',
+        email: 'eski@example.com',
+        isPrimary: false,
+      }),
+    })
+  })
+
   it('removes all extra contacts when update payload sends an empty extra contact list', async () => {
     const { service, prisma } = buildUpdateService()
     prisma.account.update.mockResolvedValue({
