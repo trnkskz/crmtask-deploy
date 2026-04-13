@@ -846,6 +846,7 @@ export class ReportsService {
         manager: {
           totalOpen,
           monthlyDeal,
+          monthlyCold: monthlyContactedOutcomeSummary.cold,
           dealRatio: successBase > 0 ? Number(((monthlyContactedOutcomeSummary.deal / successBase) * 100).toFixed(2)) : 0,
           openStatusCounts,
           focusItems,

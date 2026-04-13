@@ -413,6 +413,12 @@
                                 <div class="kpi-value" id="mgrTotalDeal">0</div>
                                 <div class="kpi-sub">Bu ay anlaşılan işletmeler</div>
                             </div>
+                            <div class="kpi-card kpi-red" onclick="openSummaryModal('cold')">
+                                <div class="kpi-watermark">❄️</div>
+                                <div class="kpi-title">Aylık Cold</div>
+                                <div class="kpi-value" id="mgrTotalCold">0</div>
+                                <div class="kpi-sub">Bu ay cold olan işletmeler</div>
+                            </div>
                             <div class="kpi-card kpi-orange">
                                 <div class="kpi-watermark">📈</div>
                                 <div class="kpi-title">Aylık Sistem Başarı Oranı</div>
@@ -520,15 +526,20 @@
                     </div>
                 </div>
                 
-                <div style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); padding: 12px 20px; border-radius: 12px; display: flex; flex-wrap: wrap; gap: 15px; align-items: center; justify-content: space-between;">
-                    <input type="text" id="myFilterBizName" placeholder="İşletme, yetkili, telefon veya mail..." autocomplete="off" onkeydown="if(event.key === 'Enter') { AppState.setPage('myTasks', 1); renderMyTasks(); }" style="background: rgba(255,255,255,0.9); color: #0f172a; border:none; padding:10px 15px; border-radius:8px; font-size:13px; outline:none; flex: 0 1 520px; min-width: 220px; max-width: 100%;">
+                <div class="task-list-filter-bar">
+                    <div class="tlf-search">
+                        <input type="text" id="myFilterBizName" placeholder="İşletme, yetkili, telefon veya mail..." autocomplete="off" onkeydown="if(event.key === 'Enter') { AppState.setPage('myTasks', 1); renderMyTasks(); }">
+                    </div>
                     
-                    <div class="cgf-chips" style="display:flex; gap:8px; flex-wrap:wrap;">
-                        <label class="cgf-pill"><input type="checkbox" class="my-status-filter hidden-cb" value="new" onchange="AppState.setPage('myTasks', 1); renderMyTasks()"><span>YENİ</span></label>
-                        <label class="cgf-pill"><input type="checkbox" class="my-status-filter hidden-cb" value="hot" onchange="AppState.setPage('myTasks', 1); renderMyTasks()"><span>HOT</span></label>
-                        <label class="cgf-pill"><input type="checkbox" class="my-status-filter hidden-cb" value="nothot" onchange="AppState.setPage('myTasks', 1); renderMyTasks()"><span>NOT HOT</span></label>
-                        <label class="cgf-pill"><input type="checkbox" class="my-status-filter hidden-cb" value="followup" onchange="AppState.setPage('myTasks', 1); renderMyTasks()"><span>TAKİP</span></label>
-                        <select id="myTaskSourceFilter" onchange="AppState.setPage('myTasks', 1); renderMyTasks()" style="background: rgba(255,255,255,0.9); color: #0f172a; border:none; padding:10px 14px; border-radius:999px; font-size:13px; font-weight:600; outline:none; cursor:pointer; min-width:170px;">
+                    <div class="tlf-controls">
+                        <div class="cgf-chips">
+                            <label class="cgf-pill"><input type="checkbox" class="my-status-filter hidden-cb" value="new" onchange="AppState.setPage('myTasks', 1); renderMyTasks()"><span>YENİ</span></label>
+                            <label class="cgf-pill"><input type="checkbox" class="my-status-filter hidden-cb" value="hot" onchange="AppState.setPage('myTasks', 1); renderMyTasks()"><span>HOT</span></label>
+                            <label class="cgf-pill"><input type="checkbox" class="my-status-filter hidden-cb" value="nothot" onchange="AppState.setPage('myTasks', 1); renderMyTasks()"><span>NOT HOT</span></label>
+                            <label class="cgf-pill"><input type="checkbox" class="my-status-filter hidden-cb" value="followup" onchange="AppState.setPage('myTasks', 1); renderMyTasks()"><span>TAKİP</span></label>
+                        </div>
+
+                        <select id="myTaskSourceFilter" class="tlf-select" onchange="AppState.setPage('myTasks', 1); renderMyTasks()">
                             <option value="">Kaynak Türü</option>
                             <option value="Fresh Account">Fresh Account</option>
                             <option value="Old Account">Old Account</option>
@@ -538,11 +549,12 @@
                             <option value="Lead">Lead</option>
                             <option value="Rakip">Rakip</option>
                         </select>
+
+                        <select id="myTaskSort" class="tlf-select" onchange="AppState.setPage('myTasks', 1); renderMyTasks()">
+                            <option value="newest">⏱ Önce Yeni İşlemler</option>
+                            <option value="oldest">⏳ Önce Eskiler (Bekleyenler)</option>
+                        </select>
                     </div>
-                    <select id="myTaskSort" onchange="AppState.setPage('myTasks', 1); renderMyTasks()" style="background: rgba(255,255,255,0.9); color: #0f172a; border:none; padding:10px 15px; border-radius:8px; font-size:13px; outline:none; cursor:pointer;">
-                        <option value="newest">⏱ Önce Yeni İşlemler</option>
-                        <option value="oldest">⏳ Önce Eskiler (Bekleyenler)</option>
-                    </select>
                 </div>
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
@@ -1825,7 +1837,18 @@
 
     <div id="taskModal" class="modal-overlay" onclick="closeModalOnOutsideClick(event)"><div class="modal-content modal-xl"><button class="modal-close-btn" onclick="closeModal('taskModal')">X</button><div id="modalContentArea"></div></div></div>
     <div id="businessDetailModal" class="modal-overlay" onclick="closeModalOnOutsideClick(event)"><div class="modal-content modal-xl"><button class="modal-close-btn" onclick="closeModal('businessDetailModal')">X</button><div id="businessDetailArea"></div></div></div>
-    <div id="summaryModal" class="modal-overlay" onclick="closeModalOnOutsideClick(event)"><div class="modal-content modal-sm"><button class="modal-close-btn" onclick="closeModal('summaryModal')">X</button><h3 id="summaryModalTitle" style="color:var(--primary-color); margin-top:0; border-bottom: 2px solid var(--border-light); padding-bottom: 10px;">Görev Özeti</h3><div id="summaryModalList" style="display:flex; flex-direction:column; margin-top:15px; max-height: 400px; overflow-y: auto; padding-right: 5px;"></div></div></div>
+    <div id="summaryModal" class="modal-overlay" onclick="closeModalOnOutsideClick(event)">
+        <div class="modal-content modal-sm" style="width: 800px; max-width: 95vw;">
+            <button class="modal-close-btn" onclick="closeModal('summaryModal')">X</button>
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 2px solid var(--border-light); padding-bottom: 10px; margin-bottom: 15px;">
+                <h3 id="summaryModalTitle" style="color:var(--primary-color); margin-top:0; margin-bottom:0;">Görev Özeti</h3>
+                <select id="summaryUserFilter" onchange="DashboardController.filterSummaryModal()" style="padding: 6px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 13px; font-weight: 600; color: #475569; display: none;">
+                    <option value="">Tüm Ekip</option>
+                </select>
+            </div>
+            <div id="summaryModalList" style="display:flex; flex-direction:column; max-height: 500px; overflow-y: auto; padding-right: 5px;"></div>
+        </div>
+    </div>
 
     <div id="cloneProjectModal" class="modal-overlay" onclick="closeModalOnOutsideClick(event)">
         <div class="modal-content modal-md">

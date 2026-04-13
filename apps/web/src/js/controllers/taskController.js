@@ -292,19 +292,22 @@ const TaskController = (() => {
 
     function buildTeamPulseDetailList(items, emptyText, options = {}) {
         const itemClass = options.itemClass || 'team-pulse-detail-item';
-        const limit = Number.isFinite(Number(options.limit)) ? Number(options.limit) : 10;
+        const limit = Number.isFinite(Number(options.limit)) ? Number(options.limit) : 6;
         const page = Number(options.page) || 1;
         const ownerName = options.ownerName || '';
         
         if (!items.length) {
-            return `
-                <div class="team-pulse-empty">
-                    <div class="team-pulse-empty-copy">
-                        <strong>Kayıt bulunamadı.</strong>
-                        <span>${emptyText}</span>
+            return {
+                listHtml: `
+                    <div class="team-pulse-empty">
+                        <div class="team-pulse-empty-copy">
+                            <strong>Kayıt bulunamadı.</strong>
+                            <span>${emptyText}</span>
+                        </div>
                     </div>
-                </div>
-            `;
+                `,
+                paginationHtml: ''
+            };
         }
 
         const totalPages = Math.ceil(items.length / limit);
@@ -329,13 +332,13 @@ const TaskController = (() => {
             `;
         }).join('');
 
-        if (totalPages <= 1) return listHtml;
+        if (totalPages <= 1) return { listHtml, paginationHtml: '' };
 
         const prevDisabled = page === 1 ? 'disabled' : '';
         const nextDisabled = page === totalPages ? 'disabled' : '';
 
         const paginationHtml = `
-            <div class="tp-modal-pagination" style="grid-column: 1 / -1;">
+            <div class="tp-modal-pagination" style="grid-column: 1 / -1; margin-top: 0; padding-top: 0; border-top: none; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #f1f5f9;">
                 <button type="button" class="tp-page-btn" ${prevDisabled} onclick="event.stopPropagation(); setTeamPulseModalPage(${page - 1})">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
                 </button>
@@ -346,7 +349,7 @@ const TaskController = (() => {
             </div>
         `;
 
-        return listHtml + paginationHtml;
+        return { listHtml, paginationHtml };
     }
 
     function buildTeamPulseCardHtml(record) {
@@ -400,6 +403,8 @@ const TaskController = (() => {
         const contactedMetric = getTeamPulseMetric(record, 'contacted');
         const openedMetric = getTeamPulseMetric(record, 'opened');
 
+        const listData = buildTeamPulseDetailList(selectedMetric.items, selectedMetric.empty, { itemClass: 'tpsw-list-item', limit: 6, page: teamPulseUiState.currentPage, ownerName: record.user?.name || '-' });
+
         return `
             <div class="tp-smart-wizard">
                 <div class="tpsw-header-box">
@@ -447,8 +452,9 @@ const TaskController = (() => {
                 ` : ''}
 
                 <div class="tpsw-body">
+                    ${listData.paginationHtml}
                     <div class="tpsw-list-grid">
-                        ${buildTeamPulseDetailList(selectedMetric.items, selectedMetric.empty, { itemClass: 'tpsw-list-item', limit: 8, page: teamPulseUiState.currentPage, ownerName: record.user?.name || '-' })}
+                        ${listData.listHtml}
                     </div>
                 </div>
             </div>

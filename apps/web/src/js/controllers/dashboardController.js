@@ -217,6 +217,7 @@ const DashboardController = {
             this._setMetric('mgrHeroDate', new Date().toLocaleDateString('tr-TR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }));
             this._setMetric('mgrTotalActive', '...');
             this._setMetric('mgrTotalDeal', '...');
+            this._setMetric('mgrTotalCold', '...');
             this._setMetric('mgrDealRatio', '...');
             this._setMetric('mgrDashNew', '...');
             this._setMetric('mgrDashHot', '...');
@@ -234,6 +235,7 @@ const DashboardController = {
             const manager = snapshot?.manager || {};
             this._setMetric('mgrTotalActive', Number(manager.totalOpen || 0));
             this._setMetric('mgrTotalDeal', Number(manager.monthlyDeal || 0));
+            this._setMetric('mgrTotalCold', Number(manager.monthlyCold || 0));
             this._setMetric('mgrDealRatio', `%${Math.round(Number(manager.dealRatio || 0))}`);
             this._setMetric('mgrDashNew', Number(manager.openStatusCounts?.new || 0));
             this._setMetric('mgrDashHot', Number(manager.openStatusCounts?.hot || 0));
@@ -259,6 +261,7 @@ const DashboardController = {
             this._renderMetricLoadError([
                 'mgrTotalActive',
                 'mgrTotalDeal',
+                'mgrTotalCold',
                 'mgrDealRatio',
                 'mgrDashNew',
                 'mgrDashHot',
@@ -277,6 +280,7 @@ const DashboardController = {
         this._renderMetricLoadError([
             'mgrTotalActive',
             'mgrTotalDeal',
+            'mgrTotalCold',
             'mgrDealRatio',
             'mgrDashNew',
             'mgrDashHot',
@@ -620,6 +624,22 @@ const DashboardController = {
         }, 3500); // Her 3.5 saniyede bir
     },
 
+    _currentSummaryRows: [],
+
+    filterSummaryModal() {
+        const filterEl = document.getElementById('summaryUserFilter');
+        const listEl = document.getElementById('summaryModalList');
+        if (!filterEl || !listEl) return;
+        const selectedId = filterEl.value;
+        const filtered = selectedId ? this._currentSummaryRows.filter(r => String(r.ownerId) === selectedId) : this._currentSummaryRows;
+        
+        if (!filtered.length) {
+            listEl.innerHTML = "<div style='color:var(--text-muted); font-size:13px;'>Seçili kullanıcıya ait görev bulunamadı.</div>";
+            return;
+        }
+        listEl.innerHTML = this._renderSummaryModalRows(filtered);
+    },
+
     async openSummaryModal(type) {
         const titles = {
             active: 'Tüm Açık Tasklar',
@@ -631,17 +651,43 @@ const DashboardController = {
         const st = document.getElementById('summaryModalTitle');
         const sl = document.getElementById('summaryModalList');
         const sm = document.getElementById('summaryModal');
+        const uf = document.getElementById('summaryUserFilter');
+        
         if (st) st.innerText = titles[type] || 'Görev Özeti';
         if (sl) sl.innerHTML = "<div style='color:var(--text-muted); font-size:13px;'>Veriler yükleniyor...</div>";
+        if (uf) {
+            uf.style.display = 'none';
+            uf.innerHTML = '<option value="">Tüm Ekip</option>';
+            uf.value = '';
+        }
         if (sm) sm.style.display = 'flex';
 
         try {
             const rows = this._normalizeDashboardRows(await this._loadDashboardModalRows(type));
+            this._currentSummaryRows = rows || [];
             if (!sl) return;
             if (!rows.length) {
                 sl.innerHTML = "<div style='color:var(--text-muted); font-size:13px;'>Görev bulunamadı.</div>";
                 return;
             }
+            
+            if (uf && (type === 'deal' || type === 'cold' || type === 'active') && AppState.loggedInUser?.role !== 'Satış Temsilcisi') {
+                const usersMap = new Map();
+                rows.forEach(r => {
+                    if (r.ownerId && r.ownerName) {
+                        usersMap.set(r.ownerId, r.ownerName);
+                    }
+                });
+                if (usersMap.size > 0) {
+                    Array.from(usersMap.entries())
+                        .sort((a,b) => a[1].localeCompare(b[1], 'tr'))
+                        .forEach(([id, name]) => {
+                            uf.add(new Option(name, id));
+                        });
+                    uf.style.display = 'block';
+                }
+            }
+            
             sl.innerHTML = this._renderSummaryModalRows(rows);
         } catch (err) {
             console.error('Dashboard summary modal load failed:', err);
