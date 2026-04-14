@@ -186,6 +186,18 @@ export class TasksService {
     })
   }
 
+  private sortOldestOpenTasks(items: any[]) {
+    return [...items].sort((left, right) => {
+      const leftLastActivity = this.getTaskLastActivityTime(left)
+      const rightLastActivity = this.getTaskLastActivityTime(right)
+      if (leftLastActivity !== rightLastActivity) return leftLastActivity - rightLastActivity
+
+      const leftCreatedAt = left?.creationDate ? new Date(left.creationDate).getTime() : 0
+      const rightCreatedAt = right?.creationDate ? new Date(right.creationDate).getTime() : 0
+      return leftCreatedAt - rightCreatedAt
+    })
+  }
+
   private async managerHasDirectSales(userId: string) {
     const count = await this.prisma.user.count({
       where: {
@@ -1015,16 +1027,18 @@ export class TasksService {
     const limit = filter.limit ? Math.min(Number(filter.limit), limitCap) : undefined
     const sort = String(filter.sort || '').toLowerCase()
     const orderBy: any = sort === 'oldest' ? { creationDate: 'asc' } : { creationDate: 'desc' }
-    const useHybridOpenSort = isSummaryView && String(filter.generalStatus || '').toUpperCase() === 'OPEN' && sort !== 'oldest'
+    const useOpenActivitySort = isSummaryView && String(filter.generalStatus || '').toUpperCase() === 'OPEN'
     if (page && limit) {
       const skip = (page - 1) * limit
-      if (useHybridOpenSort) {
+      if (useOpenActivitySort) {
         const rawItems = await this.prisma.task.findMany({
           where,
           orderBy: { creationDate: 'desc' },
           select: this.buildSummaryTaskSelect(),
         } as any)
-        const sortedItems = this.sortHybridOpenTasks(rawItems)
+        const sortedItems = sort === 'oldest'
+          ? this.sortOldestOpenTasks(rawItems)
+          : this.sortHybridOpenTasks(rawItems)
         const pagedItems = sortedItems.slice(skip, skip + limit)
         const itemsMapped = pagedItems.map((t: any) => this.mapTaskListItem(t))
         return { items: itemsMapped, total: sortedItems.length, page, limit }
@@ -1075,7 +1089,9 @@ export class TasksService {
           },
         }
     const rawItems = await this.prisma.task.findMany(listQuery)
-    const finalItems = useHybridOpenSort ? this.sortHybridOpenTasks(rawItems) : rawItems
+    const finalItems = useOpenActivitySort
+      ? (sort === 'oldest' ? this.sortOldestOpenTasks(rawItems) : this.sortHybridOpenTasks(rawItems))
+      : rawItems
     return finalItems.map((t: any) => this.mapTaskListItem(t))
   }
 

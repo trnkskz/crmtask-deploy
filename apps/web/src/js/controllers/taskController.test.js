@@ -253,6 +253,106 @@ describe('TaskController.renderAllTasks', () => {
         expect(teamPulseContainer.innerHTML).toContain('Ayse');
         expect(fetchTaskPage).toHaveBeenCalled();
     });
+
+    it('replaces stale cached latest logs with the refreshed summary payload after list reload', async () => {
+        const allActiveTaskList = createElement({ appendChild: jest.fn() });
+        const allActiveCount = createElement();
+        const btnTodayDealCount = createElement();
+        const btnTodayColdCount = createElement();
+        const allTasksPagination = createElement();
+        const teamPulseContainer = createElement();
+
+        const document = createDocument({
+            allActiveTaskList,
+            allActiveCount,
+            btnTodayDealCount,
+            btnTodayColdCount,
+            allTasksPagination,
+            teamPulseContainer,
+            filterAllTasksAssignee: createElement({ value: '' }),
+            filterAllTasksProject: createElement({ value: '' }),
+            allFilterBizName: createElement({ value: '' }),
+            allTaskSort: createElement({ value: 'oldest' }),
+        });
+        document.querySelectorAll = jest.fn(() => []);
+
+        const existingDetailedTask = {
+            id: 'task-cache-1',
+            businessId: 'biz-1',
+            status: 'hot',
+            assignee: 'Ayse',
+            sourceType: 'Old Account',
+            mainCategory: 'Yemek',
+            subCategory: 'Iftar',
+            logs: [
+                { date: '14.04.2026 10:00', text: 'silinmis yeni log' },
+                { date: '01.04.2026 10:00', text: 'eski log' },
+            ],
+            createdAt: '2026-04-01T10:00:00.000Z',
+            companyName: 'Acme',
+            city: 'Istanbul',
+        };
+        const refreshedSummaryTask = {
+            ...existingDetailedTask,
+            logs: [{ date: '01.04.2026 10:00', text: 'eski log' }],
+        };
+
+        const fetchTaskPage = jest.fn().mockImplementation((query) => {
+            if (query?.status === 'DEAL') return Promise.resolve({ items: [], total: 0, page: 1, limit: 1 });
+            if (query?.status === 'COLD') return Promise.resolve({ items: [], total: 0, page: 1, limit: 1 });
+            return Promise.resolve({ items: [refreshedSummaryTask], total: 1, page: 1, limit: 25 });
+        });
+
+        const appState = {
+            tasks: [existingDetailedTask],
+            users: [{ name: 'Ayse', role: 'Satış Temsilcisi', status: 'Aktif', team: 'Team 1' }],
+            loggedInUser: { role: 'Yönetici' },
+            pagination: { allTasks: 1 },
+            setPage: jest.fn(),
+            getBizMap: () => new Map([['biz-1', { id: 'biz-1', companyName: 'Acme', city: 'Istanbul' }]]),
+            getTaskDerivedIndex: () => ({
+                nonPoolTasks: [refreshedSummaryTask],
+                openNonPoolTasks: [refreshedSummaryTask],
+                tasksByAssignee: new Map([['Ayse', [refreshedSummaryTask]]]),
+                activeAssigneeNames: new Set(['Ayse']),
+                todayDealCount: 0,
+                todayColdCount: 0,
+            }),
+        };
+
+        const { controller } = loadController('controllers/taskController.js', 'TaskController', {
+            document,
+            AppState: appState,
+            DataService: {
+                fetchTaskPage,
+                apiRequest: jest.fn().mockResolvedValue({ records: [] }),
+            },
+            TASK_STATUS_LABELS: { hot: 'Hot' },
+            POOL_ASSIGNEES: ['UNASSIGNED', 'Team 1', 'Team 2', 'TARGET_POOL'],
+            PASSIVE_STATUSES: ['deal', 'cold'],
+            ITEMS_PER_PAGE_TASKS: 25,
+            requestAnimationFrame: (fn) => {
+                if (typeof fn === 'function') fn();
+                return 0;
+            },
+            addEventListener: jest.fn(),
+            isToday: () => true,
+            isActiveTask: (status) => ['new', 'hot', 'nothot', 'followup'].includes(status),
+            matchesAssigneeFilter: () => true,
+            normalizeText: (value) => String(value || '').toLocaleLowerCase('tr-TR'),
+            sortTasksByUrgency: () => 0,
+            sortTasksByUrgencyOldest: () => 0,
+            renderPagination: jest.fn(),
+            parseLogDate: (value) => value === '01.04.2026 10:00'
+                ? new Date('2026-04-01T10:00:00.000Z').getTime()
+                : new Date('2026-04-14T10:00:00.000Z').getTime(),
+            formatDate: () => '01.04.2026 10:00',
+        });
+
+        await controller.renderAllTasks();
+
+        expect(appState.tasks[0].logs).toEqual([{ date: '01.04.2026 10:00', text: 'eski log' }]);
+    });
 });
 
 describe('TaskController._buildActionBarHTML', () => {

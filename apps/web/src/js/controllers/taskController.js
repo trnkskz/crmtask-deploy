@@ -37,13 +37,14 @@ const TaskController = (() => {
             }
             nextMap.set(item.id, {
                 ...item,
-                logs: Array.isArray(existing.logs) && existing.logs.length > 1 ? existing.logs : (item.logs || existing.logs || []),
+                // Summary payload should always refresh the list-facing latest log/date.
+                logs: Array.isArray(item.logs) ? item.logs : (existing.logs || []),
                 offers: Array.isArray(existing.offers) && existing.offers.length > 0 ? existing.offers : (item.offers || existing.offers || []),
                 dealDetails: existing.dealDetails || item.dealDetails || null,
                 specificContactName: existing.specificContactName || item.specificContactName || '',
                 specificContactPhone: existing.specificContactPhone || item.specificContactPhone || '',
                 specificContactEmail: existing.specificContactEmail || item.specificContactEmail || '',
-                nextCallDate: existing.nextCallDate || item.nextCallDate || '',
+                nextCallDate: item.nextCallDate || existing.nextCallDate || '',
             });
         });
         AppState.tasks = Array.from(nextMap.values()).slice(-200);

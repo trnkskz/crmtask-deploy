@@ -1083,6 +1083,39 @@ describe('TasksService.list', () => {
 
     jest.restoreAllMocks()
   })
+
+  it('sorts oldest open summary lists by last activity instead of creation date', async () => {
+    const { service, prisma } = buildService()
+
+    prisma.task.findMany.mockResolvedValue([
+      {
+        id: 'older_created_recently_touched',
+        status: 'HOT',
+        creationDate: new Date('2026-04-01T09:00:00.000Z'),
+        updatedAt: new Date('2026-04-12T12:00:00.000Z'),
+        logs: [{ createdAt: new Date('2026-04-12T12:00:00.000Z'), followUpDate: null }],
+        account: { accountName: 'Birinci', businessName: 'Birinci', city: 'Istanbul', district: 'Kadikoy' },
+      },
+      {
+        id: 'newer_created_but_idle',
+        status: 'HOT',
+        creationDate: new Date('2026-04-10T09:00:00.000Z'),
+        updatedAt: new Date('2026-04-10T09:00:00.000Z'),
+        logs: [{ createdAt: new Date('2026-04-10T09:00:00.000Z'), followUpDate: null }],
+        account: { accountName: 'Ikinci', businessName: 'Ikinci', city: 'Istanbul', district: 'Besiktas' },
+      },
+    ])
+
+    const result: any = await service.list(
+      { view: 'summary', generalStatus: 'OPEN', sort: 'oldest', page: 1, limit: 10 },
+      { id: 'admin_1', role: 'ADMIN' },
+    )
+
+    expect(result.items.map((item: any) => item.id)).toEqual([
+      'newer_created_but_idle',
+      'older_created_recently_touched',
+    ])
+  })
 })
 
 describe('TasksService.assign', () => {
