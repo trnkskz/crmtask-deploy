@@ -143,6 +143,62 @@ describe('TaskController.executeSaveAction', () => {
         expect(showToast).toHaveBeenCalledWith('Hata: Patch failed', 'error');
         expect(document.getElementById('btnSaveModalLog').disabled).toBe(false);
     });
+
+    it('does not overwrite cached task detail with optimistic Sistem log before the forced refresh returns', async () => {
+        const detailCache = new Map([
+            ['task_1', {
+                id: 'task_1',
+                status: 'hot',
+                logs: [
+                    { id: 'log_1', user: 'Turan Kuşaksız', authorId: 'user_1', text: 'mevcut detay logu', date: '14.04.2026 15:54' },
+                ],
+            }],
+        ]);
+
+        global.AppState = {
+            tasks: [
+                {
+                    id: 'task_1',
+                    status: 'hot',
+                    updatedAt: '2026-04-14T08:00:00.000Z',
+                    logs: [
+                        { id: 'log_1', user: 'Turan Kuşaksız', authorId: 'user_1', text: 'mevcut detay logu', date: '14.04.2026 15:54' },
+                    ],
+                },
+            ],
+            loggedInUser: { id: 'user_1', name: 'Turan Kuşaksız' },
+            invalidateTaskMapCache: jest.fn(),
+            getTaskDetail: jest.fn((id) => detailCache.get(id) || null),
+            setTaskDetail: jest.fn((id, detail) => detailCache.set(id, detail)),
+        };
+
+        global.DataService = {
+            apiRequest: jest.fn().mockResolvedValue({}),
+            readPath: jest.fn().mockResolvedValue({
+                id: 'task_1',
+                status: 'deal',
+                logs: [
+                    { id: 'log_2', user: 'Turan Kuşaksız', authorId: 'user_1', text: 'gercek log', date: '14.04.2026 16:50' },
+                    { id: 'log_1', user: 'Turan Kuşaksız', authorId: 'user_1', text: 'mevcut detay logu', date: '14.04.2026 15:54' },
+                ],
+            }),
+        };
+
+        require('./taskController');
+
+        const savePromise = window.executeSaveAction('task_1');
+
+        expect(detailCache.get('task_1').logs).toEqual([
+            { id: 'log_1', user: 'Turan Kuşaksız', authorId: 'user_1', text: 'mevcut detay logu', date: '14.04.2026 15:54' },
+        ]);
+
+        await savePromise;
+
+        expect(detailCache.get('task_1').logs).toEqual([
+            { id: 'log_2', user: 'Turan Kuşaksız', authorId: 'user_1', text: 'gercek log', date: '14.04.2026 16:50' },
+            { id: 'log_1', user: 'Turan Kuşaksız', authorId: 'user_1', text: 'mevcut detay logu', date: '14.04.2026 15:54' },
+        ]);
+    });
 });
 
 describe('TaskController.renderAllTasks', () => {

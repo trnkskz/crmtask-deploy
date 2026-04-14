@@ -2512,7 +2512,7 @@ const TaskController = (() => {
                     }, ...(Array.isArray(task.logs) ? task.logs : [])];
                 }
 
-                _updateTaskInState(optimisticTask);
+                _updateTaskInState(optimisticTask, { syncDetailCache: false });
             }
 
             if (Object.keys(patchPayload).length > 0) {
@@ -2595,8 +2595,9 @@ const TaskController = (() => {
         return `task-save-${taskId}-${Date.now()}-${randomPart}`;
     }
 
-    function _updateTaskInState(refreshedTask) {
+    function _updateTaskInState(refreshedTask, options = {}) {
         if (!refreshedTask?.id) return null;
+        const syncDetailCache = options?.syncDetailCache !== false;
         const taskIndex = AppState.tasks.findIndex((task) => task.id === refreshedTask.id);
         if (taskIndex < 0) {
             AppState.tasks = [...AppState.tasks, refreshedTask];
@@ -2605,7 +2606,7 @@ const TaskController = (() => {
             nextTasks[taskIndex] = refreshedTask;
             AppState.tasks = nextTasks;
         }
-        if (typeof AppState.setTaskDetail === 'function') {
+        if (syncDetailCache && typeof AppState.setTaskDetail === 'function') {
             AppState.setTaskDetail(refreshedTask.id, refreshedTask);
         }
         if (taskSurfaceRefreshTimer) {
