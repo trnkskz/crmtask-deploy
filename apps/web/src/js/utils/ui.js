@@ -63,26 +63,34 @@ function askConfirm(message, callback) {
 /**
  * Metin girişi diyaloğu gösterir.
  * @param {string} message
- * @param {string} placeholder
+ * @param {string} initialValue
  * @param {function(string|null)} callback  — iptal edilirse null döner
  */
-function askPrompt(message, placeholder, callback) {
+function askPrompt(message, initialValue, callback) {
     const overlay = _createModalOverlay('10005');
     const box = _createDialogBox('info');
     box.innerHTML = `
         <div style="font-size:40px; margin-bottom:15px;">💬</div>
         <h3 style="margin:0 0 10px 0; color:var(--secondary-color); font-size:18px;">Açıklama Bekleniyor</h3>
         <p style="color:var(--text-muted); font-size:14px; margin-bottom:15px; line-height:1.5;">${message}</p>
-        <input type="text" id="promptInput" placeholder="${placeholder}"
-               style="width:100%; padding:10px; border:2px solid var(--border-light); border-radius:6px;
-                      margin-bottom:20px; font-size:14px; box-sizing:border-box; outline:none;">
+        <textarea id="promptInput"
+               style="width:100%; min-height:120px; resize:vertical; padding:12px; border:2px solid var(--border-light); border-radius:10px;
+                      margin-bottom:20px; font-size:14px; line-height:1.55; box-sizing:border-box; outline:none; font-family:inherit;"></textarea>
         <div style="display:flex; gap:10px; justify-content:center;">
             <button id="btnPromptSubmit" style="background:var(--primary-color); box-shadow:none; flex:1;">Tamam</button>
             <button id="btnPromptCancel" style="background:var(--border-color); color:var(--secondary-color); box-shadow:none; flex:1;">İptal</button>
         </div>`;
     overlay.appendChild(box);
     document.body.appendChild(overlay);
-    document.getElementById('promptInput').focus();
+    const promptInput = document.getElementById('promptInput');
+    if (promptInput) {
+        promptInput.value = String(initialValue || '');
+        promptInput.focus();
+        if (typeof promptInput.setSelectionRange === 'function') {
+            const endPos = promptInput.value.length;
+            promptInput.setSelectionRange(endPos, endPos);
+        }
+    }
 
     document.getElementById('btnPromptSubmit').onclick = () => {
         const raw = document.getElementById('promptInput').value.trim();
