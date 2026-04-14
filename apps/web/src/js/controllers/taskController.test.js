@@ -494,3 +494,60 @@ describe('TaskController._buildActionBarHTML', () => {
         expect(html).not.toContain('Mehmet');
     });
 });
+
+describe('window.editTaskLog', () => {
+    const { loadController } = require('../testUtils/controllerTestUtils');
+
+    it('opens the edit prompt with only the editable text, not the result tag', () => {
+        const askPrompt = jest.fn();
+        const windowRef = {};
+
+        loadController('controllers/taskController.js', 'TaskController', {
+            window: windowRef,
+            document: {
+                addEventListener: jest.fn(),
+                getElementById: jest.fn(() => null),
+                querySelector: jest.fn(() => null),
+                querySelectorAll: jest.fn(() => []),
+            },
+            AppState: {
+                tasks: [],
+                users: [],
+                businesses: [],
+                loggedInUser: { id: 'user_1', role: 'Satış Temsilcisi' },
+                pagination: {},
+                getBizMap: () => new Map(),
+            },
+            DataService: {
+                apiRequest: jest.fn(),
+                readPath: jest.fn(),
+            },
+            askPrompt,
+            showToast: jest.fn(),
+            askConfirm: jest.fn(),
+            renderPagination: jest.fn(),
+            ITEMS_PER_PAGE_TASKS: 25,
+            PASSIVE_STATUSES: ['deal', 'cold'],
+            TASK_STATUS_LABELS: {},
+            POOL_ASSIGNEES: ['UNASSIGNED', 'Team 1', 'Team 2', 'TARGET_POOL'],
+            isActiveTask: jest.fn(() => true),
+            requestAnimationFrame: (fn) => {
+                if (typeof fn === 'function') fn();
+                return 0;
+            },
+            addEventListener: jest.fn(),
+        });
+
+        windowRef.editTaskLog(
+            'task_1',
+            'log_1',
+            encodeURIComponent('[Yetkiliye Ulaşıldı] Telefonu çekmiyor daha sonra görüşelim dedi.'),
+        );
+
+        expect(askPrompt).toHaveBeenCalledWith(
+            'Log metnini güncelleyin',
+            'Telefonu çekmiyor daha sonra görüşelim dedi.',
+            expect.any(Function),
+        );
+    });
+});

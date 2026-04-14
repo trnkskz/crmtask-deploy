@@ -67,6 +67,15 @@ const TaskController = (() => {
         return raw;
     }
 
+    function stripEditableLogPrefixForPrompt(rawText) {
+        const source = String(rawText || '').trim();
+        if (!source) return '';
+        return source
+            .replace(/^((?:<[^>]+>\s*)*\[[^\]]+\](?:\s*<\/[^>]+>)?)\s*/i, '')
+            .replace(/^(\[[^\]]+\])\s*/i, '')
+            .trim();
+    }
+
     function getTeamPulseDateRanges() {
         const now = new Date();
         const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -2820,6 +2829,7 @@ const TaskController = (() => {
         _buildTimelineHTML,
         _buildOffersHTML,
         _buildActionBarHTML, /* DÜZELTİLDİ: Fonksiyon artık dahil! */
+        stripEditableLogPrefixForPrompt,
         triggerSaveAction,
         closeMiniModal,
         executeDealSaveAction,
@@ -2926,7 +2936,8 @@ window.deleteTaskLog = async function(taskId, logId) {
 
 window.editTaskLog = function(taskId, logId, encodedText) {
     const currentText = decodeURIComponent(String(encodedText || ''));
-    askPrompt("Log metnini güncelleyin", String(currentText || '').trim(), async (value) => {
+    const editableText = TaskController.stripEditableLogPrefixForPrompt(currentText);
+    askPrompt("Log metnini güncelleyin", String(editableText || '').trim(), async (value) => {
         if (value === null) return;
         const nextText = String(value || '').trim();
         if (!nextText) {
