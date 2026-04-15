@@ -189,11 +189,24 @@ const AuthController = (() => {
     async function onSystemReady() {
         const user = await restoreSession();
         if (user) {
-            if (typeof SyncService !== 'undefined' && typeof SyncService.bootstrapFullSync === 'function') {
-                await SyncService.bootstrapFullSync();
+            const shellRestored = typeof SyncService !== 'undefined' && typeof SyncService.restoreCachedShell === 'function'
+                ? await SyncService.restoreCachedShell()
+                : false;
+            if (shellRestored) {
+                hideLoader();
+                AppController.init();
             }
-            hideLoader();
-            AppController.init();
+            if (typeof SyncService !== 'undefined' && typeof SyncService.bootstrapFullSync === 'function') {
+                if (shellRestored) {
+                    SyncService.bootstrapFullSync().catch((err) => console.warn('Deferred bootstrap sync failed:', err));
+                } else {
+                    await SyncService.bootstrapFullSync();
+                }
+            }
+            if (!shellRestored) {
+                hideLoader();
+                AppController.init();
+            }
             return user;
         }
         hideLoader();
@@ -244,12 +257,25 @@ const AuthController = (() => {
                 // Kullanıcı objesini locale kaydet ve sistemi başlat
                 const normalized = normalizeUser(result.user);
                 AppState.loggedInUser = normalized;
+                const shellRestored = typeof SyncService !== 'undefined' && typeof SyncService.restoreCachedShell === 'function'
+                    ? await SyncService.restoreCachedShell()
+                    : false;
+                if (shellRestored) {
+                    hideLoader();
+                    AppController.init();
+                }
                 if (typeof SyncService !== 'undefined' && typeof SyncService.bootstrapFullSync === 'function') {
-                    await SyncService.bootstrapFullSync();
+                    if (shellRestored) {
+                        SyncService.bootstrapFullSync().catch((err) => console.warn('Deferred bootstrap sync failed:', err));
+                    } else {
+                        await SyncService.bootstrapFullSync();
+                    }
                 }
 
-                hideLoader();
-                AppController.init();
+                if (!shellRestored) {
+                    hideLoader();
+                    AppController.init();
+                }
             } catch (err) {
                 const friendlyMessage = getFriendlyLoginErrorMessage(err);
                 const isExpectedAuthError = friendlyMessage === 'E-posta veya şifre hatalı.';

@@ -6,6 +6,9 @@
 
 const AppState = (() => {
     const FALLBACK_PASSIVE_STATUSES = ['deal', 'cold'];
+    const TASK_DETAIL_CACHE_LIMIT = 80;
+    const BUSINESS_DETAIL_CACHE_LIMIT = 40;
+    const DETAIL_CACHE_TTL_MS = 10 * 60 * 1000;
 
     function isPassiveTaskStatus(status) {
         const normalized = String(status || '').toLowerCase();
@@ -78,6 +81,32 @@ const AppState = (() => {
         if (explicitPermission === true) return true;
         const apiRole = String(_loggedInUser?._apiRole || '').toUpperCase();
         return apiRole === 'ADMIN' || apiRole === 'MANAGER' || apiRole === 'TEAM_LEADER';
+    }
+
+    function nowMs() {
+        return Date.now();
+    }
+
+    function readDetailCache(cache, id) {
+        const entry = cache.get(id);
+        if (!entry) return null;
+        if ((nowMs() - Number(entry.cachedAt || 0)) > DETAIL_CACHE_TTL_MS) {
+            cache.delete(id);
+            return null;
+        }
+        cache.delete(id);
+        cache.set(id, { value: entry.value, cachedAt: nowMs() });
+        return entry.value || null;
+    }
+
+    function writeDetailCache(cache, id, detail, limit) {
+        if (cache.has(id)) cache.delete(id);
+        cache.set(id, { value: detail, cachedAt: nowMs() });
+        while (cache.size > limit) {
+            const oldestKey = cache.keys().next().value;
+            if (typeof oldestKey === 'undefined') break;
+            cache.delete(oldestKey);
+        }
     }
 
     // --- Veri Koleksiyonları ---
@@ -166,7 +195,7 @@ const AppState = (() => {
         set users(v) { _users = Array.isArray(v) ? v : []; _collectionRevisions.users += 1; },
 
         get businesses() { return _businesses; },
-        set businesses(v) { _businesses = Array.isArray(v) ? v : []; _collectionRevisions.businesses += 1; this.invalidateBizMapCache(); this.clearBusinessDetailCache(); },
+        set businesses(v) { _businesses = Array.isArray(v) ? v : []; _collectionRevisions.businesses += 1; this.invalidateBizMapCache(); },
 
         get tasks() { return _tasks; },
         set tasks(v) { _tasks = Array.isArray(v) ? v : []; _collectionRevisions.tasks += 1; this.invalidateTaskMapCache(); },
@@ -262,6 +291,8 @@ const AppState = (() => {
                     notifications: _notifications.length,
                     projects: _projects.length,
                     systemLogs: _systemLogs.length,
+                    taskDetailCache: _taskDetailCache.size,
+                    businessDetailCache: _businessDetailCache.size,
                 },
                 loadedState: { ..._loadedState },
                 isSystemReady: _isSystemReady,
@@ -286,12 +317,12 @@ const AppState = (() => {
         },
 
         getBusinessDetail(id) {
-            return _businessDetailCache.get(id) || null;
+            return readDetailCache(_businessDetailCache, id);
         },
 
         setBusinessDetail(id, detail) {
             if (!id || !detail || typeof detail !== 'object') return;
-            _businessDetailCache.set(id, detail);
+            writeDetailCache(_businessDetailCache, id, detail, BUSINESS_DETAIL_CACHE_LIMIT);
         },
 
         clearBusinessDetail(id) {
@@ -336,12 +367,12 @@ const AppState = (() => {
         },
 
         getTaskDetail(id) {
-            return _taskDetailCache.get(id) || null;
+            return readDetailCache(_taskDetailCache, id);
         },
 
         setTaskDetail(id, detail) {
             if (!id || !detail || typeof detail !== 'object') return;
-            _taskDetailCache.set(id, detail);
+            writeDetailCache(_taskDetailCache, id, detail, TASK_DETAIL_CACHE_LIMIT);
         },
 
         clearTaskDetail(id) {

@@ -1813,7 +1813,7 @@ const TaskController = (() => {
                 } else {
                     const dId = 'tmDrop_' + Math.random().toString(36).substr(2,5);
                     const rItems = pList.slice(1).map((p) => `<div class="tm-phone-item">📞 ${formatPhone(p)}</div>`).join('');
-                    phoneHtml = `<div style="position:relative; display:inline-block;"><button class="tm-pill clickable" onclick="const d = document.getElementById('${dId}'); d.style.display = d.style.display === 'block' ? 'none' : 'block'; event.stopPropagation();">📞 ${formatPhone(pList[0])} ▾</button><div id="${dId}" class="tm-phone-menu animated-drop" style="display:none; position:absolute; top:100%; left:0; margin-top:8px; z-index:10000; min-width:180px;">${rItems}</div></div>`;
+                    phoneHtml = `<div class="tm-pill-dropdown-shell" style="position:relative; display:inline-block;"><button class="tm-pill clickable" onclick="const d = document.getElementById('${dId}'); d.style.display = d.style.display === 'block' ? 'none' : 'block'; event.stopPropagation();">📞 ${formatPhone(pList[0])} ▾</button><div id="${dId}" class="tm-phone-menu animated-drop" style="display:none; position:absolute; top:100%; left:0; margin-top:8px; z-index:10000; min-width:180px;">${rItems}</div></div>`;
                 }
             }
         }
@@ -1825,7 +1825,7 @@ const TaskController = (() => {
         } else if (emailList.length > 1) {
             const dId = 'tmMailDrop_' + Math.random().toString(36).substr(2,5);
             const rItems = emailList.slice(1).map((e) => `<div class="tm-phone-item">✉️ ${e}</div>`).join('');
-            emailHtml = `<div style="position:relative; display:inline-block;"><button class="tm-pill clickable" onclick="const d = document.getElementById('${dId}'); d.style.display = d.style.display === 'block' ? 'none' : 'block'; event.stopPropagation();">✉️ ${emailList[0]} ▾</button><div id="${dId}" class="tm-phone-menu animated-drop" style="display:none; position:absolute; top:100%; left:0; margin-top:8px; z-index:10000; min-width:220px;">${rItems}</div></div>`;
+            emailHtml = `<div class="tm-pill-dropdown-shell" style="position:relative; display:inline-block;"><button class="tm-pill clickable" onclick="const d = document.getElementById('${dId}'); d.style.display = d.style.display === 'block' ? 'none' : 'block'; event.stopPropagation();">✉️ ${emailList[0]} ▾</button><div id="${dId}" class="tm-phone-menu animated-drop" style="display:none; position:absolute; top:100%; left:0; margin-top:8px; z-index:10000; min-width:220px;">${rItems}</div></div>`;
         }
 
         let contactBoxHtml = '';
@@ -1845,7 +1845,7 @@ const TaskController = (() => {
 
         return `
         <div class="tm-header-card">
-            <div style="position: absolute; top: 15px; right: 15px; display: flex; gap: 8px; z-index: 10;">
+            <div class="tm-header-actions" style="position: absolute; top: 15px; right: 15px; display: flex; gap: 8px; z-index: 10;">
                 ${canDelete ? `<button class="premium-icon-btn delete-btn" onclick="deleteTask('${task.id}')" title="Görevi Sil">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
                 </button>` : ''}
@@ -1855,7 +1855,7 @@ const TaskController = (() => {
             </div>
 
             <div class="tm-header-content" style="padding-right: 85px;">
-                <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:15px;">
+                <div class="tm-header-intro" style="display:flex; flex-direction:column; gap:10px; margin-bottom:15px;">
                     <div class="tm-title-row" style="margin-bottom:0;">
                         <h2 class="tm-title" style="cursor:pointer; transition:0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'" onclick="closeModal('taskModal'); openBusinessDetailModal('${task.businessId}')" title="İşletme Detaylarını Görüntüle">
                             ${biz.companyName || '-'}
@@ -1932,7 +1932,7 @@ const TaskController = (() => {
         ${pendingWarning}
         
         <div class="floating-action-bar" style="${isPending ? 'display:none !important;' : ''}">
-            <div style="${actionDisplay} align-items:center; gap:8px; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; flex-shrink:0;">
+            <div class="floating-status-strip" style="${actionDisplay} align-items:center; gap:8px; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; flex-shrink:0;">
                 <button type="button" class="status-chip" onclick="selectModalStatus('hot', this)">🔥 Hot</button>
                 <button type="button" class="status-chip" onclick="selectModalStatus('nothot', this)">⚠️ Not Hot</button>
                 <button type="button" class="status-chip" onclick="selectModalStatus('cold', this)">❄️ Cold</button>
@@ -1941,9 +1941,9 @@ const TaskController = (() => {
                 ${transferButtonHtml}
             </div>
             
-            <div style="width:1px; height:30px; background:rgba(255,255,255,0.3); ${actionDisplay} margin:0 5px; flex-shrink:0;"></div>
+            <div class="floating-action-divider desktop-only-divider" style="width:1px; height:30px; background:rgba(255,255,255,0.3); ${actionDisplay} margin:0 5px; flex-shrink:0;"></div>
             
-            <div style="position:relative; width:auto; ${actionDisplay} flex-shrink:0;">
+            <div class="floating-result-select" style="position:relative; width:auto; ${actionDisplay} flex-shrink:0;">
                 <button type="button" id="btnCustomLogType" class="custom-dropdown-btn" onclick="toggleCustomLogTypeMenu(event)">⚡ Sonuç Seç...</button>
                 <div id="customLogTypeMenu" class="mac-popover animated-drop" style="display:none;">
                     <div onclick="selectModalLogType('İşletmeye Ulaşılamadı', '📵 Ulaşılamadı')">
@@ -2016,7 +2016,7 @@ const TaskController = (() => {
                 </div>
             </div>
 
-            <div id="miniModalDeal" style="display:none; background:#fff; border-radius:16px; padding:25px; box-shadow:0 15px 50px rgba(0,0,0,0.15); width:90%; max-width:450px; border-top:4px solid var(--success-color);">
+            <div id="miniModalDeal" class="tm-mini-panel tm-mini-panel--deal" style="display:none; background:#fff; border-radius:16px; padding:25px; box-shadow:0 15px 50px rgba(0,0,0,0.15); width:90%; max-width:450px; border-top:4px solid var(--success-color);">
                 <h3 style="margin:0 0 15px 0; color:var(--secondary-color);">🤝 Deal Sonucu Detayları</h3>
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
                     <div class="premium-input-wrapper"><span class="input-icon">%</span><input type="number" id="dealCommission" placeholder="Komisyon *" min="0"></div>
@@ -2031,7 +2031,7 @@ const TaskController = (() => {
                 </div>
             </div>
 
-            <div id="miniModalContact" style="display:none; background:#fff; border-radius:16px; padding:25px; box-shadow:0 15px 50px rgba(0,0,0,0.15); width:90%; max-width:400px; border-top:4px solid var(--info-color);">
+            <div id="miniModalContact" class="tm-mini-panel tm-mini-panel--contact" style="display:none; background:#fff; border-radius:16px; padding:25px; box-shadow:0 15px 50px rgba(0,0,0,0.15); width:90%; max-width:400px; border-top:4px solid var(--info-color);">
                 <h3 style="margin:0 0 10px 0; color:var(--secondary-color);">👤 İletişim Bilgisi Ekle</h3>
                 <p style="font-size:12px; color:var(--text-muted); margin-bottom:15px; line-height:1.4;">Girdiğiniz bilgiler mevcut bilgilerle akıllıca birleştirilecektir.</p>
                 <div style="display:flex; flex-direction:column; gap:12px;">

@@ -10,6 +10,9 @@ const SyncService = (() => {
     const ENTITY_REFRESH_DEBOUNCE_MS = 180;
     const MAX_DIRECT_ENTITY_REFRESHES = 3;
     const LAST_EVENT_ID_STORAGE_KEY = 'crm_last_realtime_event_id_v1';
+    const CACHED_SHELL_STORAGE_KEY = 'crm_cached_shell_v1';
+    const CACHED_SHELL_SCHEMA_VERSION = 2;
+    const CACHED_SHELL_TTL_MS = 60 * 60 * 1000;
 
     let _refreshTimeout = null;
     let _pollTimer = null;
@@ -54,8 +57,94 @@ const SyncService = (() => {
         return _lastRealtimeEventId;
     }
 
+    function _clearCachedShellSnapshot() {
+        try {
+            window?.localStorage?.removeItem(CACHED_SHELL_STORAGE_KEY);
+        } catch (_) {
+            // ignore storage failures
+        }
+    }
+
+    function _getCurrentShellIdentity() {
+        const user = AppState?.loggedInUser || null;
+        const userId = String(user?.id || '').trim();
+        const apiRole = String(user?._apiRole || '').trim().toUpperCase();
+        if (!userId || !apiRole) return null;
+        return { userId, apiRole };
+    }
+
+    function _readCachedShellSnapshot() {
+        try {
+            const identity = _getCurrentShellIdentity();
+            if (!identity) return null;
+            const raw = window?.localStorage?.getItem(CACHED_SHELL_STORAGE_KEY) || '';
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            const schemaVersion = Number(parsed?.schemaVersion || 0);
+            const cachedAt = Number(parsed?.cachedAt || 0);
+            const userId = String(parsed?.userId || '').trim();
+            const apiRole = String(parsed?.apiRole || '').trim().toUpperCase();
+            if (schemaVersion !== CACHED_SHELL_SCHEMA_VERSION) {
+                _clearCachedShellSnapshot();
+                return null;
+            }
+            if (!cachedAt || (Date.now() - cachedAt) > CACHED_SHELL_TTL_MS) {
+                _clearCachedShellSnapshot();
+                return null;
+            }
+            if (userId !== identity.userId || apiRole !== identity.apiRole) {
+                _clearCachedShellSnapshot();
+                return null;
+            }
+            return parsed?.payload && typeof parsed.payload === 'object' ? parsed.payload : null;
+        } catch (_) {
+            _clearCachedShellSnapshot();
+            return null;
+        }
+    }
+
+    function _persistCachedShellSnapshot() {
+        try {
+            const identity = _getCurrentShellIdentity();
+            if (!identity) return;
+            const payload = {
+                users: Array.isArray(AppState?.users) ? AppState.users : [],
+                notifications: Array.isArray(AppState?.notifications) ? AppState.notifications : [],
+                categories: AppState?.dynamicCategories && typeof AppState.dynamicCategories === 'object'
+                    ? AppState.dynamicCategories
+                    : getCategoryDataFallback(),
+                pricing: AppState?.pricingData || DEFAULT_PRICING_DATA,
+            };
+            if (_canSyncProjects()) {
+                payload.projects = Array.isArray(AppState?.projects) ? AppState.projects : [];
+            }
+            window?.localStorage?.setItem(CACHED_SHELL_STORAGE_KEY, JSON.stringify({
+                schemaVersion: CACHED_SHELL_SCHEMA_VERSION,
+                cachedAt: Date.now(),
+                userId: identity.userId,
+                apiRole: identity.apiRole,
+                payload,
+            }));
+        } catch (_) {
+            // ignore storage quota or serialization issues
+        }
+    }
+
     async function restoreCachedShell() {
-        return false;
+        const payload = _readCachedShellSnapshot();
+        if (!payload) return false;
+        if (Array.isArray(payload.users)) AppState.users = payload.users;
+        if (Array.isArray(payload.notifications)) AppState.notifications = payload.notifications;
+        if (payload.categories && typeof payload.categories === 'object') AppState.dynamicCategories = payload.categories;
+        if (payload.pricing) AppState.pricingData = payload.pricing;
+        if (_canSyncProjects() && Array.isArray(payload.projects)) AppState.projects = payload.projects;
+        AppState.isSystemReady = true;
+        if (typeof DropdownController !== 'undefined') {
+            DropdownController.populateMainCategoryDropdowns?.();
+            DropdownController.updateAssigneeDropdowns?.();
+            DropdownController.populateProjectDropdowns?.();
+        }
+        return true;
     }
 
     function _canSyncProjects() {
@@ -107,6 +196,10 @@ const SyncService = (() => {
 
         if (options.markShellReady) {
             AppState.isSystemReady = true;
+        }
+
+        if (resultMap.has('users') || resultMap.has('notifications') || resultMap.has('categories') || resultMap.has('pricing') || resultMap.has('projects')) {
+            _persistCachedShellSnapshot();
         }
 
         _debouncedRefresh();
@@ -181,7 +274,8 @@ const SyncService = (() => {
         return _deferredBootstrapPromise;
     }
 
-    function _debouncedRefresh() {
+    function _debouncedRefresh(options = {}) {
+        const skipViewRefresh = Boolean(options?.skipViewRefresh);
         if (_suppressRefreshUntilSettled) {
             _refreshQueuedDuringBootstrap = true;
             return;
@@ -189,10 +283,20 @@ const SyncService = (() => {
         clearTimeout(_refreshTimeout);
         _refreshTimeout = setTimeout(() => {
             if (AppState.isSystemReady) {
-                refreshCurrentView({ silent: true });
+                if (!skipViewRefresh) refreshCurrentView({ silent: true });
                 updateNotificationsUI();
             }
         }, 250);
+    }
+
+    function _isTaskModalOpen(taskId = '') {
+        return document.getElementById('taskModal')?.style?.display === 'flex'
+            && String(window?._openTaskModalId || '') === String(taskId || '');
+    }
+
+    function _isBusinessModalOpen(businessId = '') {
+        return document.getElementById('businessDetailModal')?.style?.display === 'flex'
+            && String(window?._openBusinessDetailId || '') === String(businessId || '');
     }
 
     function _normalizeCollectionObject(obj) {
@@ -323,8 +427,8 @@ const SyncService = (() => {
                 return;
             }
         }
-        const taskModalOpen = document.getElementById('taskModal')?.style?.display === 'flex';
-        if (taskModalOpen && String(window?._openTaskModalId || '') === String(taskId)) {
+        const taskModalOpen = _isTaskModalOpen(taskId);
+        if (taskModalOpen) {
             try {
                 if (typeof window?.refreshTaskModalInPlace === 'function') {
                     window.refreshTaskModalInPlace(taskId);
@@ -334,8 +438,8 @@ const SyncService = (() => {
             }
         }
         const businessId = String(refreshedTask?.businessId || '');
-        const businessModalOpen = document.getElementById('businessDetailModal')?.style?.display === 'flex';
-        if (businessId && businessModalOpen && String(window?._openBusinessDetailId || '') === businessId) {
+        const businessModalOpen = businessId && _isBusinessModalOpen(businessId);
+        if (businessId && businessModalOpen) {
             try {
                 if (typeof window?.openBusinessDetailModal === 'function') {
                     await window.openBusinessDetailModal(businessId);
@@ -344,7 +448,7 @@ const SyncService = (() => {
                 console.warn('Realtime business detail refresh failed:', err?.message || err);
             }
         }
-        _debouncedRefresh();
+        _debouncedRefresh({ skipViewRefresh: Boolean(taskModalOpen || businessModalOpen) });
     }
 
     async function _refreshBusinessEntityNow(businessId, options = {}) {
@@ -362,8 +466,8 @@ const SyncService = (() => {
                 return;
             }
         }
-        const businessModalOpen = document.getElementById('businessDetailModal')?.style?.display === 'flex';
-        if (businessModalOpen && String(window?._openBusinessDetailId || '') === String(businessId)) {
+        const businessModalOpen = _isBusinessModalOpen(businessId);
+        if (businessModalOpen) {
             try {
                 if (typeof window?.openBusinessDetailModal === 'function') {
                     await window.openBusinessDetailModal(businessId);
@@ -372,7 +476,7 @@ const SyncService = (() => {
                 console.warn('Realtime business modal refresh failed:', err?.message || err);
             }
         }
-        _debouncedRefresh();
+        _debouncedRefresh({ skipViewRefresh: Boolean(businessModalOpen) });
     }
 
     function _enqueueEntityRefresh(queue, key, timerRefName, flushFn, options = {}) {
@@ -468,14 +572,14 @@ const SyncService = (() => {
             const openBusinessId = String(window?._openBusinessDetailId || '');
             if (openTaskId) _refreshTaskEntity(openTaskId, { force: true }).catch(() => {});
             if (openBusinessId) _refreshBusinessEntity(openBusinessId, { force: true }).catch(() => {});
-            _debouncedRefresh();
+            _debouncedRefresh({ skipViewRefresh: Boolean(openTaskId || openBusinessId) });
             return true;
         }
         if (type === 'TASK_UPDATED') {
             if (payload?.task?.id) {
                 _mergeEntityIntoState('tasks', payload.task);
                 _refreshOpenModalsOnce();
-                _debouncedRefresh();
+                _debouncedRefresh({ skipViewRefresh: Boolean(_isTaskModalOpen(payload.task.id) || _isBusinessModalOpen(payload.task.businessId || '')) });
                 return true;
             }
             await _refreshTaskEntity(String(payload?.taskId || ''));
@@ -490,7 +594,7 @@ const SyncService = (() => {
             if (payload?.account?.id) {
                 _mergeEntityIntoState('businesses', payload.account);
                 _refreshOpenModalsOnce();
-                _debouncedRefresh();
+                _debouncedRefresh({ skipViewRefresh: Boolean(_isBusinessModalOpen(payload.account.id)) });
                 return true;
             }
             await _refreshBusinessEntity(String(payload?.accountId || ''));

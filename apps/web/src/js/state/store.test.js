@@ -64,4 +64,24 @@ describe('AppState readiness gating', () => {
             ],
         });
     });
+
+    it('keeps task detail cache bounded and expires stale detail entries', () => {
+        let fakeNow = 1_000_000;
+        const store = loadStore({
+            Date: {
+                now: () => fakeNow,
+            },
+        });
+
+        for (let i = 0; i < 81; i += 1) {
+            store.setTaskDetail(`task_${i}`, { id: `task_${i}` });
+        }
+
+        expect(store.getTaskDetail('task_0')).toBeNull();
+        expect(store.getTaskDetail('task_80')).toEqual({ id: 'task_80' });
+
+        store.setTaskDetail('ttl_task', { id: 'ttl_task' });
+        fakeNow += (10 * 60 * 1000) + 1;
+        expect(store.getTaskDetail('ttl_task')).toBeNull();
+    });
 });
