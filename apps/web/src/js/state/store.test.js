@@ -40,4 +40,28 @@ describe('AppState readiness gating', () => {
         store.markLoaded('projects');
         expect(store.isAllLoaded()).toBe(true);
     });
+
+    it('preserves task detail cache when the visible task list is reassigned', () => {
+        const store = loadStore();
+
+        store.setTaskDetail('task_1', {
+            id: 'task_1',
+            logs: [
+                { id: 'log_1', user: 'Turan Kuşaksız', text: 'ilk log' },
+                { id: 'log_2', user: 'Turan Kuşaksız', text: 'ikinci log' },
+            ],
+        });
+
+        store.tasks = [
+            { id: 'task_1', logs: [{ id: 'log_optimistic', user: 'Sistem', text: 'tek log' }] },
+        ];
+
+        expect(store.getTaskDetail('task_1')).toEqual({
+            id: 'task_1',
+            logs: [
+                { id: 'log_1', user: 'Turan Kuşaksız', text: 'ilk log' },
+                { id: 'log_2', user: 'Turan Kuşaksız', text: 'ikinci log' },
+            ],
+        });
+    });
 });

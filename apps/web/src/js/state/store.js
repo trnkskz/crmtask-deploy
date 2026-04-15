@@ -169,7 +169,7 @@ const AppState = (() => {
         set businesses(v) { _businesses = Array.isArray(v) ? v : []; _collectionRevisions.businesses += 1; this.invalidateBizMapCache(); this.clearBusinessDetailCache(); },
 
         get tasks() { return _tasks; },
-        set tasks(v) { _tasks = Array.isArray(v) ? v : []; _collectionRevisions.tasks += 1; this.invalidateTaskMapCache(); this.clearTaskDetailCache(); },
+        set tasks(v) { _tasks = Array.isArray(v) ? v : []; _collectionRevisions.tasks += 1; this.invalidateTaskMapCache(); },
 
         get notifications() { return _notifications; },
         set notifications(v) { _notifications = Array.isArray(v) ? v : []; _collectionRevisions.notifications += 1; },

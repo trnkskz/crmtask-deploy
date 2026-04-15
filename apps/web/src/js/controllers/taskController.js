@@ -1122,11 +1122,18 @@ const TaskController = (() => {
         };
         const sc = statusColors[task.status] || { border: '#cbd5e1', ribbon: 'linear-gradient(135deg,#94a3b8 0%,#475569 100%)' };
         let label = TASK_STATUS_LABELS[task.status] || task.status || '-';
+        let followupMetaHtml = '';
         if (task.status === 'followup' && task.nextCallDate) {
             const dObj = new Date(task.nextCallDate);
             if(!isNaN(dObj)) {
-                const dStr = dObj.toLocaleDateString('tr-TR', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
-                label += `<br><span style="font-size:10px; font-weight:600; text-transform:none; opacity:0.9;">(${dStr})</span>`;
+                const followupDate = dObj.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                const followupTime = dObj.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+                followupMetaHtml = `
+                    <div style="display:flex; flex-direction:column; align-items:center; gap:2px; margin-top:4px; text-transform:none; letter-spacing:0;">
+                        <span style="font-size:10px; font-weight:700; line-height:1.1; opacity:0.95;">${followupDate}</span>
+                        <span style="font-size:10px; font-weight:600; line-height:1.1; opacity:0.86;">${followupTime}</span>
+                    </div>
+                `;
             }
         }
 
@@ -1182,7 +1189,10 @@ const TaskController = (() => {
                     ${lastActionHtml}
                 </div>
             </div>
-            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:0 15px; min-width:90px; text-align:center; font-size:12px; font-weight:800; color:#ffffff; text-transform:uppercase; letter-spacing:1px; border-radius:0 10px 10px 0; flex-shrink:0; background:${sc.ribbon}; text-shadow:0 1px 2px rgba(0,0,0,0.2);">${label}</div>
+            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:10px 15px; min-width:90px; text-align:center; font-size:12px; font-weight:800; color:#ffffff; text-transform:uppercase; letter-spacing:1px; border-radius:0 10px 10px 0; flex-shrink:0; background:${sc.ribbon}; text-shadow:0 1px 2px rgba(0,0,0,0.2); line-height:1.15;">
+                <span>${label}</span>
+                ${followupMetaHtml}
+            </div>
         `;
 
         card.addEventListener('mouseenter', () => {
