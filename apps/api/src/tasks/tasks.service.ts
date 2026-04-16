@@ -322,6 +322,14 @@ export class TasksService {
     return a.includes(b) || b.includes(a)
   }
 
+  private mergeContactFieldValues(
+    incoming: string | null | undefined,
+    existing: string | null | undefined,
+    type: 'phone' | 'email',
+  ) {
+    return this.splitContactValues([incoming, existing].filter(Boolean).join(', '), type).join(', ')
+  }
+
   private expandNewContactRows(contact?: { name?: string; phone?: string; email?: string }) {
     if (!contact) return [] as Array<{ name: string; phone: string | null; email: string | null }>
     const names = this.splitContactValues(contact.name, 'name')
@@ -1297,10 +1305,10 @@ export class TasksService {
       if (this.namesMatch(normalizedName, currentPrimary?.name) || (!normalizedName && (normalizedPhone || normalizedEmail))) {
         if (currentPrimary) {
           const mergedPhone = normalizedPhone
-            ? this.splitContactValues([currentPrimary.phone, normalizedPhone].filter(Boolean).join(', '), 'phone').join(', ')
+            ? this.mergeContactFieldValues(normalizedPhone, currentPrimary.phone, 'phone')
             : currentPrimary.phone
           const mergedEmail = normalizedEmail
-            ? this.splitContactValues([currentPrimary.email, normalizedEmail].filter(Boolean).join(', '), 'email').join(', ')
+            ? this.mergeContactFieldValues(normalizedEmail, currentPrimary.email, 'email')
             : currentPrimary.email
           const updatedPrimary = await tx.accountContact.update({
             where: { id: currentPrimary.id },
@@ -1334,10 +1342,10 @@ export class TasksService {
 
         if (matchedExtra) {
           const mergedPhone = normalizedPhone
-            ? this.splitContactValues([matchedExtra.phone, normalizedPhone].filter(Boolean).join(', '), 'phone').join(', ')
+            ? this.mergeContactFieldValues(normalizedPhone, matchedExtra.phone, 'phone')
             : matchedExtra.phone
           const mergedEmail = normalizedEmail
-            ? this.splitContactValues([matchedExtra.email, normalizedEmail].filter(Boolean).join(', '), 'email').join(', ')
+            ? this.mergeContactFieldValues(normalizedEmail, matchedExtra.email, 'email')
             : matchedExtra.email
           const updatedMatched = await tx.accountContact.update({
             where: { id: matchedExtra.id },

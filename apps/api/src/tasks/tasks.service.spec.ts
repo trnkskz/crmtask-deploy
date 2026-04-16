@@ -474,7 +474,7 @@ describe('TasksService.upsertFocusContact', () => {
       where: { id: 'contact_primary' },
       data: expect.objectContaining({
         name: 'Ayse Yilmaz',
-        phone: '05321234567, 05443332211',
+        phone: '05443332211, 05321234567',
         email: 'ayse@example.com',
         isPrimary: true,
       }),
@@ -529,7 +529,7 @@ describe('TasksService.upsertFocusContact', () => {
       data: expect.objectContaining({
         name: 'Mehmet Kaya',
         phone: '05001112233',
-        email: 'mehmet@old.example.com, mehmet@new.example.com',
+        email: 'mehmet@new.example.com, mehmet@old.example.com',
         isPrimary: true,
       }),
     })

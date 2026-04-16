@@ -273,6 +273,22 @@ export class AccountsService {
     return `${name}|${phone}|${email}`
   }
 
+  private namesMatch(left?: string | null, right?: string | null) {
+    if (!left || !right) return false
+    const a = this.fuzzyName(left)
+    const b = this.fuzzyName(right)
+    if (!a || !b) return false
+    return a.includes(b) || b.includes(a)
+  }
+
+  private mergeContactFieldValues(
+    incoming: string | null | undefined,
+    existing: string | null | undefined,
+    type: 'phone' | 'email',
+  ) {
+    return this.splitContactValues([incoming, existing].filter(Boolean).join(', '), type).join(', ')
+  }
+
   private parseImportedDateValue(raw: unknown): Date | null {
     if (raw === null || raw === undefined) return null
     const value = String(raw).trim()
@@ -954,6 +970,8 @@ export class AccountsService {
         })
       : []
 
+    const providedExtraContacts = Array.isArray(body.extraContacts) ? body.extraContacts : []
+
     let primaryRows = this.expandContactRows(
       {
         name: finalContactPerson !== undefined ? finalContactPerson : (primary?.name || updated.businessName),
@@ -964,9 +982,26 @@ export class AccountsService {
       updated.businessName,
     )
     const currentPrimaryRow = primaryRows[0] || { name: updated.businessName, phone: null, email: null, isPrimary: true }
+    const extraContactsToMergeIntoPrimary = providedExtraContacts.filter((entry) => {
+      const normalizedName = this.splitContactValues(entry?.name, 'name')[0] || ''
+      const hasPhoneOrEmail = Boolean(String(entry?.phone || '').trim() || String(entry?.email || '').trim())
+      return (hasPhoneOrEmail && !normalizedName) || this.namesMatch(normalizedName, currentPrimaryRow.name)
+    })
+    const promotableExtraContacts = providedExtraContacts.filter((entry) => !extraContactsToMergeIntoPrimary.includes(entry))
+
+    if (extraContactsToMergeIntoPrimary.length > 0) {
+      for (const entry of extraContactsToMergeIntoPrimary) {
+        const normalizedName = this.splitContactValues(entry?.name, 'name')[0] || ''
+        currentPrimaryRow.name = normalizedName || currentPrimaryRow.name || updated.businessName
+        currentPrimaryRow.phone = this.mergeContactFieldValues(entry?.phone, currentPrimaryRow.phone, 'phone') || null
+        currentPrimaryRow.email = this.mergeContactFieldValues(entry?.email, currentPrimaryRow.email, 'email') || null
+      }
+      primaryRows = [currentPrimaryRow, ...primaryRows.slice(1)]
+    }
+
     let expandedExtras = body.extraContacts !== undefined
       ? this.expandExtraContactRows(
-          [...primaryRows.slice(1).map((row) => ({ name: row.name, phone: row.phone, email: row.email })), ...(body.extraContacts || [])],
+          [...primaryRows.slice(1).map((row) => ({ name: row.name, phone: row.phone, email: row.email })), ...promotableExtraContacts],
           updated.businessName,
         )
       : []
@@ -974,9 +1009,11 @@ export class AccountsService {
     if (body.extraContacts !== undefined && expandedExtras.length > 0) {
       const existingExtraKeys = new Set(existingExtras.map((contact) => this.contactRowKey(contact)))
       const currentPrimaryKey = this.contactRowKey(currentPrimaryRow)
+      const promotableNewRows = this.expandExtraContactRows(promotableExtraContacts, updated.businessName)
+      const promotableNewKeys = new Set(promotableNewRows.map((row) => this.contactRowKey(row)))
       const newlyAddedRows = expandedExtras.filter((row) => {
         const rowKey = this.contactRowKey(row)
-        return rowKey !== currentPrimaryKey && !existingExtraKeys.has(rowKey)
+        return rowKey !== currentPrimaryKey && !existingExtraKeys.has(rowKey) && promotableNewKeys.has(rowKey)
       })
       const promotedPrimary = newlyAddedRows[newlyAddedRows.length - 1]
 
