@@ -2086,14 +2086,14 @@ const TaskController = (() => {
                 </div>
             </div>
 
-            <div id="miniModalComposer" style="display:none; background:#fff; border-radius:20px; padding:26px; box-shadow:0 24px 70px rgba(15,23,42,0.24); width:min(92vw, 760px); border:1px solid rgba(148,163,184,0.24);">
-                <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:18px;">
+            <div id="miniModalComposer" class="tm-mini-panel tm-composer-panel" style="display:none; background:#fff; border-radius:20px; padding:26px; box-shadow:0 24px 70px rgba(15,23,42,0.24); width:min(92vw, 760px); border:1px solid rgba(148,163,184,0.24);">
+                <div class="task-composer-header" style="display:flex; flex-direction:column; gap:8px; margin-bottom:18px;">
                     <span style="font-size:11px; font-weight:800; letter-spacing:0.08em; text-transform:uppercase; color:#0f766e;">Görüşme Notu</span>
                     <h3 style="margin:0; color:#0f172a; font-size:24px; font-weight:800; letter-spacing:-0.02em;">Mesaj kutusunda rahatça yazın</h3>
                     <p style="margin:0; color:#64748b; font-size:14px; line-height:1.6;">Uzun görüşme notlarını tek satır yerine geniş bir yazım alanında hazırlayın. İsterseniz kutuyu daha da büyütebilirsiniz.</p>
                 </div>
-                <textarea id="modalLogComposerTextarea" placeholder="Görüşme notlarınızı detaylı şekilde buraya yazın..." style="width:100%; min-height:220px; resize:vertical; box-sizing:border-box; padding:18px 20px; border-radius:16px; border:1px solid #cbd5e1; background:linear-gradient(180deg, #f8fafc 0%, #ffffff 100%); font-size:15px; line-height:1.7; color:#0f172a; outline:none; box-shadow:inset 0 1px 2px rgba(15,23,42,0.05);" oninput="syncTaskComposerValue(this.value)"></textarea>
-                <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:18px;">
+                <textarea id="modalLogComposerTextarea" class="task-composer-textarea" placeholder="Görüşme notlarınızı detaylı şekilde buraya yazın..." style="width:100%; min-height:220px; resize:vertical; box-sizing:border-box; padding:18px 20px; border-radius:16px; border:1px solid #cbd5e1; background:linear-gradient(180deg, #f8fafc 0%, #ffffff 100%); font-size:15px; line-height:1.7; color:#0f172a; outline:none; box-shadow:inset 0 1px 2px rgba(15,23,42,0.05);" oninput="syncTaskComposerValue(this.value)"></textarea>
+                <div class="task-composer-actions" style="display:flex; gap:10px; justify-content:flex-end; margin-top:18px;">
                     <button type="button" onclick="closeTaskNoteComposer(false)" style="background:#e2e8f0; color:#475569; border:none; padding:12px 18px; border-radius:10px; font-weight:700; cursor:pointer;">İptal</button>
                     <button type="button" onclick="closeTaskNoteComposer(true)" style="background:linear-gradient(135deg, #0f766e 0%, #115e59 100%); color:#fff; border:none; padding:12px 18px; border-radius:10px; font-weight:700; cursor:pointer;">Tamam</button>
                 </div>

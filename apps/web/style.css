@@ -3748,6 +3748,93 @@ textarea.modern-capsule-input {
 }
 
 @media (max-width: 768px) {
+    html,
+    body {
+        overflow-x: hidden;
+    }
+
+    #app-section {
+        overflow-x: hidden;
+    }
+
+    .navbar {
+        position: sticky;
+        top: 0;
+        left: 0;
+        right: 0;
+        width: 100%;
+        box-sizing: border-box;
+        padding: 10px 14px 12px;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .nav-brand {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .nav-brand .nav-logo {
+        width: 28px;
+        height: 28px;
+    }
+
+    .hamburger-btn {
+        flex: 0 0 auto;
+        width: 42px;
+        height: 42px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 30px;
+        border-radius: 12px;
+    }
+
+    .nav-user-info,
+    .user-info {
+        width: 100%;
+        min-width: 0;
+        justify-content: space-between;
+        gap: 10px;
+        margin-top: 6px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(255,255,255,0.12);
+        box-sizing: border-box;
+    }
+
+    .premium-tool-btn,
+    .premium-notif-container {
+        flex: 0 0 auto;
+    }
+
+    .premium-user-profile {
+        min-width: 0;
+        flex: 1 1 auto;
+        justify-content: flex-start;
+        padding: 8px 10px;
+    }
+
+    .nav-user-name {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .nav-links.show {
+        left: 0;
+        right: 0;
+        width: 100%;
+        padding: 8px 10px 12px;
+        border-top: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .nav-links.show button {
+        min-height: 44px;
+        white-space: normal;
+        line-height: 1.3;
+    }
+
     .page-content {
         max-width: 100%;
         margin: 12px auto;
@@ -3829,6 +3916,10 @@ textarea.modern-capsule-input {
         margin-left: 0;
         width: 100%;
         gap: 10px;
+    }
+
+    .list-toolbar-right > * {
+        min-width: 0;
     }
 
     .pagination-container,
@@ -4137,6 +4228,132 @@ textarea.modern-capsule-input {
         padding: 0;
     }
 
+    .list-toolbar.list-toolbar-light {
+        padding: 12px 14px;
+    }
+
+    .pagination-container.inline-pagination-toolbar,
+    .pagination-container.compact-pagination-toolbar {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .pagination-container.inline-pagination-toolbar .pagination-controls,
+    .pagination-container.compact-pagination-toolbar .pagination-controls {
+        width: 100%;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    #page-businesses .biz-page-layout-grid,
+    #page-businesses .biz-page-main-content,
+    #page-businesses .sticky-biz-wrapper {
+        min-width: 0;
+    }
+
+    #page-businesses .contrasting-green-filter {
+        overflow: hidden;
+    }
+
+    #page-businesses .cgf-input-row {
+        display: grid !important;
+        grid-template-columns: 1fr !important;
+        gap: 10px !important;
+        min-width: 0;
+    }
+
+    #page-businesses .cgf-input-row .filter-col,
+    #page-businesses .cgf-input-row .cgf-actions {
+        min-width: 0 !important;
+        width: 100%;
+    }
+
+    #page-businesses .cgf-input-row .cgf-actions {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+
+    #page-businesses .cgf-bottom-controls {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 12px !important;
+    }
+
+    #page-businesses .cgf-chips {
+        flex-wrap: nowrap !important;
+        overflow-x: auto;
+        padding-bottom: 2px;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    #page-businesses .cgf-chips::-webkit-scrollbar {
+        display: none;
+    }
+
+    #page-businesses .cgf-tools {
+        width: 100%;
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 10px !important;
+    }
+
+    #page-businesses .cgf-date {
+        width: 100%;
+        flex-wrap: wrap;
+        box-sizing: border-box;
+    }
+
+    #page-businesses .cgf-date input {
+        flex: 1 1 0;
+        min-width: 0;
+    }
+
+    #page-businesses .cgf-task-btn {
+        width: 100%;
+        min-height: 46px;
+        justify-content: center;
+        text-align: center;
+    }
+
+    #page-passive-tasks .archive-flex-filter {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px !important;
+        overflow: visible !important;
+        padding-bottom: 0 !important;
+    }
+
+    #page-passive-tasks .list-toolbar-right,
+    #page-passive-tasks .archive-flex-filter,
+    #page-passive-tasks #archivePagination {
+        min-width: 0;
+    }
+
+    #page-passive-tasks .archive-flex-filter > div {
+        min-width: 0 !important;
+    }
+
+    #page-passive-tasks .archive-flex-filter > div:last-child {
+        grid-column: 1 / -1;
+    }
+
+    #archivePagination {
+        width: 100%;
+    }
+
+    #page-passive-tasks #archivePagination .pagination-controls {
+        width: 100%;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    #page-passive-tasks #archivePagination .pagination-btn {
+        min-width: 104px;
+    }
+
     #taskModal .modal-content,
     #businessDetailModal .modal-content {
         width: 100%;
@@ -4264,9 +4481,10 @@ textarea.modern-capsule-input {
 
     #taskModal .tm-log-container {
         margin: 12px 12px 18px 12px !important;
-        padding: 18px 12px 14px 12px !important;
+        padding: 18px 12px calc(188px + env(safe-area-inset-bottom, 0px)) 12px !important;
         border-radius: 14px !important;
         box-shadow: 0 8px 24px rgba(0,0,0,0.06) !important;
+        scroll-padding-bottom: calc(210px + env(safe-area-inset-bottom, 0px));
     }
 
     #taskModal .log-scroll-container {
@@ -4341,28 +4559,32 @@ textarea.modern-capsule-input {
 
     #taskModal .floating-action-bar {
         position: sticky !important;
-        bottom: calc(-18px - env(safe-area-inset-bottom, 0px)) !important;
+        bottom: 0 !important;
         left: auto !important;
         transform: none !important;
         width: calc(100% + 24px) !important;
         margin-left: -12px !important;
         margin-right: -12px !important;
         margin-top: 16px !important;
-        margin-bottom: -18px !important;
+        margin-bottom: 0 !important;
         padding: 14px 12px calc(14px + env(safe-area-inset-bottom, 0px)) 12px !important;
-        border-radius: 0 !important;
+        border-radius: 16px 16px 0 0 !important;
         display: grid !important;
-        grid-template-columns: 1fr !important;
+        grid-template-columns: minmax(0, 1fr) 132px !important;
         gap: 10px !important;
         justify-content: stretch !important;
+        box-shadow: 0 -10px 28px rgba(15, 23, 42, 0.18) !important;
+        border-top: 1px solid rgba(255,255,255,0.14);
     }
 
     #taskModal .floating-status-strip {
+        grid-column: 1 / -1;
         width: 100%;
-        overflow-x: auto;
-        padding-bottom: 2px;
-        -webkit-overflow-scrolling: touch;
-        scrollbar-width: none;
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        overflow: visible;
+        padding-bottom: 0;
     }
 
     #taskModal .floating-status-strip::-webkit-scrollbar {
@@ -4370,7 +4592,17 @@ textarea.modern-capsule-input {
     }
 
     #taskModal .floating-status-strip .status-chip {
-        flex: 0 0 auto;
+        width: 100%;
+        min-height: 42px;
+        justify-content: center !important;
+        text-align: center;
+        padding: 8px 10px !important;
+        line-height: 1.25;
+        white-space: normal !important;
+    }
+
+    #taskModal .floating-status-strip .task-transfer-chip {
+        grid-column: 1 / -1;
     }
 
     #taskModal .floating-result-select,
@@ -4378,6 +4610,14 @@ textarea.modern-capsule-input {
     #taskModal #btnSaveModalLog {
         width: 100%;
         min-width: 0 !important;
+    }
+
+    #taskModal .floating-result-select {
+        grid-column: 1 / 2;
+    }
+
+    #taskModal .floating-input-wrapper {
+        grid-column: 1 / -1;
     }
 
     #taskModal .floating-action-bar .custom-dropdown-btn,
@@ -4388,7 +4628,12 @@ textarea.modern-capsule-input {
         height: 44px !important;
     }
 
+    #taskModal .floating-action-bar #modalLogInput {
+        font-size: 16px !important;
+    }
+
     #taskModal #btnSaveModalLog {
+        grid-column: 2 / 3;
         justify-content: center !important;
     }
 
@@ -4398,23 +4643,53 @@ textarea.modern-capsule-input {
         min-width: 0 !important;
         width: 100% !important;
         bottom: calc(100% + 8px) !important;
+        max-height: 42dvh;
+        overflow-y: auto;
     }
 
     #miniModalOverlay {
-        padding: 12px;
+        padding: 0;
         box-sizing: border-box;
         align-items: flex-end !important;
     }
 
     #miniModalDate.followup-modal-shell,
     #miniModalDeal.tm-mini-panel,
-    #miniModalContact.tm-mini-panel {
+    #miniModalContact.tm-mini-panel,
+    #miniModalComposer.tm-composer-panel {
         width: 100% !important;
         max-width: 100% !important;
-        border-radius: 20px 20px 16px 16px !important;
+        border-radius: 22px 22px 0 0 !important;
         padding: 16px !important;
-        max-height: min(86dvh, 760px);
+        max-height: min(88dvh, 760px);
         overflow-y: auto;
+    }
+
+    #miniModalComposer.tm-composer-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    #miniModalComposer .task-composer-header {
+        margin-bottom: 0 !important;
+    }
+
+    #miniModalComposer .task-composer-textarea {
+        min-height: 180px !important;
+        max-height: 34dvh;
+        font-size: 16px !important;
+    }
+
+    #miniModalComposer .task-composer-actions {
+        position: sticky;
+        bottom: calc(-2px - env(safe-area-inset-bottom, 0px));
+        background: #fff;
+        padding-top: 12px;
+        margin-top: auto;
+        display: grid !important;
+        grid-template-columns: 1fr 1fr;
     }
 
     #miniModalDate .followup-modal-title {
@@ -4510,17 +4785,35 @@ textarea.modern-capsule-input {
         word-break: break-word;
     }
 
-    #businessDetailModal .biz-social-links,
     #businessDetailModal .extra-info-btns,
     #businessDetailModal .biz-action-row {
         flex-direction: column;
         align-items: stretch;
     }
 
+    #businessDetailModal .biz-social-links {
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: flex-start;
+    }
+
+    #businessDetailModal .social-icon-btn,
+    #businessDetailModal .emerald-glass-icon {
+        width: 44px;
+        height: 44px;
+        border-radius: 14px;
+    }
+
     #businessDetailModal .extra-info-btns button,
     #businessDetailModal .biz-action-row button,
     #businessDetailModal .emerald-action-btn {
         width: 100%;
+    }
+
+    #businessDetailModal .biz-action-row > div {
+        display: grid !important;
+        grid-template-columns: 1fr;
+        width: 100% !important;
     }
 
     #businessDetailModal .biz-history-container {
