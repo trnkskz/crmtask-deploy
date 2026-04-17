@@ -1510,6 +1510,7 @@ const TaskController = (() => {
             ${topBarHTML}
             ${logsHTML}
             ${_buildActionBarHTML(task)}`;
+        _resetTaskModalMobileSurface();
 
         const tm = document.getElementById('taskModal');
         if (tm) { 
@@ -1833,6 +1834,9 @@ const TaskController = (() => {
             emailHtml = `<div class="tm-pill-dropdown-shell tm-pill-contact-shell tm-pill-contact-email" style="position:relative; display:inline-block;"><button class="tm-pill clickable tm-pill-contact tm-pill-contact-email" onclick="const d = document.getElementById('${dId}'); d.style.display = d.style.display === 'block' ? 'none' : 'block'; event.stopPropagation();">✉️ ${emailList[0]} ▾</button><div id="${dId}" class="tm-phone-menu animated-drop" style="display:none; position:absolute; top:100%; left:0; margin-top:8px; z-index:10000; min-width:220px;">${rItems}</div></div>`;
         }
 
+        const hasExtraMeta = Boolean(cityLabel !== '-' || categoryLabel !== '-');
+        const hasContactExtras = Boolean(emailHtml || webLink || instaLink || actualCampUrl);
+
         let contactBoxHtml = '';
         if (actualName || phoneHtml || actualEmail || webLink || instaLink || actualCampUrl) {
             contactBoxHtml = `
@@ -1840,12 +1844,17 @@ const TaskController = (() => {
                 <div class="tm-contact-row tm-contact-primary">
                 ${actualName ? `<span class="tm-pill tm-pill-contact tm-pill-contact-name">👤 ${actualName}</span>` : ''}
                 ${phoneHtml}
-                ${emailHtml}
                 </div>
-                <div class="tm-contact-row tm-contact-links">
-                ${webLink ? `<a href="${webLink}" target="_blank" class="tm-pill clickable action tm-pill-contact tm-pill-contact-link">🌍 Web Sitesi</a>` : ''}
-                ${instaLink ? `<a href="${instaLink}" target="_blank" class="tm-pill clickable action tm-pill-contact tm-pill-contact-link">📸 Instagram</a>` : ''}
-                ${actualCampUrl ? `<a href="${actualCampUrl}" target="_blank" class="tm-pill clickable action tm-pill-contact tm-pill-contact-link">🔗 Kampanya Linki</a>` : ''}
+                ${hasContactExtras ? `<button type="button" class="tm-mobile-toggle-btn tm-contact-toggle-btn" onclick="toggleTaskContactExtras(event)">Diğer iletişim bilgileri <span class="tm-mobile-toggle-icon">▾</span></button>` : ''}
+                <div class="tm-contact-extra-shell${hasContactExtras ? '' : ' is-empty'}">
+                    <div class="tm-contact-row tm-contact-secondary">
+                    ${emailHtml}
+                    </div>
+                    <div class="tm-contact-row tm-contact-links">
+                    ${webLink ? `<a href="${webLink}" target="_blank" class="tm-pill clickable action tm-pill-contact tm-pill-contact-link">🌍 Web Sitesi</a>` : ''}
+                    ${instaLink ? `<a href="${instaLink}" target="_blank" class="tm-pill clickable action tm-pill-contact tm-pill-contact-link">📸 Instagram</a>` : ''}
+                    ${actualCampUrl ? `<a href="${actualCampUrl}" target="_blank" class="tm-pill clickable action tm-pill-contact tm-pill-contact-link">🔗 Kampanya Linki</a>` : ''}
+                    </div>
                 </div>
             </div>`;
         }
@@ -1875,9 +1884,12 @@ const TaskController = (() => {
                             <div class="tm-mobile-meta-row">
                                 <span class="tm-mobile-meta-text"><strong>Satışçı:</strong> ${assigneeLabel}</span>
                             </div>
-                            <div class="tm-mobile-meta-row tm-mobile-meta-row-secondary">
-                                <span class="tm-mobile-meta-text"><strong>Şehir:</strong> ${cityLabel}</span>
-                                <span class="tm-mobile-meta-text tm-mobile-meta-category"><strong>Kategori:</strong> ${categoryLabel}</span>
+                            ${hasExtraMeta ? `<button type="button" class="tm-mobile-toggle-btn tm-meta-toggle-btn" onclick="toggleTaskMetaDetails(event)">Detayları göster <span class="tm-mobile-toggle-icon">▾</span></button>` : ''}
+                            <div class="tm-mobile-meta-extra${hasExtraMeta ? '' : ' is-empty'}">
+                                <div class="tm-mobile-meta-row tm-mobile-meta-row-secondary">
+                                    <span class="tm-mobile-meta-text"><strong>Şehir:</strong> ${cityLabel}</span>
+                                    <span class="tm-mobile-meta-text tm-mobile-meta-category"><strong>Kategori:</strong> ${categoryLabel}</span>
+                                </div>
                             </div>
                         </div>
                         <div class="tm-badge-group">
@@ -1953,8 +1965,19 @@ const TaskController = (() => {
 
         return `
         ${pendingWarning}
+
+        <div class="floating-action-launcher" style="${isPending ? 'display:none !important;' : ''}">
+            <button type="button" class="floating-action-launcher-btn" onclick="openTaskActionSheet()">✍️ Log Gir</button>
+        </div>
         
         <div class="floating-action-bar" style="${isPending ? 'display:none !important;' : ''}">
+            <div class="floating-action-sheet-head">
+                <div class="floating-action-sheet-copy">
+                    <strong>Log Girişi</strong>
+                    <span>Durum, sonuç ve notunuzu girin.</span>
+                </div>
+                <button type="button" class="floating-action-sheet-close" onclick="closeTaskActionSheet()" aria-label="İşlem panelini kapat">✕</button>
+            </div>
             <div class="floating-status-strip" style="${actionDisplay} align-items:center; gap:8px; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; flex-shrink:0;">
                 <button type="button" class="status-chip" onclick="selectModalStatus('hot', this)">🔥 Hot</button>
                 <button type="button" class="status-chip" onclick="selectModalStatus('nothot', this)">⚠️ Not Hot</button>
@@ -2185,6 +2208,75 @@ const TaskController = (() => {
         if (menu) menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
     }
 
+    function _setTaskModalKeyboardOffset() {
+        const root = document.documentElement;
+        const vv = window.visualViewport;
+        if (!root || !vv) return;
+        const overlap = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+        root.style.setProperty('--task-composer-keyboard-offset', `${overlap}px`);
+    }
+
+    function _bindTaskComposerViewportSync() {
+        const vv = window.visualViewport;
+        if (!vv || window._taskComposerViewportBound) {
+            _setTaskModalKeyboardOffset();
+            return;
+        }
+        window._taskComposerViewportHandler = () => _setTaskModalKeyboardOffset();
+        vv.addEventListener('resize', window._taskComposerViewportHandler);
+        vv.addEventListener('scroll', window._taskComposerViewportHandler);
+        window._taskComposerViewportBound = true;
+        _setTaskModalKeyboardOffset();
+    }
+
+    function _unbindTaskComposerViewportSync() {
+        const vv = window.visualViewport;
+        if (vv && window._taskComposerViewportHandler) {
+            vv.removeEventListener('resize', window._taskComposerViewportHandler);
+            vv.removeEventListener('scroll', window._taskComposerViewportHandler);
+        }
+        window._taskComposerViewportHandler = null;
+        window._taskComposerViewportBound = false;
+        document.documentElement.style.setProperty('--task-composer-keyboard-offset', '0px');
+    }
+
+    function _resetTaskModalMobileSurface() {
+        const tm = document.getElementById('taskModal');
+        if (tm) {
+            tm.classList.remove('mobile-action-open', 'tm-mobile-meta-open', 'tm-mobile-contact-open');
+        }
+    }
+
+    function toggleTaskMetaDetails(e) {
+        if (e) e.stopPropagation();
+        const tm = document.getElementById('taskModal');
+        if (!tm) return;
+        tm.classList.toggle('tm-mobile-meta-open');
+    }
+
+    function toggleTaskContactExtras(e) {
+        if (e) e.stopPropagation();
+        const tm = document.getElementById('taskModal');
+        if (!tm) return;
+        tm.classList.toggle('tm-mobile-contact-open');
+    }
+
+    function openTaskActionSheet() {
+        const tm = document.getElementById('taskModal');
+        if (!tm) return;
+        tm.classList.add('mobile-action-open');
+    }
+
+    function closeTaskActionSheet() {
+        const tm = document.getElementById('taskModal');
+        if (!tm) return;
+        tm.classList.remove('mobile-action-open');
+        const statusMenu = document.getElementById('mobileStatusMenu');
+        const logTypeMenu = document.getElementById('customLogTypeMenu');
+        if (statusMenu) statusMenu.style.display = 'none';
+        if (logTypeMenu) logTypeMenu.style.display = 'none';
+    }
+
     function syncTaskComposerValue(value = '') {
         const normalized = String(value || '');
         const inlineInput = document.getElementById('modalLogInput');
@@ -2213,6 +2305,8 @@ const TaskController = (() => {
         composerTextarea.value = inlineInput?.value || '';
         overlay.style.display = 'flex';
         composer.style.display = 'block';
+        closeTaskActionSheet();
+        _bindTaskComposerViewportSync();
 
         setTimeout(() => {
             composerTextarea.focus();
@@ -2226,6 +2320,7 @@ const TaskController = (() => {
         if (applyValue && composerTextarea) {
             syncTaskComposerValue(composerTextarea.value);
         }
+        _unbindTaskComposerViewportSync();
         if (composer) composer.style.display = 'none';
         closeMiniModal();
     }
@@ -2336,6 +2431,7 @@ const TaskController = (() => {
         }
 
         if (newStatus === 'deal') {
+            closeTaskActionSheet();
             document.getElementById('miniModalOverlay').style.display = 'flex';
             document.getElementById('miniModalDeal').style.display = 'block';
             document.getElementById('miniModalDate').style.display = 'none';
@@ -2343,6 +2439,7 @@ const TaskController = (() => {
         }
 
         if (logType === 'Tekrar Aranacak') {
+            closeTaskActionSheet();
             selectModalLogType(logType, '🕒 Tekrar Ara');
         } else {
             executeSaveAction(taskId);
@@ -2353,6 +2450,7 @@ const TaskController = (() => {
         document.getElementById('updTaskContactName').value = '';
         document.getElementById('updTaskContactPhone').value = '';
         document.getElementById('updTaskContactEmail').value = '';
+        closeTaskActionSheet();
         
         document.getElementById('miniModalOverlay').style.display = 'flex';
         document.getElementById('miniModalContact').style.display = 'block';
@@ -2389,6 +2487,7 @@ const TaskController = (() => {
             showToast('Bu görev için uygun aktif kullanıcı bulunamadı.', 'warning');
             return;
         }
+        closeTaskActionSheet();
         document.getElementById('miniModalOverlay').style.display = 'flex';
         if (document.getElementById('miniModalDeal')) document.getElementById('miniModalDeal').style.display = 'none';
         if (document.getElementById('miniModalDate')) document.getElementById('miniModalDate').style.display = 'none';
@@ -2496,6 +2595,7 @@ const TaskController = (() => {
     }
 
     function closeMiniModal() {
+        _unbindTaskComposerViewportSync();
         const overlay = document.getElementById('miniModalOverlay');
         if (overlay) overlay.style.display = 'none';
         if (window.fpInstance) {
@@ -2871,6 +2971,7 @@ const TaskController = (() => {
             ${topBarHTML}
             ${logsHTML}
             ${_buildActionBarHTML(task)}`;
+        _resetTaskModalMobileSurface();
 
         if (typeof window.initFlatpickr === 'function') window.initFlatpickr();
 
@@ -2922,6 +3023,10 @@ const TaskController = (() => {
         selectModalStatus,
         toggleCustomLogTypeMenu,
         selectModalLogType,
+        toggleTaskMetaDetails,
+        toggleTaskContactExtras,
+        openTaskActionSheet,
+        closeTaskActionSheet,
         switchLogTab,
         openContactUpdateModal,
         executeContactUpdate,
@@ -2974,6 +3079,10 @@ window.toggleMobileStatusMenu = TaskController.toggleMobileStatusMenu.bind(TaskC
 window.selectMobileStatus = TaskController.selectMobileStatus.bind(TaskController);
 window.toggleCustomLogTypeMenu = TaskController.toggleCustomLogTypeMenu.bind(TaskController);
 window.selectModalLogType = TaskController.selectModalLogType.bind(TaskController);
+window.toggleTaskMetaDetails = TaskController.toggleTaskMetaDetails.bind(TaskController);
+window.toggleTaskContactExtras = TaskController.toggleTaskContactExtras.bind(TaskController);
+window.openTaskActionSheet = TaskController.openTaskActionSheet.bind(TaskController);
+window.closeTaskActionSheet = TaskController.closeTaskActionSheet.bind(TaskController);
 window.openContactUpdateModal = TaskController.openContactUpdateModal.bind(TaskController);
 window.executeContactUpdate = TaskController.executeContactUpdate.bind(TaskController);
 window.openTaskTransferModal = TaskController.openTaskTransferModal.bind(TaskController);

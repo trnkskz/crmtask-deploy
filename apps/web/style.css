@@ -2165,6 +2165,21 @@ input:checked + .slider:before { transform: translateX(20px); }
     box-sizing: border-box !important;
 }
 
+.floating-action-launcher,
+.floating-action-sheet-head {
+    display: none;
+}
+
+.tm-mobile-meta-summary,
+.tm-mobile-toggle-btn {
+    display: none;
+}
+
+.tm-mobile-meta-extra,
+.tm-contact-extra-shell {
+    display: block;
+}
+
 /* Elemanların minimalize edilmesi */
 .floating-action-bar .status-chip {
     padding: 6px 14px !important;
@@ -4461,12 +4476,12 @@ textarea.modern-capsule-input {
     #taskModal .tm-mobile-meta-summary {
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: 5px;
         width: 100%;
         margin-top: 2px;
-        padding: 10px 12px;
-        border-radius: 14px;
-        background: rgba(0, 0, 0, 0.12);
+        padding: 8px 10px;
+        border-radius: 12px;
+        background: rgba(0, 0, 0, 0.1);
         border: 1px solid rgba(255,255,255,0.08);
     }
 
@@ -4485,7 +4500,7 @@ textarea.modern-capsule-input {
     #taskModal .tm-mobile-meta-text {
         min-width: 0;
         color: rgba(255,255,255,0.92);
-        font-size: 12.5px;
+        font-size: 12px;
         line-height: 1.35;
         word-break: break-word;
     }
@@ -4506,14 +4521,52 @@ textarea.modern-capsule-input {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-height: 28px;
-        padding: 4px 10px;
+        min-height: 24px;
+        padding: 3px 9px;
         border-radius: 999px;
-        font-size: 11.5px;
+        font-size: 11px;
         font-weight: 800;
         color: #fff;
         background: rgba(148, 163, 184, 0.9);
         flex: 0 0 auto;
+    }
+
+    #taskModal .tm-mobile-toggle-btn {
+        width: 100%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 7px 0 2px;
+        background: transparent;
+        border: none;
+        color: rgba(255,255,255,0.76);
+        font-size: 11.5px;
+        font-weight: 700;
+        text-align: left;
+    }
+
+    #taskModal .tm-mobile-toggle-icon {
+        font-size: 12px;
+        transition: transform 0.18s ease;
+    }
+
+    #taskModal .tm-mobile-meta-extra,
+    #taskModal .tm-contact-extra-shell {
+        display: none;
+    }
+
+    #taskModal.tm-mobile-meta-open .tm-mobile-meta-extra {
+        display: block;
+    }
+
+    #taskModal.tm-mobile-contact-open .tm-contact-extra-shell {
+        display: block;
+    }
+
+    #taskModal.tm-mobile-meta-open .tm-meta-toggle-btn .tm-mobile-toggle-icon,
+    #taskModal.tm-mobile-contact-open .tm-contact-toggle-btn .tm-mobile-toggle-icon {
+        transform: rotate(180deg);
     }
 
     #taskModal .tm-mobile-status-badge.hot {
@@ -4546,8 +4599,8 @@ textarea.modern-capsule-input {
     #taskModal .tm-contact-box {
         align-items: stretch;
         text-align: left;
-        gap: 8px;
-        padding-top: 10px;
+        gap: 6px;
+        padding-top: 8px;
     }
 
     #taskModal .tm-contact-row {
@@ -4559,7 +4612,14 @@ textarea.modern-capsule-input {
 
     #taskModal .tm-contact-primary {
         grid-template-columns: 1fr !important;
-        gap: 6px !important;
+        gap: 5px !important;
+    }
+
+    #taskModal .tm-contact-secondary {
+        grid-template-columns: 1fr;
+        gap: 6px;
+        margin-top: 2px;
+        margin-bottom: 6px;
     }
 
     #taskModal .tm-contact-links {
@@ -4592,8 +4652,8 @@ textarea.modern-capsule-input {
         white-space: normal;
         word-break: break-word;
         line-height: 1.4;
-        padding: 8px 10px;
-        min-height: 38px;
+        padding: 7px 10px;
+        min-height: 34px;
         border-radius: 12px;
     }
 
@@ -4602,7 +4662,7 @@ textarea.modern-capsule-input {
     #taskModal .tm-pill-contact-email {
         background: rgba(255,255,255,0.1);
         border-style: solid;
-        font-size: 13px;
+        font-size: 12.5px;
         font-weight: 700;
     }
 
@@ -4634,11 +4694,16 @@ textarea.modern-capsule-input {
 
     #taskModal .tm-log-container {
         margin: 12px 12px 18px 12px !important;
-        padding: 14px 12px calc(182px + env(safe-area-inset-bottom, 0px)) 12px !important;
+        padding: 14px 12px calc(88px + env(safe-area-inset-bottom, 0px)) 12px !important;
         border-radius: 14px !important;
         box-shadow: 0 8px 24px rgba(0,0,0,0.06) !important;
-        scroll-padding-bottom: calc(198px + env(safe-area-inset-bottom, 0px));
-        min-height: 220px;
+        scroll-padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px));
+        min-height: 320px;
+    }
+
+    #taskModal.mobile-action-open .tm-log-container {
+        padding-bottom: calc(232px + env(safe-area-inset-bottom, 0px)) !important;
+        scroll-padding-bottom: calc(248px + env(safe-area-inset-bottom, 0px));
     }
 
     #taskModal .log-scroll-container {
@@ -4711,24 +4776,98 @@ textarea.modern-capsule-input {
         width: 100%;
     }
 
+    #taskModal .floating-action-launcher {
+        display: block;
+        position: sticky;
+        bottom: 0;
+        z-index: 18;
+        margin: 0 -12px;
+        padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+        background: linear-gradient(180deg, rgba(12, 74, 110, 0) 0%, rgba(22, 163, 74, 0.12) 24%, rgba(22, 163, 74, 0.92) 100%);
+    }
+
+    #taskModal .floating-action-launcher-btn {
+        width: 100%;
+        min-height: 46px;
+        border: none;
+        border-radius: 14px;
+        background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+        color: #0f766e;
+        font-size: 15px;
+        font-weight: 800;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.14);
+    }
+
     #taskModal .floating-action-bar {
-        position: sticky !important;
+        position: fixed !important;
         bottom: 0 !important;
-        left: auto !important;
-        transform: none !important;
-        width: calc(100% + 24px) !important;
-        margin-left: -12px !important;
-        margin-right: -12px !important;
-        margin-top: 12px !important;
-        margin-bottom: 0 !important;
-        padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px)) 12px !important;
-        border-radius: 16px 16px 0 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        transform: translateY(calc(100% + env(safe-area-inset-bottom, 0px))) !important;
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 12px 12px calc(12px + env(safe-area-inset-bottom, 0px)) 12px !important;
+        border-radius: 20px 20px 0 0 !important;
         display: grid !important;
         grid-template-columns: minmax(0, 1fr) 132px !important;
         gap: 8px !important;
         justify-content: stretch !important;
         box-shadow: 0 -10px 28px rgba(15, 23, 42, 0.18) !important;
         border-top: 1px solid rgba(255,255,255,0.14);
+        z-index: 25;
+        opacity: 0;
+        pointer-events: none;
+        transition: transform 0.22s ease, opacity 0.18s ease;
+    }
+
+    #taskModal.mobile-action-open .floating-action-launcher {
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(10px);
+    }
+
+    #taskModal.mobile-action-open .floating-action-bar {
+        transform: translateY(0) !important;
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    #taskModal .floating-action-sheet-head {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+    }
+
+    #taskModal .floating-action-sheet-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    #taskModal .floating-action-sheet-copy strong {
+        font-size: 13px;
+        line-height: 1.2;
+        color: #ecfdf5;
+    }
+
+    #taskModal .floating-action-sheet-copy span {
+        font-size: 11.5px;
+        line-height: 1.35;
+        color: rgba(236, 253, 245, 0.74);
+    }
+
+    #taskModal .floating-action-sheet-close {
+        width: 30px;
+        height: 30px;
+        border: none;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.16);
+        color: #fff;
+        font-size: 16px;
+        font-weight: 800;
+        flex: 0 0 auto;
     }
 
     #taskModal .floating-status-strip {
@@ -4850,6 +4989,7 @@ textarea.modern-capsule-input {
         padding: 0;
         box-sizing: border-box;
         align-items: flex-end !important;
+        padding-bottom: var(--task-composer-keyboard-offset, 0px);
     }
 
     #miniModalDate.followup-modal-shell,
@@ -4868,7 +5008,7 @@ textarea.modern-capsule-input {
         display: flex;
         flex-direction: column;
         gap: 14px;
-        padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)) !important;
+        padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px) + var(--task-composer-keyboard-offset, 0px)) !important;
     }
 
     #miniModalComposer .task-composer-header {
