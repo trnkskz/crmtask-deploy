@@ -19,7 +19,8 @@
     "convert-and-import": "npm run convert:grupanya && npm run import:sheets -- ../artifacts/import",
     "smoke": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/smoke.ts",
     "e2e:demo": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/e2e-demo.ts",
-    "fix:account-categories": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/fix-account-categories.ts"
+    "fix:account-categories": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/fix-account-categories.ts",
+    "fix:primary-contacts": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/reconcile-primary-contacts.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",

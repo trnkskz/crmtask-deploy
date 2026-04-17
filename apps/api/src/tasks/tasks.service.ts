@@ -7,6 +7,7 @@ import { GeneralStatus, Prisma, TaskListTag, Reason } from '@prisma/client'
 import { NotificationsService } from '../notifications/notifications.service'
 import { AuditService } from '../audit/audit.service'
 import { normalizeAccountSource } from '../common/source-type'
+import { reconcileAccountPrimaryContact } from '../common/account-primary-contact'
 
 const AUTO_SYSTEM_NOTE_TEXTS = new Set([
   'satış temsilcisi bu işletmeyi havuzdan kendi üzerine aldı',
@@ -1401,6 +1402,8 @@ export class TasksService {
         },
       })
     })
+
+    await reconcileAccountPrimaryContact(this.prisma, task.accountId)
 
     return this.detail(id)
   }

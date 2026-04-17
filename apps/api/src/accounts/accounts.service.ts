@@ -3,6 +3,7 @@ import { PrismaService } from '../infrastructure/prisma/prisma.service'
 import { AccountListQueryDto, AccountTargetPreviewDto, CreateAccountDto, SortOption, UpdateAccountDto } from './dto/account.dto'
 import { Prisma } from '@prisma/client'
 import { normalizeAccountSource } from '../common/source-type'
+import { reconcileAccountPrimaryContact } from '../common/account-primary-contact'
 
 function buildPrefixTsQuery(input: string) {
   return String(input || '')
@@ -893,6 +894,7 @@ export class AccountsService {
           await tx.activityHistory.create({
             data: { accountId: business.id, type: 'PROFILE_UPDATE', summary: `Business created (${business.accountPublicId})` },
           })
+          await reconcileAccountPrimaryContact(tx, business.id)
           return business
         })
       } catch (err) {
@@ -1141,6 +1143,7 @@ export class AccountsService {
     }
 
     await this.prisma.activityHistory.create({ data: { accountId: id, type: 'PROFILE_UPDATE', summary: 'Business updated' } })
+    await reconcileAccountPrimaryContact(this.prisma, id)
     return updated
   }
 
@@ -1325,20 +1328,25 @@ export class AccountsService {
     if (body.isPrimary) {
       await this.prisma.accountContact.updateMany({ where: { accountId }, data: { isPrimary: false } })
     }
-    return this.prisma.accountContact.create({ data: { accountId, type: body.type as any, name: body.name, phone: body.phone || null, email: body.email || null, address: body.address || null, isPrimary: !!body.isPrimary } })
+    const created = await this.prisma.accountContact.create({ data: { accountId, type: body.type as any, name: body.name, phone: body.phone || null, email: body.email || null, address: body.address || null, isPrimary: !!body.isPrimary } })
+    await reconcileAccountPrimaryContact(this.prisma, accountId)
+    return created
   }
 
   async updateContact(accountId: string, contactId: string, body: Partial<{ type: 'BUSINESS'|'PERSON'; name: string; phone?: string; email?: string; address?: string; isPrimary?: boolean }>) {
     const contact = await this.prisma.accountContact.findUnique({ where: { id: contactId } })
     if (!contact || contact.accountId !== accountId) throw new NotFoundException('Contact not found')
     if (body.isPrimary) await this.prisma.accountContact.updateMany({ where: { accountId }, data: { isPrimary: false } })
-    return this.prisma.accountContact.update({ where: { id: contactId }, data: { ...(body.type ? { type: body.type as any } : {}), ...(body.name ? { name: body.name } : {}), phone: body.phone ?? contact.phone, email: body.email ?? contact.email, address: body.address ?? contact.address, ...(body.isPrimary !== undefined ? { isPrimary: body.isPrimary } : {}) } })
+    const updatedContact = await this.prisma.accountContact.update({ where: { id: contactId }, data: { ...(body.type ? { type: body.type as any } : {}), ...(body.name ? { name: body.name } : {}), phone: body.phone ?? contact.phone, email: body.email ?? contact.email, address: body.address ?? contact.address, ...(body.isPrimary !== undefined ? { isPrimary: body.isPrimary } : {}) } })
+    await reconcileAccountPrimaryContact(this.prisma, accountId)
+    return updatedContact
   }
 
   async deleteContact(accountId: string, contactId: string) {
     const contact = await this.prisma.accountContact.findUnique({ where: { id: contactId } })
     if (!contact || contact.accountId !== accountId) throw new NotFoundException('Contact not found')
     await this.prisma.accountContact.delete({ where: { id: contactId } })
+    await reconcileAccountPrimaryContact(this.prisma, accountId)
     return { ok: true }
   }
 

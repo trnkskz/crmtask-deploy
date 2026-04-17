@@ -2170,6 +2170,10 @@ input:checked + .slider:before { transform: translateX(20px); }
     display: none;
 }
 
+.floating-aux-actions {
+    display: none !important;
+}
+
 .tm-mobile-meta-summary,
 .tm-mobile-toggle-btn {
     display: none;
@@ -2177,7 +2181,7 @@ input:checked + .slider:before { transform: translateX(20px); }
 
 .tm-mobile-meta-extra,
 .tm-contact-extra-shell {
-    display: block;
+    display: contents;
 }
 
 /* Elemanların minimalize edilmesi */

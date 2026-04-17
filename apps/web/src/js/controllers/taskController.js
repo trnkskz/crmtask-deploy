@@ -1418,11 +1418,18 @@ const TaskController = (() => {
     // --- Görev Modal & Inline Render ---
     async function openTaskModal(taskId, scrollToOffers = false) {
         let task = AppState.tasks.find(t => t.id === taskId);
+        let refreshedBiz = null;
         try {
             const freshTask = await DataService.readPath('tasks/' + taskId, { force: true });
             if (freshTask) {
                 _updateTaskInState(freshTask);
                 task = freshTask;
+            }
+            if (task?.businessId) {
+                const freshBiz = await DataService.readPath('accounts/' + task.businessId, { force: true }).catch(() => null);
+                if (freshBiz) {
+                    refreshedBiz = _updateBusinessInState(freshBiz);
+                }
             }
         } catch (err) {
             if (err?.message === 'Task not found') {
@@ -1439,7 +1446,10 @@ const TaskController = (() => {
         }
         if (!task) return;
         window._openTaskModalId = taskId;
-        const biz = AppState.getBizMap().get(task.businessId) || task;
+        const biz = refreshedBiz
+            || (typeof AppState.getBusinessDetail === 'function' ? AppState.getBusinessDetail(task.businessId) : null)
+            || AppState.getBizMap().get(task.businessId)
+            || task;
         task.logs = task.logs || [];
         task.offers = task.offers || [];
 
@@ -2929,7 +2939,9 @@ const TaskController = (() => {
         const taskDetail = typeof AppState.getTaskDetail === 'function' ? AppState.getTaskDetail(taskId) : null;
         const task = taskDetail || AppState.tasks.find(t => t.id === taskId);
         if (!task) return;
-        const biz = AppState.getBizMap().get(task.businessId) || task;
+        const biz = (typeof AppState.getBusinessDetail === 'function' ? AppState.getBusinessDetail(task.businessId) : null)
+            || AppState.getBizMap().get(task.businessId)
+            || task;
         task.logs = task.logs || [];
         task.offers = task.offers || [];
 
