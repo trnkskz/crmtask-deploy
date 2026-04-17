@@ -3757,6 +3757,10 @@ textarea.modern-capsule-input {
         overflow-x: hidden;
     }
 
+    body.nav-open {
+        overflow: hidden;
+    }
+
     .navbar {
         position: sticky;
         top: 0;
@@ -3767,6 +3771,10 @@ textarea.modern-capsule-input {
         padding: 10px 14px 12px;
         align-items: center;
         gap: 10px;
+    }
+
+    .navbar.mobile-nav-open {
+        align-items: stretch;
     }
 
     .nav-brand {
@@ -3822,11 +3830,19 @@ textarea.modern-capsule-input {
     }
 
     .nav-links.show {
-        left: 0;
-        right: 0;
+        position: static;
+        order: 3;
+        left: auto;
+        right: auto;
         width: 100%;
+        margin-top: 8px;
         padding: 8px 10px 12px;
         border-top: 1px solid rgba(255,255,255,0.08);
+        border-radius: 16px;
+        background: rgba(6, 78, 59, 0.94);
+        max-height: min(52dvh, 420px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
     }
 
     .nav-links.show button {
@@ -4229,13 +4245,20 @@ textarea.modern-capsule-input {
     }
 
     .list-toolbar.list-toolbar-light {
+        align-items: stretch;
         padding: 12px 14px;
+    }
+
+    .list-toolbar > div:first-child {
+        flex: 0 0 auto;
+        width: 100%;
     }
 
     .pagination-container.inline-pagination-toolbar,
     .pagination-container.compact-pagination-toolbar {
         width: 100%;
         justify-content: center;
+        min-height: auto;
     }
 
     .pagination-container.inline-pagination-toolbar .pagination-controls,
@@ -4332,6 +4355,26 @@ textarea.modern-capsule-input {
         min-width: 0;
     }
 
+    #page-passive-tasks .list-toolbar-right,
+    #page-businesses .list-toolbar-right {
+        width: 100%;
+        margin-left: 0;
+        justify-content: center;
+        flex: 0 0 auto;
+    }
+
+    #page-businesses #bizPagination,
+    #page-passive-tasks #archivePagination {
+        min-height: auto;
+    }
+
+    #page-businesses #bizPagination .pagination-controls,
+    #page-passive-tasks #archivePagination .pagination-controls {
+        width: 100%;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
     #page-passive-tasks .archive-flex-filter > div {
         min-width: 0 !important;
     }
@@ -4344,14 +4387,17 @@ textarea.modern-capsule-input {
         width: 100%;
     }
 
-    #page-passive-tasks #archivePagination .pagination-controls {
-        width: 100%;
-        justify-content: center;
-        flex-wrap: wrap;
-    }
-
     #page-passive-tasks #archivePagination .pagination-btn {
         min-width: 104px;
+    }
+
+    #page-businesses #bizPagination .pagination-btn {
+        min-width: 104px;
+    }
+
+    #page-businesses #businessesListContainer,
+    #page-passive-tasks #passiveTasksContainer {
+        margin-top: 12px !important;
     }
 
     #taskModal .modal-content,
@@ -4433,9 +4479,21 @@ textarea.modern-capsule-input {
 
     #taskModal .tm-contact-row {
         display: grid;
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 8px;
         justify-content: stretch;
+    }
+
+    #taskModal .tm-pill-contact-name,
+    #taskModal .tm-pill-contact-phone,
+    #taskModal .tm-pill-contact-email,
+    #taskModal .tm-pill-contact-shell {
+        grid-column: 1 / -1;
+    }
+
+    #taskModal .tm-pill-contact-link {
+        min-height: 42px;
+        align-items: center;
     }
 
     #taskModal .tm-pill,
@@ -4460,6 +4518,8 @@ textarea.modern-capsule-input {
         min-width: 0 !important;
         left: 0 !important;
         right: auto;
+        max-height: 32dvh;
+        overflow-y: auto;
     }
 
     #taskModal .tm-tabs-wrapper {
@@ -4481,10 +4541,10 @@ textarea.modern-capsule-input {
 
     #taskModal .tm-log-container {
         margin: 12px 12px 18px 12px !important;
-        padding: 18px 12px calc(188px + env(safe-area-inset-bottom, 0px)) 12px !important;
+        padding: 18px 12px calc(208px + env(safe-area-inset-bottom, 0px)) 12px !important;
         border-radius: 14px !important;
         box-shadow: 0 8px 24px rgba(0,0,0,0.06) !important;
-        scroll-padding-bottom: calc(210px + env(safe-area-inset-bottom, 0px));
+        scroll-padding-bottom: calc(228px + env(safe-area-inset-bottom, 0px));
     }
 
     #taskModal .log-scroll-container {
@@ -4578,20 +4638,52 @@ textarea.modern-capsule-input {
     }
 
     #taskModal .floating-status-strip {
+        display: none !important;
+    }
+
+    #taskModal .floating-status-mobile {
         grid-column: 1 / -1;
         width: 100%;
+        display: block !important;
+    }
+
+    #taskModal .floating-status-mobile .custom-dropdown-btn {
+        width: 100% !important;
+        min-width: 0 !important;
+        height: 44px !important;
+    }
+
+    #taskModal #mobileStatusMenu {
+        left: 0 !important;
+        right: 0 !important;
+        min-width: 0 !important;
+        width: 100% !important;
+        bottom: calc(100% + 8px) !important;
+        max-height: 34dvh;
+        overflow-y: auto;
+    }
+
+    #taskModal .mobile-status-option {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 44px;
+        font-weight: 700;
+    }
+
+    #taskModal .mobile-status-option.active {
+        background: rgba(16, 185, 129, 0.14);
+        color: #065f46;
+    }
+
+    #taskModal .floating-aux-actions {
+        grid-column: 1 / -1;
         display: grid !important;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 8px;
-        overflow: visible;
-        padding-bottom: 0;
     }
 
-    #taskModal .floating-status-strip::-webkit-scrollbar {
-        display: none;
-    }
-
-    #taskModal .floating-status-strip .status-chip {
+    #taskModal .floating-aux-actions .status-chip {
         width: 100%;
         min-height: 42px;
         justify-content: center !important;
@@ -4601,7 +4693,8 @@ textarea.modern-capsule-input {
         white-space: normal !important;
     }
 
-    #taskModal .floating-status-strip .task-transfer-chip {
+    #taskModal .floating-aux-actions .task-transfer-chip:only-child,
+    #taskModal .floating-aux-actions .status-chip:only-child {
         grid-column: 1 / -1;
     }
 
@@ -4614,10 +4707,20 @@ textarea.modern-capsule-input {
 
     #taskModal .floating-result-select {
         grid-column: 1 / 2;
+        order: 2;
     }
 
     #taskModal .floating-input-wrapper {
         grid-column: 1 / -1;
+        order: 3;
+    }
+
+    #taskModal .floating-status-mobile {
+        order: 1;
+    }
+
+    #taskModal .floating-aux-actions {
+        order: 4;
     }
 
     #taskModal .floating-action-bar .custom-dropdown-btn,
@@ -4635,6 +4738,7 @@ textarea.modern-capsule-input {
     #taskModal #btnSaveModalLog {
         grid-column: 2 / 3;
         justify-content: center !important;
+        order: 2;
     }
 
     #taskModal .mac-popover {

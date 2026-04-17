@@ -1809,11 +1809,11 @@ const TaskController = (() => {
             const pList = actualPhone.split(/[\/\-,|\\]/).map(p => p.trim()).filter(p => p.length >= 10);
             if (pList.length > 0) {
                 if (pList.length === 1) {
-                    phoneHtml = `<span class="tm-pill">📞 ${formatPhone(pList[0])}</span>`;
+                    phoneHtml = `<span class="tm-pill tm-pill-contact tm-pill-contact-phone">📞 ${formatPhone(pList[0])}</span>`;
                 } else {
                     const dId = 'tmDrop_' + Math.random().toString(36).substr(2,5);
                     const rItems = pList.slice(1).map((p) => `<div class="tm-phone-item">📞 ${formatPhone(p)}</div>`).join('');
-                    phoneHtml = `<div class="tm-pill-dropdown-shell" style="position:relative; display:inline-block;"><button class="tm-pill clickable" onclick="const d = document.getElementById('${dId}'); d.style.display = d.style.display === 'block' ? 'none' : 'block'; event.stopPropagation();">📞 ${formatPhone(pList[0])} ▾</button><div id="${dId}" class="tm-phone-menu animated-drop" style="display:none; position:absolute; top:100%; left:0; margin-top:8px; z-index:10000; min-width:180px;">${rItems}</div></div>`;
+                    phoneHtml = `<div class="tm-pill-dropdown-shell tm-pill-contact-shell tm-pill-contact-phone" style="position:relative; display:inline-block;"><button class="tm-pill clickable tm-pill-contact tm-pill-contact-phone" onclick="const d = document.getElementById('${dId}'); d.style.display = d.style.display === 'block' ? 'none' : 'block'; event.stopPropagation();">📞 ${formatPhone(pList[0])} ▾</button><div id="${dId}" class="tm-phone-menu animated-drop" style="display:none; position:absolute; top:100%; left:0; margin-top:8px; z-index:10000; min-width:180px;">${rItems}</div></div>`;
                 }
             }
         }
@@ -1821,11 +1821,11 @@ const TaskController = (() => {
         const emailList = (actualEmail || '').split(/[\n,;\/|\\]+/).map(e => e.trim()).filter(Boolean);
         let emailHtml = '';
         if (emailList.length === 1) {
-            emailHtml = `<span class="tm-pill">✉️ ${emailList[0]}</span>`;
+            emailHtml = `<span class="tm-pill tm-pill-contact tm-pill-contact-email">✉️ ${emailList[0]}</span>`;
         } else if (emailList.length > 1) {
             const dId = 'tmMailDrop_' + Math.random().toString(36).substr(2,5);
             const rItems = emailList.slice(1).map((e) => `<div class="tm-phone-item">✉️ ${e}</div>`).join('');
-            emailHtml = `<div class="tm-pill-dropdown-shell" style="position:relative; display:inline-block;"><button class="tm-pill clickable" onclick="const d = document.getElementById('${dId}'); d.style.display = d.style.display === 'block' ? 'none' : 'block'; event.stopPropagation();">✉️ ${emailList[0]} ▾</button><div id="${dId}" class="tm-phone-menu animated-drop" style="display:none; position:absolute; top:100%; left:0; margin-top:8px; z-index:10000; min-width:220px;">${rItems}</div></div>`;
+            emailHtml = `<div class="tm-pill-dropdown-shell tm-pill-contact-shell tm-pill-contact-email" style="position:relative; display:inline-block;"><button class="tm-pill clickable tm-pill-contact tm-pill-contact-email" onclick="const d = document.getElementById('${dId}'); d.style.display = d.style.display === 'block' ? 'none' : 'block'; event.stopPropagation();">✉️ ${emailList[0]} ▾</button><div id="${dId}" class="tm-phone-menu animated-drop" style="display:none; position:absolute; top:100%; left:0; margin-top:8px; z-index:10000; min-width:220px;">${rItems}</div></div>`;
         }
 
         let contactBoxHtml = '';
@@ -1833,12 +1833,12 @@ const TaskController = (() => {
             contactBoxHtml = `
             <div class="tm-contact-box">
                 <div class="tm-contact-row">
-                ${actualName ? `<span class="tm-pill">👤 ${actualName}</span>` : ''}
+                ${actualName ? `<span class="tm-pill tm-pill-contact tm-pill-contact-name">👤 ${actualName}</span>` : ''}
                 ${phoneHtml}
                 ${emailHtml}
-                ${webLink ? `<a href="${webLink}" target="_blank" class="tm-pill clickable action">🌍 Web Sitesi</a>` : ''}
-                ${instaLink ? `<a href="${instaLink}" target="_blank" class="tm-pill clickable action">📸 Instagram</a>` : ''}
-                ${actualCampUrl ? `<a href="${actualCampUrl}" target="_blank" class="tm-pill clickable action">🔗 Kampanya Linki</a>` : ''}
+                ${webLink ? `<a href="${webLink}" target="_blank" class="tm-pill clickable action tm-pill-contact tm-pill-contact-link">🌍 Web Sitesi</a>` : ''}
+                ${instaLink ? `<a href="${instaLink}" target="_blank" class="tm-pill clickable action tm-pill-contact tm-pill-contact-link">📸 Instagram</a>` : ''}
+                ${actualCampUrl ? `<a href="${actualCampUrl}" target="_blank" class="tm-pill clickable action tm-pill-contact tm-pill-contact-link">🔗 Kampanya Linki</a>` : ''}
                 </div>
             </div>`;
         }
@@ -1927,6 +1927,9 @@ const TaskController = (() => {
         const transferOptionsHtml = _buildTransferCandidateOptions(task);
         const transferCurrentOwner = task.assignee || 'Havuz';
         const durationValue = Number(task.durationDays || 7);
+        const mobileTransferButtonHtml = transferButtonHtml
+            ? `<button type="button" class="status-chip task-transfer-chip" onclick="openTaskTransferModal('${task.id}')" style="background:rgba(14,116,144,0.18); border-color:rgba(125,211,252,0.35); color:#cffafe;">↔️ Görev Devri</button>`
+            : '';
 
         return `
         ${pendingWarning}
@@ -1939,6 +1942,16 @@ const TaskController = (() => {
                 <button type="button" class="status-chip" onclick="selectModalStatus('deal', this)" style="border-color:var(--success-color); color:var(--success-color); background:rgba(16,185,129,0.1);">🤝 Deal</button>
                 <button type="button" class="status-chip" onclick="openContactUpdateModal('${task.id}')" style="background:rgba(15,118,110,0.2); border-color:rgba(15,118,110,0.4); color:#a7f3d0;">👤 İletişim Ekle</button>
                 ${transferButtonHtml}
+            </div>
+
+            <div class="floating-status-mobile" style="${actionDisplay} position:relative; display:none;">
+                <button type="button" id="btnMobileStatusType" class="custom-dropdown-btn" onclick="toggleMobileStatusMenu(event)">🔥 Durum Seç...</button>
+                <div id="mobileStatusMenu" class="mac-popover animated-drop" style="display:none;">
+                    <div class="mobile-status-option" onclick="selectMobileStatus('hot', '🔥 Hot', this)">🔥 Hot</div>
+                    <div class="mobile-status-option" onclick="selectMobileStatus('nothot', '⚠️ Not Hot', this)">⚠️ Not Hot</div>
+                    <div class="mobile-status-option" onclick="selectMobileStatus('cold', '❄️ Cold', this)">❄️ Cold</div>
+                    <div class="mobile-status-option" onclick="selectMobileStatus('deal', '🤝 Deal', this)">🤝 Deal</div>
+                </div>
             </div>
             
             <div class="floating-action-divider desktop-only-divider" style="width:1px; height:30px; background:rgba(255,255,255,0.3); ${actionDisplay} margin:0 5px; flex-shrink:0;"></div>
@@ -1971,6 +1984,11 @@ const TaskController = (() => {
                         Tekrar Aranacak
                     </div>
                 </div>
+            </div>
+
+            <div class="floating-aux-actions" style="${actionDisplay}">
+                <button type="button" class="status-chip" onclick="openContactUpdateModal('${task.id}')" style="background:rgba(15,118,110,0.2); border-color:rgba(15,118,110,0.4); color:#a7f3d0;">👤 İletişim Ekle</button>
+                ${mobileTransferButtonHtml}
             </div>
 
             <div class="floating-input-wrapper">
@@ -2103,10 +2121,42 @@ const TaskController = (() => {
     }
 
     // --- Aksiyon & Kaydetme (Yeni Mimari) ---
+    function _getModalStatusLabel(status) {
+        const map = {
+            hot: '🔥 Hot',
+            nothot: '⚠️ Not Hot',
+            cold: '❄️ Cold',
+            deal: '🤝 Deal',
+        };
+        return map[String(status || '').trim()] || '🔥 Durum Seç...';
+    }
+
     function selectModalStatus(status, el) {
         window._selectedModalStatus = status;
-        document.querySelectorAll('.status-chip').forEach(c => c.classList.remove('active'));
+        document.querySelectorAll('.status-chip, .mobile-status-option').forEach(c => c.classList.remove('active'));
         if (el) el.classList.add('active');
+        const mobileBtn = document.getElementById('btnMobileStatusType');
+        if (mobileBtn) {
+            mobileBtn.innerHTML = _getModalStatusLabel(status);
+            mobileBtn.classList.add('selected');
+        }
+    }
+
+    function toggleMobileStatusMenu(e) {
+        if (e) e.stopPropagation();
+        const menu = document.getElementById('mobileStatusMenu');
+        if (menu) menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
+    }
+
+    function selectMobileStatus(status, label, el) {
+        selectModalStatus(status, el);
+        const menu = document.getElementById('mobileStatusMenu');
+        if (menu) menu.style.display = 'none';
+        const mobileBtn = document.getElementById('btnMobileStatusType');
+        if (mobileBtn) {
+            mobileBtn.innerHTML = label || _getModalStatusLabel(status);
+            mobileBtn.classList.add('selected');
+        }
     }
 
     function toggleCustomLogTypeMenu(e) {
@@ -2862,6 +2912,8 @@ const TaskController = (() => {
         pickQuickFollowup,
         refreshFollowupSummary,
         syncTaskComposerValue,
+        toggleMobileStatusMenu,
+        selectMobileStatus,
         openTaskNoteComposer,
         closeTaskNoteComposer,
         resetAllTasksFilters,
@@ -2898,6 +2950,8 @@ window.executeDealSaveAction = TaskController.executeDealSaveAction?.bind(TaskCo
 window.createCard = TaskController.createCard.bind(TaskController);
 window.deleteTask = TaskController.deleteTask.bind(TaskController);
 window.selectModalStatus = TaskController.selectModalStatus.bind(TaskController);
+window.toggleMobileStatusMenu = TaskController.toggleMobileStatusMenu.bind(TaskController);
+window.selectMobileStatus = TaskController.selectMobileStatus.bind(TaskController);
 window.toggleCustomLogTypeMenu = TaskController.toggleCustomLogTypeMenu.bind(TaskController);
 window.selectModalLogType = TaskController.selectModalLogType.bind(TaskController);
 window.openContactUpdateModal = TaskController.openContactUpdateModal.bind(TaskController);

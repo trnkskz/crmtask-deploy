@@ -256,7 +256,12 @@ const AppController = (() => {
 
         // Navbar'ı güncelle
         const navLinks = document.getElementById('navLinks');
-        if (navLinks && navLinks.classList.contains('show')) navLinks.classList.remove('show');
+        const navbar = document.querySelector('.navbar');
+        if (navLinks && navLinks.classList.contains('show')) {
+            navLinks.classList.remove('show');
+            if (navbar) navbar.classList.remove('mobile-nav-open');
+            if (document?.body) document.body.classList.remove('nav-open');
+        }
 
         document.querySelectorAll('.nav-links button').forEach(btn => btn.classList.remove('active'));
         const activeBtn = Array.from(document.querySelectorAll('.nav-links button')).find(btn =>
@@ -288,7 +293,10 @@ const AppController = (() => {
 
     function toggleMobileMenu() {
         const navLinks = document.getElementById('navLinks');
-        if (navLinks) navLinks.classList.toggle('show');
+        const navbar = document.querySelector('.navbar');
+        const isOpen = navLinks ? navLinks.classList.toggle('show') : false;
+        if (navbar) navbar.classList.toggle('mobile-nav-open', isOpen);
+        if (document?.body) document.body.classList.toggle('nav-open', isOpen);
     }
 
     // --- Bildirim UI ---
@@ -653,15 +661,24 @@ const AppController = (() => {
 
             const customMenu = document.getElementById('customLogTypeMenu');
             if (customMenu && customMenu.style.display === 'block' &&
-                event.target.id !== 'btnCustomLogType') {
+                !event.target.closest('#btnCustomLogType')) {
                 customMenu.style.display = 'none';
+            }
+
+            const mobileStatusMenu = document.getElementById('mobileStatusMenu');
+            if (mobileStatusMenu && mobileStatusMenu.style.display === 'block' &&
+                !event.target.closest('#btnMobileStatusType')) {
+                mobileStatusMenu.style.display = 'none';
             }
 
             const nLinks = document.getElementById('navLinks');
             const hBtn = document.querySelector('.hamburger-btn');
+            const navbar = document.querySelector('.navbar');
             if (nLinks && nLinks.classList.contains('show') &&
                 event.target !== hBtn && !nLinks.contains(event.target)) {
                 nLinks.classList.remove('show');
+                if (navbar) navbar.classList.remove('mobile-nav-open');
+                if (document?.body) document.body.classList.remove('nav-open');
             }
 
             // Yeni Eklenen: Telefon ve Kampanya Popover'larını boşluğa tıklayınca kapatır
