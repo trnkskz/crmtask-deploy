@@ -1844,7 +1844,7 @@ const TaskController = (() => {
             emailHtml = `<div class="tm-pill-dropdown-shell tm-pill-contact-shell tm-pill-contact-email" style="position:relative; display:inline-block;"><button class="tm-pill clickable tm-pill-contact tm-pill-contact-email" onclick="const d = document.getElementById('${dId}'); d.style.display = d.style.display === 'block' ? 'none' : 'block'; event.stopPropagation();">✉️ ${emailList[0]} ▾</button><div id="${dId}" class="tm-phone-menu animated-drop" style="display:none; position:absolute; top:100%; left:0; margin-top:8px; z-index:10000; min-width:220px;">${rItems}</div></div>`;
         }
 
-        const hasExtraMeta = Boolean(cityLabel !== '-' || categoryLabel !== '-');
+        const hasExtraMeta = Boolean(sourceLabel !== '-' || assigneeLabel !== '-' || cityLabel !== '-' || categoryLabel !== '-');
         const hasContactExtras = Boolean(emailHtml || webLink || instaLink || actualCampUrl);
 
         let contactBoxHtml = '';
@@ -1886,16 +1886,14 @@ const TaskController = (() => {
                         <h2 class="tm-title" style="cursor:pointer; transition:0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'" onclick="closeModal('taskModal'); openBusinessDetailModal('${task.businessId}')" title="İşletme Detaylarını Görüntüle">
                             ${biz.companyName || '-'}
                         </h2>
+                        <span class="tm-mobile-title-status tm-mobile-status-badge ${statusClass}">${statusLabel}</span>
                         <div class="tm-mobile-meta-summary">
-                            <div class="tm-mobile-meta-row tm-mobile-meta-row-primary">
-                                <span class="tm-mobile-status-badge ${statusClass}">${statusLabel}</span>
-                                <span class="tm-mobile-meta-text"><strong>Kaynak:</strong> ${sourceLabel}</span>
-                            </div>
-                            <div class="tm-mobile-meta-row">
-                                <span class="tm-mobile-meta-text"><strong>Satışçı:</strong> ${assigneeLabel}</span>
-                            </div>
                             ${hasExtraMeta ? `<button type="button" class="tm-mobile-toggle-btn tm-meta-toggle-btn" onclick="toggleTaskMetaDetails(event)">Detayları göster <span class="tm-mobile-toggle-icon">▾</span></button>` : ''}
                             <div class="tm-mobile-meta-extra${hasExtraMeta ? '' : ' is-empty'}">
+                                <div class="tm-mobile-meta-row tm-mobile-meta-row-primary">
+                                    <span class="tm-mobile-meta-text"><strong>Kaynak:</strong> ${sourceLabel}</span>
+                                    <span class="tm-mobile-meta-text"><strong>Satışçı:</strong> ${assigneeLabel}</span>
+                                </div>
                                 <div class="tm-mobile-meta-row tm-mobile-meta-row-secondary">
                                     <span class="tm-mobile-meta-text"><strong>Şehir:</strong> ${cityLabel}</span>
                                     <span class="tm-mobile-meta-text tm-mobile-meta-category"><strong>Kategori:</strong> ${categoryLabel}</span>
@@ -2247,7 +2245,9 @@ const TaskController = (() => {
         }
         window._taskComposerViewportHandler = null;
         window._taskComposerViewportBound = false;
-        document.documentElement.style.setProperty('--task-composer-keyboard-offset', '0px');
+        if (document?.documentElement?.style) {
+            document.documentElement.style.setProperty('--task-composer-keyboard-offset', '0px');
+        }
     }
 
     function _resetTaskModalMobileSurface() {

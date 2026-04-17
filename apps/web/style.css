@@ -2175,6 +2175,7 @@ input:checked + .slider:before { transform: translateX(20px); }
 }
 
 .tm-mobile-meta-summary,
+.tm-mobile-title-status,
 .tm-mobile-toggle-btn {
     display: none;
 }
@@ -2182,6 +2183,44 @@ input:checked + .slider:before { transform: translateX(20px); }
 .tm-mobile-meta-extra,
 .tm-contact-extra-shell {
     display: contents;
+}
+
+@media (min-width: 769px) {
+    #taskModal .tm-contact-box {
+        flex-direction: row;
+        align-items: center;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 10px;
+        padding-top: 12px;
+    }
+
+    #taskModal .tm-contact-extra-shell {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 10px;
+        width: auto;
+    }
+
+    #taskModal .tm-contact-row {
+        width: auto;
+        flex: 0 1 auto;
+        gap: 10px;
+    }
+
+    #taskModal .tm-contact-row:empty,
+    #taskModal .tm-contact-extra-shell.is-empty {
+        display: none;
+    }
+
+    #taskModal .tm-pill-contact-email {
+        max-width: min(360px, 32vw);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
 }
 
 /* Elemanların minimalize edilmesi */
@@ -4438,8 +4477,8 @@ textarea.modern-capsule-input {
     }
 
     #taskModal .tm-header-card {
-        padding: 20px 16px 16px !important;
-        margin-bottom: 18px !important;
+        padding: 18px 16px 12px !important;
+        margin-bottom: 12px !important;
         border-radius: 0 !important;
     }
 
@@ -4459,34 +4498,43 @@ textarea.modern-capsule-input {
     }
 
     #taskModal .tm-header-intro {
-        margin-bottom: 12px !important;
+        margin-bottom: 8px !important;
         padding-top: 34px;
     }
 
     #taskModal .tm-title-row {
-        align-items: flex-start !important;
-        flex-direction: column !important;
-        gap: 10px !important;
+        align-items: center !important;
+        flex-direction: row !important;
+        gap: 8px 10px !important;
+        padding-right: 34px;
     }
 
     #taskModal .tm-title {
-        width: 100%;
-        font-size: 20px !important;
+        width: auto;
+        min-width: 0;
+        flex: 1 1 auto;
+        font-size: 19px !important;
         line-height: 1.18;
-        padding-right: 26px;
+        padding-right: 0;
         word-break: break-word;
+    }
+
+    #taskModal .tm-mobile-title-status {
+        display: inline-flex;
+        flex: 0 0 auto;
     }
 
     #taskModal .tm-mobile-meta-summary {
         display: flex;
         flex-direction: column;
-        gap: 5px;
+        gap: 4px;
         width: 100%;
-        margin-top: 2px;
-        padding: 8px 10px;
-        border-radius: 12px;
-        background: rgba(0, 0, 0, 0.1);
-        border: 1px solid rgba(255,255,255,0.08);
+        flex: 1 0 100%;
+        margin-top: -2px;
+        padding: 0;
+        border-radius: 0;
+        background: transparent;
+        border: none;
     }
 
     #taskModal .tm-mobile-meta-row {
@@ -4541,7 +4589,8 @@ textarea.modern-capsule-input {
         align-items: center;
         justify-content: space-between;
         gap: 10px;
-        padding: 7px 0 2px;
+        min-height: 34px;
+        padding: 5px 0 0;
         background: transparent;
         border: none;
         color: rgba(255,255,255,0.76);
@@ -4603,8 +4652,8 @@ textarea.modern-capsule-input {
     #taskModal .tm-contact-box {
         align-items: stretch;
         text-align: left;
-        gap: 6px;
-        padding-top: 8px;
+        gap: 5px;
+        padding-top: 7px;
     }
 
     #taskModal .tm-contact-row {
@@ -4615,8 +4664,8 @@ textarea.modern-capsule-input {
     }
 
     #taskModal .tm-contact-primary {
-        grid-template-columns: 1fr !important;
-        gap: 5px !important;
+        grid-template-columns: minmax(0, 1fr) minmax(132px, 0.82fr) !important;
+        gap: 7px !important;
     }
 
     #taskModal .tm-contact-secondary {
@@ -4630,8 +4679,11 @@ textarea.modern-capsule-input {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    #taskModal .tm-pill-contact-name,
-    #taskModal .tm-pill-contact-phone,
+    #taskModal .tm-contact-primary .tm-pill-contact-name,
+    #taskModal .tm-contact-primary .tm-pill-contact-phone {
+        grid-column: auto;
+    }
+
     #taskModal .tm-pill-contact-email,
     #taskModal .tm-pill-contact-shell {
         grid-column: 1 / -1;
@@ -4656,8 +4708,8 @@ textarea.modern-capsule-input {
         white-space: normal;
         word-break: break-word;
         line-height: 1.4;
-        padding: 7px 10px;
-        min-height: 34px;
+        padding: 6px 9px;
+        min-height: 32px;
         border-radius: 12px;
     }
 
@@ -4666,7 +4718,7 @@ textarea.modern-capsule-input {
     #taskModal .tm-pill-contact-email {
         background: rgba(255,255,255,0.1);
         border-style: solid;
-        font-size: 12.5px;
+        font-size: 12px;
         font-weight: 700;
     }
 
@@ -4698,20 +4750,26 @@ textarea.modern-capsule-input {
 
     #taskModal .tm-log-container {
         margin: 12px 12px 18px 12px !important;
-        padding: 14px 12px calc(88px + env(safe-area-inset-bottom, 0px)) 12px !important;
+        padding: 14px 12px calc(132px + env(safe-area-inset-bottom, 0px)) 12px !important;
         border-radius: 14px !important;
         box-shadow: 0 8px 24px rgba(0,0,0,0.06) !important;
-        scroll-padding-bottom: calc(104px + env(safe-area-inset-bottom, 0px));
-        min-height: 320px;
+        scroll-padding-bottom: calc(150px + env(safe-area-inset-bottom, 0px));
+        min-height: 360px;
     }
 
     #taskModal.mobile-action-open .tm-log-container {
-        padding-bottom: calc(232px + env(safe-area-inset-bottom, 0px)) !important;
-        scroll-padding-bottom: calc(248px + env(safe-area-inset-bottom, 0px));
+        padding-bottom: calc(252px + env(safe-area-inset-bottom, 0px)) !important;
+        scroll-padding-bottom: calc(270px + env(safe-area-inset-bottom, 0px));
     }
 
     #taskModal .log-scroll-container {
         overflow-x: visible;
+        max-height: none;
+        padding-right: 2px;
+    }
+
+    #taskModal .log-scroll-container > div {
+        padding-bottom: calc(118px + env(safe-area-inset-bottom, 0px)) !important;
     }
 
     #taskModal .modern-log-card {
@@ -4782,12 +4840,14 @@ textarea.modern-capsule-input {
 
     #taskModal .floating-action-launcher {
         display: block;
-        position: sticky;
-        bottom: 0;
-        z-index: 18;
-        margin: 0 -12px;
-        padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
-        background: linear-gradient(180deg, rgba(12, 74, 110, 0) 0%, rgba(22, 163, 74, 0.12) 24%, rgba(22, 163, 74, 0.92) 100%);
+        position: fixed;
+        left: 14px;
+        right: 14px;
+        bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+        z-index: 26;
+        margin: 0;
+        padding: 0;
+        background: transparent;
     }
 
     #taskModal .floating-action-launcher-btn {
@@ -4799,7 +4859,7 @@ textarea.modern-capsule-input {
         color: #0f766e;
         font-size: 15px;
         font-weight: 800;
-        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.14);
+        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
     }
 
     #taskModal .floating-action-bar {
@@ -5011,8 +5071,9 @@ textarea.modern-capsule-input {
     #miniModalComposer.tm-composer-panel {
         display: flex;
         flex-direction: column;
-        gap: 14px;
-        padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px) + var(--task-composer-keyboard-offset, 0px)) !important;
+        gap: 10px;
+        max-height: min(72dvh, 560px);
+        padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)) !important;
     }
 
     #miniModalComposer .task-composer-header {
@@ -5020,8 +5081,8 @@ textarea.modern-capsule-input {
     }
 
     #miniModalComposer .task-composer-textarea {
-        min-height: 180px !important;
-        max-height: 34dvh;
+        min-height: 150px !important;
+        max-height: 28dvh;
         font-size: 16px !important;
     }
 
