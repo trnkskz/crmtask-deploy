@@ -1794,6 +1794,11 @@ const TaskController = (() => {
         if(task.status === 'deal') statusClass = 'deal';
         if(task.status === 'hot') statusClass = 'hot';
         if(task.status === 'nothot') statusClass = 'nothot';
+        const statusLabel = TASK_STATUS_LABELS[task.status] || '-';
+        const sourceLabel = task.sourceType || '-';
+        const assigneeLabel = task.assignee || '-';
+        const cityLabel = biz.city || '-';
+        const categoryLabel = `${task.mainCategory || '-'}${task.subCategory ? ' > ' + task.subCategory : ''}`;
         const statusBadge = `<span class="tm-badge ${statusClass}">${TASK_STATUS_LABELS[task.status] || '-'}</span>`;
 
         const formatPhone = (p) => {
@@ -1832,10 +1837,12 @@ const TaskController = (() => {
         if (actualName || phoneHtml || actualEmail || webLink || instaLink || actualCampUrl) {
             contactBoxHtml = `
             <div class="tm-contact-box">
-                <div class="tm-contact-row">
+                <div class="tm-contact-row tm-contact-primary">
                 ${actualName ? `<span class="tm-pill tm-pill-contact tm-pill-contact-name">👤 ${actualName}</span>` : ''}
                 ${phoneHtml}
                 ${emailHtml}
+                </div>
+                <div class="tm-contact-row tm-contact-links">
                 ${webLink ? `<a href="${webLink}" target="_blank" class="tm-pill clickable action tm-pill-contact tm-pill-contact-link">🌍 Web Sitesi</a>` : ''}
                 ${instaLink ? `<a href="${instaLink}" target="_blank" class="tm-pill clickable action tm-pill-contact tm-pill-contact-link">📸 Instagram</a>` : ''}
                 ${actualCampUrl ? `<a href="${actualCampUrl}" target="_blank" class="tm-pill clickable action tm-pill-contact tm-pill-contact-link">🔗 Kampanya Linki</a>` : ''}
@@ -1860,12 +1867,25 @@ const TaskController = (() => {
                         <h2 class="tm-title" style="cursor:pointer; transition:0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'" onclick="closeModal('taskModal'); openBusinessDetailModal('${task.businessId}')" title="İşletme Detaylarını Görüntüle">
                             ${biz.companyName || '-'}
                         </h2>
+                        <div class="tm-mobile-meta-summary">
+                            <div class="tm-mobile-meta-row tm-mobile-meta-row-primary">
+                                <span class="tm-mobile-status-badge ${statusClass}">${statusLabel}</span>
+                                <span class="tm-mobile-meta-text"><strong>Kaynak:</strong> ${sourceLabel}</span>
+                            </div>
+                            <div class="tm-mobile-meta-row">
+                                <span class="tm-mobile-meta-text"><strong>Satışçı:</strong> ${assigneeLabel}</span>
+                            </div>
+                            <div class="tm-mobile-meta-row tm-mobile-meta-row-secondary">
+                                <span class="tm-mobile-meta-text"><strong>Şehir:</strong> ${cityLabel}</span>
+                                <span class="tm-mobile-meta-text tm-mobile-meta-category"><strong>Kategori:</strong> ${categoryLabel}</span>
+                            </div>
+                        </div>
                         <div class="tm-badge-group">
                             ${statusBadge}
-                            <span class="tm-badge">📁 ${task.sourceType || '-'}</span>
-                            <span class="tm-badge">👤 ${task.assignee || '-'}</span>
-                            <span class="tm-badge">📍 ${biz.city || '-'}</span>
-                            <span class="tm-badge">📁 ${task.mainCategory || '-'}${task.subCategory ? ' > ' + task.subCategory : ''}</span>
+                            <span class="tm-badge">📁 ${sourceLabel}</span>
+                            <span class="tm-badge">👤 ${assigneeLabel}</span>
+                            <span class="tm-badge">📍 ${cityLabel}</span>
+                            <span class="tm-badge">📁 ${categoryLabel}</span>
                         </div>
                     </div>
                 </div>
