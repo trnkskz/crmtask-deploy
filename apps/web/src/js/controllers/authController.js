@@ -105,6 +105,39 @@ const AuthController = (() => {
         return payload;
     }
 
+    async function refreshAccessTokenForRestore() {
+        const refreshToken = localStorage.getItem('refreshToken');
+        const response = await fetch(`${getApiBase()}/auth/refresh`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(refreshToken ? { refreshToken } : {}),
+        });
+
+        let payload = null;
+        const text = await response.text();
+        if (text) {
+            try {
+                payload = JSON.parse(text);
+            } catch {
+                payload = { message: text };
+            }
+        }
+
+        if (!response.ok || !payload?.accessToken) {
+            const message =
+                payload?.message ||
+                payload?.error?.message ||
+                payload?.error?.details?.message ||
+                (typeof payload?.error === 'string' ? payload.error : null) ||
+                `HTTP ${response.status}`;
+            throw new Error(message);
+        }
+
+        localStorage.setItem('accessToken', payload.accessToken);
+        return payload.accessToken;
+    }
+
     function getFriendlyLoginErrorMessage(err) {
         const raw = String(err?.message || '').trim();
         const normalized = raw.toLowerCase();
@@ -137,9 +170,19 @@ const AuthController = (() => {
                     return normalized;
                 }
             } catch (e) {
-                console.warn("Otomatik oturum açma başarısız, token temizleniyor:", e);
-                localStorage.removeItem('accessToken');
-                localStorage.removeItem('refreshToken');
+                try {
+                    await refreshAccessTokenForRestore();
+                    const me = await apiRequest('/auth/me', { method: 'GET' });
+                    if (me?.user) {
+                        const normalized = normalizeUser(me.user);
+                        AppState.loggedInUser = normalized;
+                        return normalized;
+                    }
+                } catch (refreshErr) {
+                    console.warn("Otomatik oturum açma başarısız, token temizleniyor:", refreshErr || e);
+                    localStorage.removeItem('accessToken');
+                    localStorage.removeItem('refreshToken');
+                }
             }
         }
         AppState.loggedInUser = null;
